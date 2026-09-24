@@ -1,3 +1,5 @@
+"use client";
+
 import {
   ENERGY_USD_PER_KWH,
   LAUNCH,
@@ -8,7 +10,16 @@ import {
   TERRESTRIAL_WATER_TEN_YEAR_TONS,
   WATER_LITERS_PER_KWH,
 } from "@/lib/starcloud/constants";
-import { formatMillionsUsd, formatUsdPerKwh } from "@/lib/starcloud/format";
+import type { VenueSnapshot } from "@/lib/starcloud/engine";
+import {
+  formatCompactCount,
+  formatKwh,
+  formatLiters,
+  formatMillionsUsd,
+  formatSessionUsd,
+  formatUsdPerKwh,
+} from "@/lib/starcloud/format";
+import { useSimulator } from "@/components/simulator/simulator-provider";
 
 type Row = {
   label: string;
@@ -113,12 +124,14 @@ function Panel({
   cost,
   lines,
   rows,
+  session,
 }: {
   kicker: string;
   title: string;
   cost: string;
   lines: Line[];
   rows: Row[];
+  session: VenueSnapshot;
 }) {
   return (
     <article className="flex min-w-0 flex-col border border-white bg-black px-4 py-3 sm:px-5">
@@ -135,7 +148,14 @@ function Panel({
           {cost}
         </p>
       </div>
-      <p className="mt-3 text-[11px] tracking-[0.14em] text-white/55 uppercase">
+      <p className="mt-3 font-mono text-[12px] leading-5 text-white/75 tabular-nums">
+        Session {formatKwh(session.itKwh)} kWh ·{" "}
+        {formatSessionUsd(session.energyCostUsd)} ·{" "}
+        <span className="text-water">{formatLiters(session.waterLiters)} L</span>
+        {" · "}
+        {formatCompactCount(session.tokens)} tok
+      </p>
+      <p className="mt-2 text-[11px] tracking-[0.14em] text-white/55 uppercase">
         10-year · 40 MW cluster
       </p>
       <LineSummary lines={lines} />
@@ -161,6 +181,8 @@ function Panel({
 }
 
 export function ComparisonPanels() {
+  const { space, ground } = useSimulator();
+
   return (
     <section aria-label="Space and ground comparison" className="grid gap-3">
       <div className="grid gap-3 md:grid-cols-2">
@@ -170,6 +192,7 @@ export function ComparisonPanels() {
           cost={formatMillionsUsd(TEN_YEAR_CLUSTER_COST_USD.space)}
           lines={spaceLines}
           rows={spaceRows}
+          session={space}
         />
         <Panel
           kicker="Ground"
@@ -177,6 +200,7 @@ export function ComparisonPanels() {
           cost={formatMillionsUsd(TEN_YEAR_CLUSTER_COST_USD.ground)}
           lines={groundLines}
           rows={groundRows}
+          session={ground}
         />
       </div>
       <p className="max-w-3xl text-[11px] leading-5 text-white/50">
