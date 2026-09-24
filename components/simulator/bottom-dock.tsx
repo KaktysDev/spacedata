@@ -1,37 +1,40 @@
 "use client";
 
-import { ComparisonPanels } from "@/components/simulator/comparison-panels";
 import { InferenceComparison } from "@/components/simulator/inference-comparison";
+import { MetricStrip } from "@/components/simulator/metric-strip";
 import { useSimulator } from "@/components/simulator/simulator-provider";
 import type { RoutePhase } from "@/lib/starcloud/route-timeline";
 
 const ROUTE_COPY: Partial<Record<RoutePhase, string>> = {
-  uplink: "Uplink · prompt to the ground antenna",
-  split: "Routing · orbital path and terrestrial path",
-  pullback: "Pulling back · both datacenters",
+  uplink: "Sending the prompt to the antenna.",
+  split: "Splitting the path between orbit and ground.",
+  pullback: "Pulling back to both datacenters.",
 };
 
 export function BottomDock() {
-  const { phase, prompt, reducedMotion } = useSimulator();
-  const label = ROUTE_COPY[phase];
+  const { phase, reducedMotion } = useSimulator();
 
-  if (label) {
-    const quoted =
-      prompt && prompt.length > 90 ? `${prompt.slice(0, 87)}…` : prompt;
+  if (phase === "compare") {
     return (
-      <p
-        className="border border-white bg-black px-4 py-3 text-[11px] tracking-[0.16em] text-white/80 uppercase"
-        aria-live="polite"
+      <div
+        data-phase={phase}
+        className="max-h-[min(48dvh,32rem)] overflow-y-auto"
       >
-        {reducedMotion ? "Routing" : label}
-        {quoted ? <span className="mt-1 block normal-case tracking-normal text-white/50">“{quoted}”</span> : null}
-      </p>
+        <InferenceComparison />
+      </div>
     );
   }
 
-  if (phase === "compare") {
-    return <InferenceComparison />;
-  }
+  const label = ROUTE_COPY[phase];
 
-  return <ComparisonPanels />;
+  return (
+    <div className="grid gap-2" data-phase={phase}>
+      {label ? (
+        <p className="text-[13px] text-white/70" aria-live="polite">
+          {reducedMotion ? "Routing the prompt." : label}
+        </p>
+      ) : null}
+      <MetricStrip />
+    </div>
+  );
 }

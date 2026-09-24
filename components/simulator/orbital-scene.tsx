@@ -19,10 +19,12 @@ type StageLayout = {
 };
 
 function buildLayout(aspect: number): StageLayout {
-  const spread = Math.min(1.65, Math.max(0.95, aspect * 0.28));
+  const safeAspect = Math.min(2.2, Math.max(0.72, aspect || 1));
+  const spread = Math.min(1.45, Math.max(0.92, safeAspect * 0.7));
   const antenna = new THREE.Vector3(-spread, 0.92, 0);
-  const cluster = new THREE.Vector3(0, 1.48, 0);
+  const cluster = new THREE.Vector3(0, 1.42, 0);
   const campus = new THREE.Vector3(spread, 0.62, 0);
+  const idleZ = safeAspect < 1.05 ? 3.35 : 2.8;
   const chat = new THREE.Vector3(-spread * 0.15, -1.05, 0.15);
   const uplink = new THREE.QuadraticBezierCurve3(
     chat,
@@ -49,8 +51,8 @@ function buildLayout(aspect: number): StageLayout {
     toGround,
     poses: {
       idle: {
-        position: new THREE.Vector3(0, 0.92, 3.35),
-        lookAt: new THREE.Vector3(0, 0.82, 0),
+        position: new THREE.Vector3(0, 1.02, idleZ),
+        lookAt: new THREE.Vector3(0, 0.96, 0),
       },
       uplink: {
         position: new THREE.Vector3(-spread * 0.55, 0.58, 1.55),
@@ -61,12 +63,12 @@ function buildLayout(aspect: number): StageLayout {
         lookAt: new THREE.Vector3(0, 0.92, 0),
       },
       pullback: {
-        position: new THREE.Vector3(0, 0.9, 3.85),
-        lookAt: new THREE.Vector3(0, 0.74, 0),
+        position: new THREE.Vector3(0, 0.98, idleZ + 0.45),
+        lookAt: new THREE.Vector3(0, 0.88, 0),
       },
       compare: {
-        position: new THREE.Vector3(0, 0.9, 3.85),
-        lookAt: new THREE.Vector3(0, 0.74, 0),
+        position: new THREE.Vector3(0, 0.98, idleZ + 0.45),
+        lookAt: new THREE.Vector3(0, 0.88, 0),
       },
     },
   };
@@ -265,8 +267,15 @@ function Satellite({ position }: { position: [number, number, number] }) {
   );
 }
 
-function Constellation({ position }: { position: THREE.Vector3 }) {
+function Constellation({
+  position,
+  spread,
+}: {
+  position: THREE.Vector3;
+  spread: number;
+}) {
   const ref = useRef<THREE.Group>(null);
+  const gap = Math.min(0.92, spread * 0.62);
   useFrame(({ clock }) => {
     if (!ref.current) return;
     ref.current.position.y =
@@ -275,8 +284,8 @@ function Constellation({ position }: { position: THREE.Vector3 }) {
   return (
     <group ref={ref} position={position}>
       <Satellite position={[0, 0, 0]} />
-      <Satellite position={[-1.05, 0.08, 0]} />
-      <Satellite position={[1.05, -0.04, 0]} />
+      <Satellite position={[-gap, 0.08, 0]} />
+      <Satellite position={[gap, -0.04, 0]} />
     </group>
   );
 }
@@ -332,7 +341,7 @@ function SceneContents({
     <>
       <CameraRig clockRef={clockRef} layout={layout} />
       <OrbitArc spread={layout.spread} />
-      <Constellation position={layout.cluster} />
+      <Constellation position={layout.cluster} spread={layout.spread} />
       <Antenna x={layout.antenna.x} />
       <Campus x={layout.campus.x} />
       <Routes clockRef={clockRef} layout={layout} />
@@ -346,7 +355,7 @@ export function OrbitalScene() {
     <Canvas
       gl={{ alpha: true, antialias: true }}
       dpr={[1, 1.5]}
-      camera={{ position: [0, 0.92, 3.35], fov: 34, near: 0.1, far: 30 }}
+      camera={{ position: [0, 1.02, 2.8], fov: 34, near: 0.1, far: 30 }}
       onCreated={({ gl }) => {
         gl.setClearColor(0x000000, 0);
       }}

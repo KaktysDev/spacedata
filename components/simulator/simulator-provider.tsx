@@ -47,7 +47,7 @@ type SimulatorValue = {
   result: ChatSuccessBody | null;
   error: string | null;
   reducedMotion: boolean;
-  submitPrompt: (prompt: string) => void;
+  submitPrompt: (prompt: string) => Promise<boolean>;
   showBaseline: () => void;
 };
 
@@ -153,9 +153,9 @@ export function SimulatorProvider({ children }: { children: ReactNode }) {
 
   const submitPrompt = useCallback((raw: string) => {
     const clock = clockRef.current;
-    if (!clock || clock.busy) return;
+    if (!clock || clock.busy) return Promise.resolve(false);
     const prompt = raw.trim();
-    if (!prompt) return;
+    if (!prompt) return Promise.resolve(false);
     if (prompt.length > CHAT_MAX_CHARS) {
       clock.prompt = prompt.slice(0, 180);
       clock.result = null;
@@ -164,7 +164,7 @@ export function SimulatorProvider({ children }: { children: ReactNode }) {
       clock.busy = false;
       clock.fetchSettled = true;
       setSlice(publish(clock));
-      return;
+      return Promise.resolve(false);
     }
 
     abortRef.current?.abort();
@@ -188,7 +188,7 @@ export function SimulatorProvider({ children }: { children: ReactNode }) {
     );
     setSlice(publish(clock));
 
-    void (async () => {
+    return (async () => {
       try {
         const response = await fetch("/api/chat", {
           method: "POST",
@@ -197,7 +197,7 @@ export function SimulatorProvider({ children }: { children: ReactNode }) {
           signal: controller.signal,
         });
         const body: unknown = await response.json().catch(() => null);
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return false;
         if (!response.ok) {
           const message =
             body &&
@@ -216,15 +216,16 @@ export function SimulatorProvider({ children }: { children: ReactNode }) {
           clock.error = null;
         }
       } catch {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return false;
         clock.result = null;
         clock.error = "The model request failed.";
       }
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return false;
       clock.space = withUtilization(clock.space, SIMULATION.idleUtilization);
       clock.ground = withUtilization(clock.ground, SIMULATION.idleUtilization);
       clock.fetchSettled = true;
       setSlice(publish(clock));
+      return clock.result !== null;
     })();
   }, []);
 

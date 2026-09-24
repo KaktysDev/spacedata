@@ -12,7 +12,7 @@ const OrbitalScene = dynamic(
 );
 
 type BoundaryProps = { children: ReactNode };
-type BoundaryState = { failed: boolean };
+type BoundaryState = { failed: boolean; message?: string };
 
 class SceneBoundary extends Component<BoundaryProps, BoundaryState> {
   state: BoundaryState = { failed: false };
@@ -21,15 +21,25 @@ class SceneBoundary extends Component<BoundaryProps, BoundaryState> {
     return { failed: true };
   }
 
+  componentDidCatch(error: Error) {
+    this.setState({ failed: true, message: error.message });
+  }
+
   render() {
-    if (this.state.failed) return null;
+    if (this.state.failed) {
+      return (
+        <p data-scene-error={this.state.message ?? "unknown"} className="sr-only">
+          Scene unavailable
+        </p>
+      );
+    }
     return this.props.children;
   }
 }
 
 export function SceneSlot() {
   return (
-    <div className="relative min-h-[38vh] flex-1 md:min-h-[26vh]">
+    <div className="relative min-h-0 flex-1">
       <div className="absolute inset-0">
         <SceneBoundary>
           <OrbitalScene />

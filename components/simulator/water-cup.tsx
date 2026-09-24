@@ -10,21 +10,17 @@ type WaterCupProps = {
 };
 
 /**
- * One cup holds SIMULATION.waterCupLiters. Space stays at 0 liters, so the
- * fill never rises. Ground wraps into the next cup and keeps a count.
+ * Visual fill only. It eases toward full and stays there, so the cup does
+ * not empty and restart while the liter count keeps climbing.
  */
 export function WaterCup({ liters, label }: WaterCupProps) {
   const clipId = useId().replace(/:/g, "");
-  const capacity = SIMULATION.waterCupLiters;
   const safe = Number.isFinite(liters) && liters > 0 ? liters : 0;
-  const poured = Math.floor(safe / capacity);
-  const fraction = safe === 0 ? 0 : (safe % capacity) / capacity;
-  const innerTop = 12;
-  const innerHeight = 30;
+  const fraction = 1 - Math.exp(-safe / SIMULATION.waterCupLiters);
 
   return (
-    <span className="inline-flex items-end gap-1.5" aria-hidden="true">
-      <svg viewBox="0 0 36 48" className="h-9 w-7 shrink-0">
+    <span className="inline-flex" aria-hidden="true">
+      <svg viewBox="0 0 36 48" className="h-8 w-6 shrink-0">
         <title>{label}</title>
         <defs>
           <clipPath id={clipId}>
@@ -40,24 +36,19 @@ export function WaterCup({ liters, label }: WaterCupProps) {
         <g clipPath={`url(#${clipId})`}>
           <rect
             x="8"
-            y={innerTop}
+            y="12"
             width="20"
-            height={innerHeight}
+            height="30"
             fill="#9bbbd4"
             style={{
               transformBox: "fill-box",
               transformOrigin: "center bottom",
               transform: `scaleY(${fraction})`,
-              transition: "transform 200ms linear",
+              transition: "transform 180ms linear",
             }}
           />
         </g>
       </svg>
-      {poured > 0 ? (
-        <span className="font-mono text-[10px] text-water tabular-nums">
-          ×{poured}
-        </span>
-      ) : null}
     </span>
   );
 }

@@ -9,16 +9,20 @@ export function ChatPanel() {
   const { busy, submitPrompt } = useSimulator();
   const [draft, setDraft] = useState("");
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const prompt = draft.trim();
     if (!prompt || busy) return;
-    submitPrompt(prompt);
-    setDraft("");
+    const accepted = await submitPrompt(prompt);
+    if (accepted) setDraft("");
   }
 
   return (
-    <form onSubmit={handleSubmit} className="border border-white bg-black">
+    <form
+      onSubmit={handleSubmit}
+      aria-busy={busy}
+      className="border border-white bg-black focus-within:outline focus-within:outline-1 focus-within:outline-offset-2 focus-within:outline-white"
+    >
       <div className="flex items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4">
         <label htmlFor="simulator-prompt" className="sr-only">
           Prompt
@@ -30,7 +34,7 @@ export function ChatPanel() {
           onChange={(event) =>
             setDraft(event.target.value.slice(0, CHAT_MAX_CHARS))
           }
-          placeholder="Compare a prompt across orbit and ground"
+          placeholder="Ask both datacenters"
           autoComplete="off"
           maxLength={CHAT_MAX_CHARS}
           disabled={busy}
@@ -39,9 +43,9 @@ export function ChatPanel() {
         <button
           type="submit"
           disabled={busy || draft.trim().length === 0}
-          className="min-h-11 shrink-0 border border-white px-4 text-[11px] tracking-[0.18em] text-white uppercase hover:bg-white hover:text-black focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white"
+          className="min-h-11 shrink-0 border border-white px-4 text-[11px] tracking-[0.16em] text-white uppercase hover:bg-white hover:text-black focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white"
         >
-          {busy ? "Routing" : "Send"}
+          {busy ? "Sending" : "Send"}
         </button>
       </div>
     </form>

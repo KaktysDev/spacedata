@@ -7,33 +7,28 @@ const SYSTEM_PROMPT = [
   "Do not invent datacenter energy, water, or cost figures.",
 ].join(" ");
 
-type ProviderConfig = {
+const DEFAULT_MODEL = "gemini-2.5-flash";
+const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/;
+const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
+
+type GeminiConfig = {
   id: ChatProviderId;
   apiKey: string;
   model: string;
-  url: string;
 };
 
-export function resolveProvider(): ProviderConfig | null {
-  const xaiKey = process.env.XAI_API_KEY?.trim();
-  if (xaiKey) {
-    return {
-      id: "xai",
-      apiKey: xaiKey,
-      model: process.env.XAI_MODEL?.trim() || "grok-4.7",
-      url: "https://api.x.ai/v1/chat/completions",
-    };
-  }
-  const openaiKey = process.env.OPENAI_API_KEY?.trim();
-  if (openaiKey) {
-    return {
-      id: "openai",
-      apiKey: openaiKey,
-      model: process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini",
-      url: "https://api.openai.com/v1/chat/completions",
-    };
-  }
-  return null;
+export function geminiConfig(): GeminiConfig | null {
+  const apiKey =
+    process.env.GEMINI_API_KEY?.trim() ||
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ||
+    "";
+  if (!apiKey) return null;
+  const requested = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
+  return {
+    id: "gemini",
+    apiKey,
+    model: MODEL_PATTERN.test(requested) ? requested : DEFAULT_MODEL,
+  };
 }
 
 export async function runDualAnswers(prompt: string): Promise<{
@@ -42,64 +37,67 @@ export async function runDualAnswers(prompt: string): Promise<{
   space: ChatAnswer;
   ground: ChatAnswer;
 }> {
-  const provider = resolveProvider();
-  if (!provider) {
+  const config = geminiConfig();
+  if (!config) {
     throw new Error("missing-provider");
   }
   const [space, ground] = await Promise.all([
-    complete(provider, prompt),
-    complete(provider, prompt),
+    complete(config, prompt),
+    complete(config, prompt),
   ]);
   return {
-    provider: provider.id,
-    model: provider.model,
+    provider: config.id,
+    model: config.model,
     space,
     ground,
   };
 }
 
-async function complete(
-  provider: ProviderConfig,
-  prompt: string,
-  relaxed = false,
-): Promise<ChatAnswer> {
-  const body: Record<string, unknown> = {
-    model: provider.model,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: prompt },
-    ],
-  };
+type Attempt = "tuned" | "plain";
 
-  if (!relaxed && provider.id === "xai") {
-    body.reasoning_effort = "low";
-    body.max_tokens = 700;
-  } else if (!relaxed) {
-    body.temperature = 0.4;
-    body.max_completion_tokens = 500;
-  } else {
-    body.max_tokens = 500;
+async function complete(
+  config: GeminiConfig,
+  prompt: string,
+  attempt: Attempt = "tuned",
+): Promise<ChatAnswer> {
+  const generationConfig: Record<string, unknown> = {
+    maxOutputTokens: 512,
+  };
+  if (attempt === "tuned") {
+    if (config.model.startsWith("gemini-3")) {
+      generationConfig.thinkingConfig = { thinkingLevel: "low" };
+    } else {
+      generationConfig.temperature = 0.7;
+      generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    }
   }
 
-  const response = await fetch(provider.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${provider.apiKey}`,
+  const response = await fetch(
+    `${ENDPOINT}/${encodeURIComponent(config.model)}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": config.apiKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig,
+      }),
+      signal: AbortSignal.timeout(45_000),
     },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(45_000),
-  });
+  );
 
-  if (response.status === 400 && !relaxed) {
-    return complete(provider, prompt, true);
+  if (response.status === 400 && attempt === "tuned") {
+    return complete(config, prompt, "plain");
   }
   if (!response.ok) {
     throw new Error("provider-status");
   }
 
   const data: unknown = await response.json();
-  const text = readContent(data);
+  const text = readText(data);
   if (!text) {
     throw new Error("empty-completion");
   }
@@ -121,17 +119,26 @@ async function complete(
   };
 }
 
-function readContent(data: unknown): string {
+function readText(data: unknown): string {
   if (!data || typeof data !== "object") return "";
-  const choices = (data as { choices?: unknown }).choices;
-  if (!Array.isArray(choices) || !choices[0] || typeof choices[0] !== "object") {
+  const candidates = (data as { candidates?: unknown }).candidates;
+  if (!Array.isArray(candidates) || !candidates[0] || typeof candidates[0] !== "object") {
     return "";
   }
-  const message = (choices[0] as { message?: unknown }).message;
-  if (!message || typeof message !== "object") return "";
-  const content = (message as { content?: unknown }).content;
-  if (typeof content !== "string") return "";
-  return content.trim();
+  const content = (candidates[0] as { content?: unknown }).content;
+  if (!content || typeof content !== "object") return "";
+  const parts = (content as { parts?: unknown }).parts;
+  if (!Array.isArray(parts)) return "";
+  const text = parts
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      if ((part as { thought?: unknown }).thought === true) return "";
+      const value = (part as { text?: unknown }).text;
+      return typeof value === "string" ? value : "";
+    })
+    .join("")
+    .trim();
+  return text;
 }
 
 function readUsage(data: unknown): {
@@ -145,14 +152,14 @@ function readUsage(data: unknown): {
     totalTokens: null,
   };
   if (!data || typeof data !== "object") return empty;
-  const usage = (data as { usage?: unknown }).usage;
+  const usage = (data as { usageMetadata?: unknown }).usageMetadata;
   if (!usage || typeof usage !== "object") return empty;
   return {
-    promptTokens: finite((usage as { prompt_tokens?: unknown }).prompt_tokens),
+    promptTokens: finite((usage as { promptTokenCount?: unknown }).promptTokenCount),
     completionTokens: finite(
-      (usage as { completion_tokens?: unknown }).completion_tokens,
+      (usage as { candidatesTokenCount?: unknown }).candidatesTokenCount,
     ),
-    totalTokens: finite((usage as { total_tokens?: unknown }).total_tokens),
+    totalTokens: finite((usage as { totalTokenCount?: unknown }).totalTokenCount),
   };
 }
 

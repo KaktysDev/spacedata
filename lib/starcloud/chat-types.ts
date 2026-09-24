@@ -1,4 +1,4 @@
-export type ChatProviderId = "xai" | "openai";
+export type ChatProviderId = "gemini";
 
 export type ChatAnswer = {
   text: string;
@@ -32,7 +32,7 @@ export function isChatSuccessBody(value: unknown): value is ChatSuccessBody {
   if (!value || typeof value !== "object") return false;
   const body = value as Partial<ChatSuccessBody>;
   return (
-    (body.provider === "xai" || body.provider === "openai") &&
+    body.provider === "gemini" &&
     typeof body.model === "string" &&
     isChatAnswer(body.space) &&
     isChatAnswer(body.ground)

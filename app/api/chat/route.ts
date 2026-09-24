@@ -1,17 +1,17 @@
 import { ChatRequestError, acceptPrompt } from "@/lib/server/chat-guard";
-import { resolveProvider, runDualAnswers } from "@/lib/server/llm";
+import { geminiConfig, runDualAnswers } from "@/lib/server/llm";
 
 export const maxDuration = 60;
 export const runtime = "nodejs";
 
 const MISSING_KEY =
-  "Live inference is unavailable. Set XAI_API_KEY or OPENAI_API_KEY on the server.";
+  "Live inference is unavailable. Set GEMINI_API_KEY on the server.";
 const PROVIDER_ERROR = "The model provider returned an error. Try again.";
 
 export async function POST(request: Request) {
   try {
     const prompt = await acceptPrompt(request);
-    if (!resolveProvider()) {
+    if (!geminiConfig()) {
       return Response.json({ error: MISSING_KEY }, { status: 503 });
     }
     const result = await runDualAnswers(prompt);

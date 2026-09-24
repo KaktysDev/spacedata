@@ -10,9 +10,9 @@ export type RoutePhase = (typeof ROUTE_PHASES)[number];
 
 /** Milliseconds. Shell timing for the camera path, not a light-time. */
 export const ROUTE_PHASE_MS = {
-  uplink: 1700,
-  split: 2700,
-  pullback: 1800,
+  uplink: 1600,
+  split: 2400,
+  pullback: 2100,
 } as const;
 
 export const REDUCED_PHASE_MS = 160;
