@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { VACUUM_VS_FIBER } from "@/lib/starcloud/constants";
 import {
   formatLatencyMs,
   formatLitersPerKwh,
@@ -17,9 +18,13 @@ type CardModel = {
   space: string;
   ground: string;
   water?: boolean;
+  caption?: string;
+  captionShort?: string;
 };
 
 function cardsFrom(sample: TelemetrySample): CardModel[] {
+  const vacuumFasterPct = Math.round(VACUUM_VS_FIBER.fasterBy * 100);
+
   return [
     {
       label: "PUE",
@@ -45,6 +50,8 @@ function cardsFrom(sample: TelemetrySample): CardModel[] {
       unit: "ms",
       space: formatLatencyMs(sample.latencyMs.space),
       ground: formatLatencyMs(sample.latencyMs.ground),
+      caption: `Vacuum ~${vacuumFasterPct}% faster than fiber · shell ms`,
+      captionShort: `Vacuum ~${vacuumFasterPct}% vs fiber · shell`,
     },
     {
       label: "Capacity",
@@ -55,11 +62,19 @@ function cardsFrom(sample: TelemetrySample): CardModel[] {
   ];
 }
 
-function MetricCard({ label, unit, space, ground, water }: CardModel) {
+function MetricCard({
+  label,
+  unit,
+  space,
+  ground,
+  water,
+  caption,
+  captionShort,
+}: CardModel) {
   const valueClass = water ? "text-water" : "text-white";
 
   return (
-    <article className="border border-white bg-black px-3.5 py-3 sm:px-4">
+    <article className="min-w-0 border border-white bg-black px-3.5 py-3 sm:px-4">
       <div className="flex items-center justify-between gap-3">
         <h2
           className={`text-[10px] tracking-[0.22em] uppercase ${water ? "text-water" : "text-white/70"}`}
@@ -86,6 +101,12 @@ function MetricCard({ label, unit, space, ground, water }: CardModel) {
           {ground}
         </span>
       </div>
+      {caption ? (
+        <p className="mt-2.5 text-[10px] leading-4 tracking-tighter whitespace-nowrap text-white/45">
+          <span className="sm:hidden">{captionShort ?? caption}</span>
+          <span className="hidden sm:inline">{caption}</span>
+        </p>
+      ) : null}
     </article>
   );
 }
@@ -104,7 +125,7 @@ export function MetricStrip() {
 
   return (
     <section aria-label="Live metrics">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         {cards.map((card) => (
           <MetricCard key={card.label} {...card} />
         ))}
