@@ -1,0 +1,21 @@
+{
+  "name": "spacedata",
+  "version": "1.0.0",
+  "description": "Space vs ground AI datacenter simulator.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KaktysDev/spacedata.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/KaktysDev/spacedata/issues"
+  },
+  "homepage": "https://github.com/KaktysDev/spacedata#readme"
+}
