@@ -7,52 +7,70 @@ import * as THREE from "three";
 import { traceProgress, type RoutePhase } from "@/lib/starcloud/route-timeline";
 import { useRouteClock, type RouteClock } from "@/components/simulator/simulator-provider";
 
-const CHAT = new THREE.Vector3(-0.2, -1.35, 0.2);
-const ANTENNA = new THREE.Vector3(-2.15, 0.62, 0);
-const CLUSTER = new THREE.Vector3(0.25, 1.95, 0);
-const CAMPUS = new THREE.Vector3(2.2, 0.48, 0);
-
-const UPLINK = new THREE.QuadraticBezierCurve3(
-  CHAT,
-  new THREE.Vector3(-1.35, -0.15, 0.35),
-  ANTENNA,
-);
-const TO_SPACE = new THREE.QuadraticBezierCurve3(
-  ANTENNA,
-  new THREE.Vector3(-0.85, 1.85, 0.15),
-  CLUSTER,
-);
-const TO_GROUND = new THREE.QuadraticBezierCurve3(
-  ANTENNA,
-  new THREE.Vector3(0.15, 0.95, 0.25),
-  CAMPUS,
-);
-
-const POSES: Record<
-  RoutePhase,
-  { position: THREE.Vector3; lookAt: THREE.Vector3 }
-> = {
-  idle: {
-    position: new THREE.Vector3(0.15, 1.15, 7.2),
-    lookAt: new THREE.Vector3(0.1, 0.8, 0),
-  },
-  uplink: {
-    position: new THREE.Vector3(-1.45, 0.35, 3.2),
-    lookAt: new THREE.Vector3(-1.55, 0.35, 0),
-  },
-  split: {
-    position: new THREE.Vector3(0.1, 1.55, 5.5),
-    lookAt: new THREE.Vector3(0.05, 1.05, 0),
-  },
-  pullback: {
-    position: new THREE.Vector3(0.15, 1.4, 8.7),
-    lookAt: new THREE.Vector3(0.1, 0.9, 0),
-  },
-  compare: {
-    position: new THREE.Vector3(0.15, 1.4, 8.7),
-    lookAt: new THREE.Vector3(0.1, 0.9, 0),
-  },
+type StageLayout = {
+  spread: number;
+  antenna: THREE.Vector3;
+  cluster: THREE.Vector3;
+  campus: THREE.Vector3;
+  uplink: THREE.QuadraticBezierCurve3;
+  toSpace: THREE.QuadraticBezierCurve3;
+  toGround: THREE.QuadraticBezierCurve3;
+  poses: Record<RoutePhase, { position: THREE.Vector3; lookAt: THREE.Vector3 }>;
 };
+
+function buildLayout(aspect: number): StageLayout {
+  const spread = Math.min(1.65, Math.max(0.95, aspect * 0.28));
+  const antenna = new THREE.Vector3(-spread, 0.92, 0);
+  const cluster = new THREE.Vector3(0, 1.48, 0);
+  const campus = new THREE.Vector3(spread, 0.62, 0);
+  const chat = new THREE.Vector3(-spread * 0.15, -1.05, 0.15);
+  const uplink = new THREE.QuadraticBezierCurve3(
+    chat,
+    new THREE.Vector3(-spread * 0.7, 0.05, 0.28),
+    antenna,
+  );
+  const toSpace = new THREE.QuadraticBezierCurve3(
+    antenna,
+    new THREE.Vector3(-spread * 0.28, 1.55, 0.08),
+    cluster,
+  );
+  const toGround = new THREE.QuadraticBezierCurve3(
+    antenna,
+    new THREE.Vector3(0, 1.05, 0.18),
+    campus,
+  );
+  return {
+    spread,
+    antenna,
+    cluster,
+    campus,
+    uplink,
+    toSpace,
+    toGround,
+    poses: {
+      idle: {
+        position: new THREE.Vector3(0, 0.92, 3.35),
+        lookAt: new THREE.Vector3(0, 0.82, 0),
+      },
+      uplink: {
+        position: new THREE.Vector3(-spread * 0.55, 0.58, 1.55),
+        lookAt: antenna.clone(),
+      },
+      split: {
+        position: new THREE.Vector3(0, 1.05, 2.35),
+        lookAt: new THREE.Vector3(0, 0.92, 0),
+      },
+      pullback: {
+        position: new THREE.Vector3(0, 0.9, 3.85),
+        lookAt: new THREE.Vector3(0, 0.74, 0),
+      },
+      compare: {
+        position: new THREE.Vector3(0, 0.9, 3.85),
+        lookAt: new THREE.Vector3(0, 0.74, 0),
+      },
+    },
+  };
+}
 
 function useRouteLine() {
   const geom = useMemo(() => {
@@ -108,14 +126,20 @@ function placePacket(
   curve.getPoint(Math.min(1, progress), mesh.position);
 }
 
-function CameraRig({ clockRef }: { clockRef: RefObject<RouteClock> }) {
+function CameraRig({
+  clockRef,
+  layout,
+}: {
+  clockRef: RefObject<RouteClock>;
+  layout: StageLayout;
+}) {
   const { camera } = useThree();
-  const look = useRef(POSES.idle.lookAt.clone());
+  const look = useRef(layout.poses.idle.lookAt.clone());
 
   useFrame((_, dt) => {
     const clock = clockRef.current;
     if (!clock) return;
-    const pose = POSES[clock.phase];
+    const pose = layout.poses[clock.phase];
     const k = clock.reducedMotion ? 1 : 1 - Math.exp(-dt * 2.5);
     camera.position.lerp(pose.position, k);
     look.current.lerp(pose.lookAt, k);
@@ -125,7 +149,13 @@ function CameraRig({ clockRef }: { clockRef: RefObject<RouteClock> }) {
   return null;
 }
 
-function Routes({ clockRef }: { clockRef: RefObject<RouteClock> }) {
+function Routes({
+  clockRef,
+  layout,
+}: {
+  clockRef: RefObject<RouteClock>;
+  layout: StageLayout;
+}) {
   const uplink = useRouteLine();
   const space = useRouteLine();
   const ground = useRouteLine();
@@ -158,12 +188,17 @@ function Routes({ clockRef }: { clockRef: RefObject<RouteClock> }) {
       clock.reducedMotion,
       "ground",
     );
-    writeCurve(uplink.geom, UPLINK, up);
-    writeCurve(space.geom, TO_SPACE, orbital);
-    writeCurve(ground.geom, TO_GROUND, terrestrial);
-    placePacket(uplinkPacket.current, UPLINK, up, up > 0 && up < 1);
-    placePacket(spacePacket.current, TO_SPACE, orbital, orbital > 0);
-    placePacket(groundPacket.current, TO_GROUND, terrestrial, terrestrial > 0);
+    writeCurve(uplink.geom, layout.uplink, up);
+    writeCurve(space.geom, layout.toSpace, orbital);
+    writeCurve(ground.geom, layout.toGround, terrestrial);
+    placePacket(uplinkPacket.current, layout.uplink, up, up > 0 && up < 1);
+    placePacket(spacePacket.current, layout.toSpace, orbital, orbital > 0);
+    placePacket(
+      groundPacket.current,
+      layout.toGround,
+      terrestrial,
+      terrestrial > 0,
+    );
   });
 
   return (
@@ -172,31 +207,31 @@ function Routes({ clockRef }: { clockRef: RefObject<RouteClock> }) {
       <primitive object={space.line} />
       <primitive object={ground.line} />
       <mesh ref={uplinkPacket} visible={false}>
-        <octahedronGeometry args={[0.055, 0]} />
+        <octahedronGeometry args={[0.07, 0]} />
         <meshBasicMaterial color="#ffffff" />
       </mesh>
       <mesh ref={spacePacket} visible={false}>
-        <octahedronGeometry args={[0.055, 0]} />
+        <octahedronGeometry args={[0.07, 0]} />
         <meshBasicMaterial color="#ffffff" />
       </mesh>
       <mesh ref={groundPacket} visible={false}>
-        <octahedronGeometry args={[0.055, 0]} />
+        <octahedronGeometry args={[0.07, 0]} />
         <meshBasicMaterial color="#ffffff" />
       </mesh>
     </>
   );
 }
 
-function OrbitArc() {
+function OrbitArc({ spread }: { spread: number }) {
   const line = useMemo(() => {
     const points: THREE.Vector3[] = [];
-    for (let i = 0; i <= 72; i += 1) {
-      const angle = -1.15 + (i / 72) * 2.55;
+    for (let i = 0; i <= 64; i += 1) {
+      const t = i / 64;
       points.push(
         new THREE.Vector3(
-          Math.sin(angle) * 2.7,
-          1.62 + Math.cos(angle) * 0.38,
-          -0.15,
+          -spread * 0.95 + t * spread * 1.9,
+          1.02 + Math.sin(t * Math.PI) * 0.48,
+          -0.08,
         ),
       );
     }
@@ -204,10 +239,10 @@ function OrbitArc() {
     const material = new THREE.LineBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.55,
     });
     return new THREE.Line(geometry, material);
-  }, []);
+  }, [spread]);
   return <primitive object={line} />;
 }
 
@@ -215,82 +250,71 @@ function Satellite({ position }: { position: [number, number, number] }) {
   return (
     <group position={position}>
       <mesh>
-        <boxGeometry args={[0.16, 0.07, 0.07]} />
+        <boxGeometry args={[0.28, 0.12, 0.12]} />
         <meshBasicMaterial color="#ffffff" />
       </mesh>
-      <mesh position={[-0.24, 0, 0]}>
-        <boxGeometry args={[0.28, 0.14, 0.012]} />
+      <mesh position={[-0.4, 0, 0]}>
+        <boxGeometry args={[0.52, 0.24, 0.02]} />
         <meshBasicMaterial color="#ffffff" wireframe />
       </mesh>
-      <mesh position={[0.24, 0, 0]}>
-        <boxGeometry args={[0.28, 0.14, 0.012]} />
+      <mesh position={[0.4, 0, 0]}>
+        <boxGeometry args={[0.52, 0.24, 0.02]} />
         <meshBasicMaterial color="#ffffff" wireframe />
       </mesh>
     </group>
   );
 }
 
-function Constellation() {
+function Constellation({ position }: { position: THREE.Vector3 }) {
   const ref = useRef<THREE.Group>(null);
   useFrame(({ clock }) => {
     if (!ref.current) return;
-    ref.current.rotation.y = clock.elapsedTime * 0.18;
+    ref.current.position.y =
+      position.y + Math.sin(clock.elapsedTime * 0.6) * 0.03;
   });
   return (
-    <group ref={ref} position={[CLUSTER.x, CLUSTER.y, CLUSTER.z]}>
+    <group ref={ref} position={position}>
       <Satellite position={[0, 0, 0]} />
-      <Satellite position={[-0.62, 0.08, 0]} />
-      <Satellite position={[0.62, -0.05, 0.05]} />
+      <Satellite position={[-1.05, 0.08, 0]} />
+      <Satellite position={[1.05, -0.04, 0]} />
     </group>
   );
 }
 
-function Antenna() {
+function Antenna({ x }: { x: number }) {
   return (
-    <group position={[ANTENNA.x, 0, ANTENNA.z]}>
-      <mesh position={[0, 0.28, 0]}>
-        <cylinderGeometry args={[0.012, 0.018, 0.56, 8]} />
+    <group position={[x, 0, 0]}>
+      <mesh position={[0, 0.42, 0]}>
+        <cylinderGeometry args={[0.018, 0.028, 0.84, 8]} />
         <meshBasicMaterial color="#ffffff" />
       </mesh>
-      <mesh position={[0, 0.62, 0]} rotation={[0.55, 0.2, 0]}>
-        <coneGeometry args={[0.2, 0.1, 14, 1, true]} />
+      <mesh position={[0, 0.92, 0]} rotation={[0.5, 0.25, 0]}>
+        <coneGeometry args={[0.32, 0.16, 16, 1, true]} />
         <meshBasicMaterial color="#ffffff" wireframe />
       </mesh>
-      <mesh position={[0.02, 0.68, 0.06]}>
-        <sphereGeometry args={[0.028, 8, 8]} />
+      <mesh position={[0.04, 1.02, 0.08]}>
+        <sphereGeometry args={[0.045, 10, 10]} />
         <meshBasicMaterial color="#ffffff" />
       </mesh>
     </group>
   );
 }
 
-function WireBox({
-  position,
-  size,
-}: {
-  position: [number, number, number];
-  size: [number, number, number];
-}) {
-  const [width, height, depth] = size;
-  const edges = useMemo(() => {
-    const box = new THREE.BoxGeometry(width, height, depth);
-    const geometry = new THREE.EdgesGeometry(box);
-    box.dispose();
-    return geometry;
-  }, [width, height, depth]);
+function Campus({ x }: { x: number }) {
   return (
-    <lineSegments position={position} geometry={edges}>
-      <lineBasicMaterial color="#ffffff" />
-    </lineSegments>
-  );
-}
-
-function Campus() {
-  return (
-    <group position={[CAMPUS.x, 0, CAMPUS.z]}>
-      <WireBox position={[0, 0.28, 0]} size={[0.46, 0.56, 0.4]} />
-      <WireBox position={[0.4, 0.16, 0.08]} size={[0.28, 0.32, 0.28]} />
-      <WireBox position={[-0.34, 0.12, -0.04]} size={[0.22, 0.24, 0.22]} />
+    <group position={[x, 0, 0]}>
+      <mesh position={[0, 0.46, 0]}>
+        <boxGeometry args={[0.7, 0.92, 0.52]} />
+        <meshBasicMaterial color="#ffffff" wireframe />
+      </mesh>
+      <mesh position={[0.58, 0.28, 0.06]}>
+        <boxGeometry args={[0.4, 0.56, 0.4]} />
+        <meshBasicMaterial color="#ffffff" wireframe />
+      </mesh>
+      <mesh position={[-0.5, 0.22, -0.04]}>
+        <boxGeometry args={[0.32, 0.44, 0.32]} />
+        <meshBasicMaterial color="#ffffff" wireframe />
+      </mesh>
     </group>
   );
 }
@@ -300,14 +324,18 @@ function SceneContents({
 }: {
   clockRef: RefObject<RouteClock>;
 }) {
+  const { size } = useThree();
+  const aspect = size.width / Math.max(size.height, 1);
+  const layout = useMemo(() => buildLayout(aspect), [aspect]);
+
   return (
     <>
-      <CameraRig clockRef={clockRef} />
-      <OrbitArc />
-      <Constellation />
-      <Antenna />
-      <Campus />
-      <Routes clockRef={clockRef} />
+      <CameraRig clockRef={clockRef} layout={layout} />
+      <OrbitArc spread={layout.spread} />
+      <Constellation position={layout.cluster} />
+      <Antenna x={layout.antenna.x} />
+      <Campus x={layout.campus.x} />
+      <Routes clockRef={clockRef} layout={layout} />
     </>
   );
 }
@@ -318,7 +346,7 @@ export function OrbitalScene() {
     <Canvas
       gl={{ alpha: true, antialias: true }}
       dpr={[1, 1.5]}
-      camera={{ position: [0.15, 1.15, 7.2], fov: 42, near: 0.1, far: 40 }}
+      camera={{ position: [0, 0.92, 3.35], fov: 34, near: 0.1, far: 30 }}
       onCreated={({ gl }) => {
         gl.setClearColor(0x000000, 0);
       }}
