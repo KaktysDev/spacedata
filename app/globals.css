@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+  --water: #9bbbd4;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-water: var(--water);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  background: #000000;
+  color-scheme: dark;
+}
+
+body {
+  background: #000000;
+  color: #ffffff;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+::selection {
+  background: #ffffff;
+  color: #000000;
+}
+
+.scene-canvas {
+  background-color: #000000;
+  background-image: url("/world-dots.svg");
+  background-repeat: no-repeat;
+  background-position: center 32%;
+  background-size: min(1480px, 96vw) auto;
+}
