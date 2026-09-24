@@ -368,3 +368,54 @@ export const PUE = {
   ground: 1.05,
   terrestrialChillerShareOfEnergy: 0.05,
 } as const;
+
+/**
+ * Inference throughput where the white paper is silent.
+ *
+ * SemiAnalysis, "InferenceMAX" (9 Oct 2025), reports an HGX H100 at about
+ * 900,000 tokens per second per all-in provisioned utility megawatt for
+ * gpt-oss 120B at FP4, in a reasoning-length workload. The same note says
+ * that megawatt is utility power, not critical IT power.
+ *
+ * The live engines map that rate onto the paper's compute megawatts. That
+ * boundary is wider than IT power, so tokens per IT-kilowatt-hour here are
+ * a high stand-in, not a Starcloud or GB200 measurement. Both venues share
+ * it. The comparison is the paper's price, water, and the latency stub.
+ *
+ * Arithmetic: 1e6 W / 900,000 tokens/s = 10/9 joules per token.
+ * Tokens per IT-kWh = 3.6e6 / (10/9) = 3.24e6.
+ */
+export const INFERENCE_GROUND_BASELINE = {
+  sourceName: "SemiAnalysis InferenceMAX",
+  hardware: "HGX H100",
+  workload: "gpt-oss 120B FP4",
+  tokensPerSecondPerProvisionedMegawatt: 900_000,
+} as const;
+
+export const JOULES_PER_TOKEN =
+  1_000_000 / INFERENCE_GROUND_BASELINE.tokensPerSecondPerProvisionedMegawatt;
+
+export const TOKENS_PER_IT_KWH = 3_600_000 / JOULES_PER_TOKEN;
+
+/**
+ * Live-session duty cycle. Not a white-paper measurement.
+ * Idle is low enough that a 2 L ground cup fills in several seconds.
+ * Inference is the duty cycle while a prompt is in flight on both venues.
+ * Capacity factor is not applied: 24% is the paper's terrestrial solar
+ * figure, and the ground cluster is priced on the grid.
+ */
+export const SIMULATION = {
+  clusterMegawatts: LAUNCH.megawattsPerLaunch,
+  idleUtilization: 0.06,
+  inferenceUtilization: 0.22,
+  /**
+   * Added to the shell millisecond stub as a fraction of full utilization.
+   * Shared by both venues, so the paper's 1.35 vacuum/fiber ratio holds.
+   */
+  queueingAtFullUtilization: 0.25,
+  /** Visual size of one ground water cup. Space never fills. */
+  waterCupLiters: 2,
+} as const;
+
+/** Shared with the chat route. Server enforces this again. */
+export const CHAT_MAX_CHARS = 2_000;

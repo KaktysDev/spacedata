@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Starcloud Simulator",
   description:
-    "Shell for comparing Starcloud orbital AI datacenters with terrestrial clusters.",
+    "Compare a Starcloud orbital AI datacenter with a terrestrial cluster.",
 };
 
 export const viewport: Viewport = {
@@ -28,7 +28,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="h-full bg-black font-sans text-white">{children}</body>
+      <body className="h-full overflow-hidden bg-black font-sans text-white">{children}</body>
     </html>
   );
 }

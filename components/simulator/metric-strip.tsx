@@ -1,134 +1,56 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-import { VACUUM_VS_FIBER } from "@/lib/starcloud/constants";
+import { TEN_YEAR_CLUSTER_COST_USD } from "@/lib/starcloud/constants";
 import {
-  formatLatencyMs,
-  formatLitersPerKwh,
-  formatPercent,
-  formatPue,
-  formatUsdPerKwh,
+  formatLiters,
+  formatMillionsUsd,
+  formatSessionUsd,
 } from "@/lib/starcloud/format";
-import { sampleTelemetry, type TelemetrySample } from "@/lib/starcloud/telemetry";
-
-type CardModel = {
-  label: string;
-  unit: string;
-  space: string;
-  ground: string;
-  water?: boolean;
-  caption?: string;
-  captionShort?: string;
-};
-
-function cardsFrom(sample: TelemetrySample): CardModel[] {
-  const vacuumFasterPct = Math.round(VACUUM_VS_FIBER.fasterBy * 100);
-
-  return [
-    {
-      label: "PUE",
-      unit: "Ratio",
-      space: formatPue(sample.pue.space),
-      ground: formatPue(sample.pue.ground),
-    },
-    {
-      label: "Energy",
-      unit: "$/kWh",
-      space: formatUsdPerKwh(sample.energyUsdPerKwh.space),
-      ground: formatUsdPerKwh(sample.energyUsdPerKwh.ground),
-    },
-    {
-      label: "Water",
-      unit: "L/kWh",
-      space: formatLitersPerKwh(sample.waterLitersPerKwh.space),
-      ground: formatLitersPerKwh(sample.waterLitersPerKwh.ground),
-      water: true,
-    },
-    {
-      label: "Latency",
-      unit: "ms",
-      space: formatLatencyMs(sample.latencyMs.space),
-      ground: formatLatencyMs(sample.latencyMs.ground),
-      caption: `Vacuum ~${vacuumFasterPct}% faster than fiber · shell ms`,
-      captionShort: `Vacuum ~${vacuumFasterPct}% vs fiber · shell`,
-    },
-    {
-      label: "Capacity",
-      unit: "Factor",
-      space: formatPercent(sample.capacityFactor.space),
-      ground: formatPercent(sample.capacityFactor.ground),
-    },
-  ];
-}
-
-function MetricCard({
-  label,
-  unit,
-  space,
-  ground,
-  water,
-  caption,
-  captionShort,
-}: CardModel) {
-  const valueClass = water ? "text-water" : "text-white";
-
-  return (
-    <article className="min-w-0 border border-white bg-black px-3.5 py-3 sm:px-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2
-          className={`text-[10px] tracking-[0.22em] uppercase ${water ? "text-water" : "text-white/70"}`}
-        >
-          {label}
-        </h2>
-        <span className="text-[10px] tracking-[0.16em] text-white/45 uppercase">
-          {unit}
-        </span>
-      </div>
-      <div className="mt-3 flex items-baseline justify-between gap-3">
-        <span className="text-[10px] tracking-[0.18em] text-white/55 uppercase">
-          Space
-        </span>
-        <span className={`font-mono text-2xl tabular-nums ${valueClass}`}>
-          {space}
-        </span>
-      </div>
-      <div className="mt-1.5 flex items-baseline justify-between gap-3">
-        <span className="text-[10px] tracking-[0.18em] text-white/55 uppercase">
-          Ground
-        </span>
-        <span className={`font-mono text-sm tabular-nums ${valueClass}`}>
-          {ground}
-        </span>
-      </div>
-      {caption ? (
-        <p className="mt-2.5 text-[10px] leading-4 tracking-tighter whitespace-nowrap text-white/45">
-          <span className="sm:hidden">{captionShort ?? caption}</span>
-          <span className="hidden sm:inline">{caption}</span>
-        </p>
-      ) : null}
-    </article>
-  );
-}
+import { SourcesNote } from "@/components/simulator/sources-note";
+import { useSimulator } from "@/components/simulator/simulator-provider";
+import { WaterCup } from "@/components/simulator/water-cup";
 
 export function MetricStrip() {
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setTick((current) => current + 1);
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  const cards = cardsFrom(sampleTelemetry(tick));
+  const { space, ground } = useSimulator();
+  const label = "text-[11px] tracking-[0.16em] text-white/45 uppercase";
+  const value = "min-w-0 text-right font-mono text-base whitespace-nowrap tabular-nums sm:text-lg";
 
   return (
-    <section aria-label="Live metrics">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        {cards.map((card) => (
-          <MetricCard key={card.label} {...card} />
-        ))}
+    <section aria-label="Live metrics" className="min-w-0 border border-white bg-black">
+      <div className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-3 gap-y-2 px-4 py-3 sm:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)] sm:gap-x-6 sm:px-5 sm:py-4">
+        <span />
+        <span className={`${label} text-right`}>Space</span>
+        <span className={`${label} text-right`}>Ground</span>
+
+        <span className={label}>Cost</span>
+        <span className={`${value} text-white`}>
+          {formatSessionUsd(space.energyCostUsd)}
+        </span>
+        <span className={`${value} text-white`}>
+          {formatSessionUsd(ground.energyCostUsd)}
+        </span>
+
+        <span className={label}>Water</span>
+        <span className={`${value} text-water`}>
+          {formatLiters(space.waterLiters)} L
+        </span>
+        <span className="flex items-center justify-end gap-2">
+          <WaterCup liters={ground.waterLiters} label="Ground water" />
+          <span className={`${value} text-water`}>
+            {formatLiters(ground.waterLiters)} L
+          </span>
+        </span>
+
+        <span className={label}>Latency</span>
+        <span className={`${value} text-white`}>{space.latencyMs.toFixed(1)} ms</span>
+        <span className={`${value} text-white`}>{ground.latencyMs.toFixed(1)} ms</span>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-white/25 px-4 py-2 sm:px-5">
+        <p className="text-[11px] text-white/40">
+          10 years · {formatMillionsUsd(TEN_YEAR_CLUSTER_COST_USD.space)} ·{" "}
+          {formatMillionsUsd(TEN_YEAR_CLUSTER_COST_USD.ground)}
+        </p>
+        <SourcesNote />
       </div>
     </section>
   );

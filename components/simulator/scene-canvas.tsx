@@ -1,12 +1,12 @@
 /**
- * Full-viewport scene surface. Stage 1 paints the dotted world map.
- * A later stage mounts React Three Fiber here; keep this node full-bleed.
+ * Full-viewport dotted map. React Three Fiber mounts in the open band
+ * above this plate so the halftone world stays the background.
  */
 export function SceneCanvas() {
   return (
     <div
       id="scene-canvas"
-      data-scene-placeholder="r3f"
+      data-scene="dotted-map"
       className="scene-canvas pointer-events-none absolute inset-0"
       role="img"
       aria-label="Dotted world map on a black field. Orbital scene canvas."
