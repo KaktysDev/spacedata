@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Starcloud Simulator",
   description:
-    "Shell for comparing Starcloud orbital AI datacenters with terrestrial clusters.",
+    "Compare a Starcloud orbital AI datacenter with a terrestrial cluster.",
 };
 
 export const viewport: Viewport = {
