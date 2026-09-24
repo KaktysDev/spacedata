@@ -78,7 +78,16 @@ export function formatSessionUsd(value: number): string {
   return `$${value.toFixed(4)}`;
 }
 
-/** Reply-scale dollars. Switches to a per-billion-token style only at the call site. */
+/** Dollars at reply scale and at the one-billion-token scale line. */
+export function formatUsdPlain(value: number): string {
+  const abs = Math.abs(value);
+  if (abs === 0) return "$0";
+  if (abs >= 1) return `$${value.toFixed(2)}`;
+  if (abs >= 0.01) return `$${value.toFixed(2)}`;
+  return formatReplyUsd(value);
+}
+
+/** Reply-scale dollars. */
 export function formatReplyUsd(value: number): string {
   const abs = Math.abs(value);
   if (abs === 0) return "$0";

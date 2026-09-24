@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 import type { ChatAnswer } from "@/lib/starcloud/chat-types";
 import { PAPER } from "@/lib/starcloud/constants";
 import {
@@ -10,7 +12,7 @@ import {
 import {
   formatCompactCount,
   formatMilliliters,
-  formatReplyUsd,
+  formatUsdPlain,
   formatWattHours,
 } from "@/lib/starcloud/format";
 import { useSimulator } from "@/components/simulator/simulator-provider";
@@ -22,22 +24,29 @@ function formatMultiple(value: number): string {
   return `${value.toFixed(1)}×`;
 }
 
-function Delta({
+function DeltaTile({
   value,
+  detail,
   label,
   water,
 }: {
   value: string;
+  detail?: string;
   label: string;
   water?: boolean;
 }) {
   return (
-    <div className="bg-black px-3 py-3 sm:px-4">
+    <div className="border border-white bg-black px-3 py-3">
       <p
-        className={`font-mono text-2xl leading-none tracking-tight tabular-nums ${water ? "text-water" : "text-white"}`}
+        className={`font-mono text-[1.35rem] leading-none tracking-tight tabular-nums sm:text-2xl ${water ? "text-water" : "text-white"}`}
       >
         {value}
       </p>
+      {detail ? (
+        <p className="mt-2 font-mono text-[11px] text-white/55 tabular-nums">
+          {detail}
+        </p>
+      ) : null}
       <p className="mt-2 text-[10px] tracking-[0.16em] text-white/55 uppercase">
         {label}
       </p>
@@ -57,68 +66,54 @@ function AnswerColumn({
   cost: ReplyCost;
 }) {
   return (
-    <article className="flex min-w-0 flex-col border border-white bg-black px-4 py-3 sm:px-5">
-      <p className="text-[10px] tracking-[0.22em] text-white/60 uppercase">
+    <article className="flex min-w-0 flex-col border border-white bg-black px-4 py-4 sm:px-5">
+      <p className="text-[10px] tracking-[0.22em] text-white/55 uppercase">
         {kicker}
       </p>
-      <h2 className="mt-1 text-lg leading-tight font-medium tracking-tight">
+      <h3 className="mt-1 text-lg leading-tight font-medium tracking-tight">
         {title}
-      </h2>
-      <p className="mt-3 max-h-40 overflow-y-auto text-sm leading-6 text-white">
+      </h3>
+      <p className="mt-4 max-h-48 overflow-y-auto text-[15px] leading-7 whitespace-pre-wrap text-white">
         {answer.text}
       </p>
-      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-white/40 pt-3 font-mono text-[12px] tabular-nums">
-        <div>
-          <dt className="text-[10px] tracking-[0.16em] text-white/50 uppercase">
-            Tokens
-          </dt>
-          <dd>{formatCompactCount(cost.tokens)}</dd>
-        </div>
-        <div>
-          <dt className="text-[10px] tracking-[0.16em] text-white/50 uppercase">
-            Energy
-          </dt>
-          <dd>{formatWattHours(cost.itKwh)}</dd>
-        </div>
-        <div>
-          <dt className="text-[10px] tracking-[0.16em] text-white/50 uppercase">
-            Cost
-          </dt>
-          <dd>{formatReplyUsd(cost.energyCostUsd)}</dd>
-        </div>
-        <div>
-          <dt className="text-[10px] tracking-[0.16em] text-water uppercase">
-            Water
-          </dt>
-          <dd className="text-water">{formatMilliliters(cost.waterLiters)}</dd>
-        </div>
-        <div className="col-span-2">
-          <dt className="text-[10px] tracking-[0.16em] text-white/50 uppercase">
-            Latency
-          </dt>
-          <dd>{cost.latencyMs.toFixed(1)} ms shell</dd>
-        </div>
-      </dl>
+      <p className="mt-4 border-t border-white/40 pt-3 font-mono text-[12px] leading-5 text-white/80 tabular-nums">
+        {formatCompactCount(cost.tokens)} tok · {formatWattHours(cost.itKwh)} ·{" "}
+        <span className="text-water">{formatMilliliters(cost.waterLiters)}</span>
+        {" · "}
+        {cost.latencyMs.toFixed(1)} ms
+      </p>
     </article>
   );
 }
 
 export function InferenceComparison() {
-  const { prompt, result, error, showBaseline } = useSimulator();
+  const { prompt, result, error, showBaseline, reducedMotion } = useSimulator();
+  const panelRef = useRef<HTMLElement>(null);
   const quoted =
-    prompt && prompt.length > 160 ? `${prompt.slice(0, 157)}…` : prompt;
+    prompt && prompt.length > 180 ? `${prompt.slice(0, 177)}…` : prompt;
+
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({
+      behavior: reducedMotion ? "auto" : "smooth",
+      block: "nearest",
+    });
+  }, [reducedMotion]);
 
   if (!result) {
     return (
-      <section aria-label="Inference result" className="border border-white bg-black px-4 py-4 sm:px-5">
-        <p className="text-[10px] tracking-[0.22em] text-white/60 uppercase">
+      <section
+        ref={panelRef}
+        aria-label="Inference result"
+        className="border border-white bg-black px-4 py-4 sm:px-5"
+      >
+        <p className="text-[10px] tracking-[0.22em] text-white/55 uppercase">
           Inference
         </p>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-white">
+        <p className="mt-3 max-w-2xl text-[15px] leading-7 text-white">
           {error ?? "The model response was incomplete."}
         </p>
         {quoted ? (
-          <p className="mt-3 text-[12px] leading-5 text-white/50">“{quoted}”</p>
+          <p className="mt-3 text-sm leading-6 text-white/50">“{quoted}”</p>
         ) : null}
         <button
           type="button"
@@ -141,49 +136,57 @@ export function InferenceComparison() {
     result.ground.totalTokens,
     result.ground.usageEstimated,
   );
-  const rates = {
-    space: venueRates("space"),
-    ground: venueRates("ground"),
-  };
-  const priceMultiple = rates.ground.costUsdPerItKwh / rates.space.costUsdPerItKwh;
-  const waterDelta = groundCost.waterLiters - spaceCost.waterLiters;
-  const latencyDelta = groundCost.latencyMs - spaceCost.latencyMs;
-  const tokenDelta = groundCost.tokens - spaceCost.tokens;
+  const priceMultiple =
+    venueRates("ground").costUsdPerItKwh / venueRates("space").costUsdPerItKwh;
   const perBillionSpace = priceTokens("space", BILLION, false);
   const perBillionGround = priceTokens("ground", BILLION, false);
   const usageEstimated =
     result.space.usageEstimated || result.ground.usageEstimated;
 
   return (
-    <section aria-label="Prompt comparison" className="grid gap-3">
-      <div className="border border-white bg-black px-4 py-3 sm:px-5">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-[10px] tracking-[0.22em] text-white/60 uppercase">
+    <section
+      ref={panelRef}
+      aria-label="Prompt comparison"
+      className="grid gap-3"
+    >
+      <div className="border border-white bg-black px-4 py-4 sm:px-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <p className="text-[10px] tracking-[0.22em] text-white/55 uppercase">
             This prompt
           </p>
-          <p className="font-mono text-[10px] tracking-[0.14em] text-white/45 uppercase">
+          <p className="font-mono text-[10px] tracking-[0.12em] text-white/40 uppercase">
             {result.provider === "xai" ? "Grok" : "OpenAI"} · {result.model}
           </p>
         </div>
+        <h2 className="mt-3 text-[1.65rem] leading-none font-medium tracking-tight sm:text-3xl">
+          Ground costs {formatMultiple(priceMultiple)} more
+        </h2>
         {quoted ? (
-          <p className="mt-2 text-sm leading-6 text-white/80">“{quoted}”</p>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-white/70">
+            “{quoted}”
+          </p>
         ) : null}
-        <div className="mt-4 grid grid-cols-2 gap-px border border-white bg-white sm:grid-cols-4">
-          <Delta value={formatMultiple(priceMultiple)} label="Energy cost" />
-          <Delta
-            value={`+${formatMilliliters(waterDelta)}`}
+        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <DeltaTile
+            value={formatUsdPlain(perBillionGround.energyCostUsd)}
+            detail={`${formatUsdPlain(perBillionSpace.energyCostUsd)} in orbit`}
+            label="Per 1B tokens"
+          />
+          <DeltaTile
+            value={`+${formatMilliliters(groundCost.waterLiters)}`}
+            detail="Space stays 0"
             label="Ground water"
             water
           />
-          <Delta
-            value={`+${latencyDelta.toFixed(1)} ms`}
+          <DeltaTile
+            value={`+${(groundCost.latencyMs - spaceCost.latencyMs).toFixed(1)} ms`}
+            detail={`${spaceCost.latencyMs.toFixed(1)} → ${groundCost.latencyMs.toFixed(1)}`}
             label="Shell latency"
           />
-          <Delta
-            value={
-              tokenDelta === 0 ? "Matched" : formatCompactCount(tokenDelta)
-            }
-            label="Token delta"
+          <DeltaTile
+            value={formatCompactCount(spaceCost.tokens)}
+            detail={`${formatCompactCount(groundCost.tokens)} on ground`}
+            label="Space tokens"
           />
         </div>
       </div>
@@ -201,24 +204,21 @@ export function InferenceComparison() {
           cost={groundCost}
         />
       </div>
-      <p className="max-w-3xl text-[11px] leading-5 text-white/50">
-        Per 1 billion tokens at the H100 stand-in: space{" "}
-        {formatReplyUsd(perBillionSpace.energyCostUsd)}, ground{" "}
-        {formatReplyUsd(perBillionGround.energyCostUsd)}, water{" "}
-        <span className="text-water">
-          {perBillionGround.waterLiters.toFixed(0)} L
-        </span>
-        . Reply joules use SemiAnalysis InferenceMAX (~900k tok/s per
-        provisioned MW), mapped onto compute megawatts. Latency milliseconds
-        are a shell stub times the paper’s 1.35 vacuum/fiber ratio.{" "}
-        {usageEstimated ? "Token counts were estimated from length. " : ""}
-        {PAPER.organization}, “{PAPER.title}”, {PAPER.version}.
-      </p>
-      <div>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <p className="max-w-3xl text-[11px] leading-5 text-white/45">
+          One billion tokens at the H100 stand-in also uses{" "}
+          <span className="text-water">
+            {perBillionGround.waterLiters.toFixed(0)} L
+          </span>{" "}
+          on the ground and none in orbit. Throughput is mapped from
+          provisioned megawatts onto the paper’s compute load. Latency is the
+          shell stub. {usageEstimated ? "Token totals were estimated from length. " : ""}
+          {PAPER.organization}, “{PAPER.title}”, {PAPER.version}.
+        </p>
         <button
           type="button"
           onClick={showBaseline}
-          className="min-h-11 border border-white px-4 text-[11px] tracking-[0.18em] uppercase hover:bg-white hover:text-black focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white"
+          className="min-h-11 shrink-0 border border-white px-4 text-[11px] tracking-[0.18em] uppercase hover:bg-white hover:text-black focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white"
         >
           40 MW baseline
         </button>
