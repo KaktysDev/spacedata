@@ -210,9 +210,12 @@ export function InferenceComparison() {
           <span className="text-water">
             {perBillionGround.waterLiters.toFixed(0)} L
           </span>{" "}
-          on the ground and none in orbit. Throughput is mapped from
-          provisioned megawatts onto the paper’s compute load. Latency is the
-          shell stub. {usageEstimated ? "Token totals were estimated from length. " : ""}
+          on the ground and none in orbit. The cost multiple is the US
+          wholesale price plus the 5% chiller share, over $0.002/kWh. The
+          paper states 22× on the energy price alone. Throughput is mapped
+          from provisioned megawatts onto the paper’s compute load. Latency
+          is the shell stub.{" "}
+          {usageEstimated ? "Token totals were estimated from length. " : ""}
           {PAPER.organization}, “{PAPER.title}”, {PAPER.version}.
         </p>
         <button
