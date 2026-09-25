@@ -1,37 +1,35 @@
-import { ChatRequestError, acceptPrompt } from "@/lib/server/chat-guard";
-import { geminiConfig, runDualAnswers } from "@/lib/server/llm";
-
+import {
+  acceptPrompt,
+  ChatRequestError,
+  reserveRequest,
+} from "@/lib/server/chat-guard";
+import { providerKey, runAnswer } from "@/lib/server/llm";
 export const maxDuration = 60;
 export const runtime = "nodejs";
-
-const MISSING_KEY =
-  "Live inference is unavailable. Set GEMINI_API_KEY on the server.";
-const PROVIDER_ERROR = "The model provider returned an error. Try again.";
-
 export async function POST(request: Request) {
+  const headers = new Headers({ "Cache-Control": "no-store" });
   try {
-    const prompt = await acceptPrompt(request);
-    if (!geminiConfig()) {
-      return Response.json({ error: MISSING_KEY }, { status: 503 });
-    }
-    const result = await runDualAnswers(prompt);
-    return Response.json(result);
-  } catch (error) {
-    if (error instanceof ChatRequestError) {
-      const headers = new Headers();
-      if (error.retryAfterSec) {
-        headers.set("Retry-After", String(error.retryAfterSec));
-      }
-      return Response.json(
-        {
-          error: error.message,
-          ...(error.retryAfterSec
-            ? { retryAfterSec: error.retryAfterSec }
-            : {}),
-        },
-        { status: error.status, headers },
+    const { prompt, provider } = await acceptPrompt(request);
+    if (!providerKey(provider))
+      throw new ChatRequestError(
+        503,
+        "This model is not connected yet. Choose another model or preview the route.",
       );
-    }
-    return Response.json({ error: PROVIDER_ERROR }, { status: 502 });
+    await reserveRequest(request);
+    return Response.json(await runAnswer(provider, prompt, request.signal), {
+      headers,
+    });
+  } catch (e) {
+    const known = e instanceof ChatRequestError;
+    if (known && e.retryAfterSec)
+      headers.set("Retry-After", String(e.retryAfterSec));
+    return Response.json(
+      {
+        error: known
+          ? e.message
+          : "The AI provider could not complete this request. Please try again later.",
+      },
+      { status: known ? e.status : 502, headers },
+    );
   }
 }

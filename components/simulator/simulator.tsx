@@ -1,443 +1,447 @@
 "use client";
-
+import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRef, useState, type FormEvent } from "react";
-import { Icon } from "./icon";
-import { OrbitalScene } from "./orbital-scene";
-import { useSimulator } from "./simulator-provider";
-import { SourcesNote } from "./sources-note";
+import {
+  DEFAULT_LOCATION,
+  nearestSite,
+  PRESETS,
+  PROVIDERS,
+  PROVIDER_IDS,
+  type ProviderId,
+  type Location,
+} from "@/lib/starcloud/catalog";
+import {
+  isChatSuccessBody,
+  type ChatSuccessBody,
+} from "@/lib/starcloud/chat-types";
+import { JOURNEY_MS } from "@/lib/starcloud/network";
+import { type Flight } from "./orbital-scene";
 import { InferenceComparison } from "./inference-comparison";
-import { formatLiters, formatSessionUsd } from "@/lib/starcloud/format";
-import { CHAT_MAX_CHARS } from "@/lib/starcloud/constants";
-
-const steps = [
-  ["01", "Uplink", "Earth → orbit"],
-  ["02", "Compute", "Process in parallel"],
-  ["03", "Downlink", "Return to Earth"],
-];
-const phaseCopy = {
-  idle: "Ready for your first transmission",
-  uplink: "Your prompt is leaving Earth",
-  split: "Two paths. The same request.",
-  pullback: "Bringing the results back to you",
-  compare: "Transmission complete",
-};
-
-export function Simulator() {
-  const {
-    space,
-    ground,
-    phase,
-    busy,
-    reducedMotion,
-    submitPrompt,
-    showBaseline,
-    mode,
-    setMode,
-    liveAvailable,
-    error,
-  } = useSimulator();
-  const [draft, setDraft] = useState("");
-  const [focus, setFocus] = useState<"both" | "space" | "ground">("both");
-  const [paused, setPaused] = useState(false);
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const promptRef = useRef<HTMLTextAreaElement>(null);
-  const resultRef = useRef<HTMLDivElement>(null);
-  const stepIndex = { idle: -1, uplink: 0, split: 1, pullback: 2, compare: 3 }[
-    phase
-  ];
-  async function send(event?: FormEvent) {
-    event?.preventDefault();
-    if (!draft.trim() || busy) return;
-    await submitPrompt(draft);
+import { SourcesNote } from "./sources-note";
+import { Modal } from "./modal";
+const OrbitalScene = dynamic(
+  () => import("./orbital-scene").then((m) => m.OrbitalScene),
+  { ssr: false },
+);
+export function Simulator({ available }: { available: ProviderId[] }) {
+  const [provider, setProvider] = useState<ProviderId>(
+      available[0] ?? "gemini",
+    ),
+    [origin, setOrigin] = useState<Location>(DEFAULT_LOCATION),
+    [focusId, setFocusId] = useState(0),
+    [zoom, setZoom] = useState(0),
+    [ready, setReady] = useState(false),
+    [prompt, setPrompt] = useState(""),
+    [submitted, setSubmitted] = useState(""),
+    [flight, setFlight] = useState<Flight | null>(null),
+    [elapsed, setElapsed] = useState(0),
+    [answerReady, setAnswerReady] = useState(false),
+    [result, setResult] = useState<ChatSuccessBody | null>(null),
+    [results, setResults] = useState(false),
+    [sources, setSources] = useState(false),
+    [locations, setLocations] = useState(false),
+    [error, setError] = useState(""),
+    [joules, setJoules] = useState(1.11),
+    [snapshotAt, setSnapshotAt] = useState(0);
+  const request = useRef<AbortController | null>(null),
+    active = useRef(false),
+    textarea = useRef<HTMLTextAreaElement>(null);
+  const site = nearestSite(provider, origin),
+    live = available.includes(provider);
+  const onReady = useCallback(() => setReady(true), []);
+  useEffect(() => () => request.current?.abort(), []);
+  useEffect(() => {
+    if (!flight) return;
+    const id = setInterval(
+      () => setElapsed(performance.now() - flight.started),
+      100,
+    );
+    return () => clearInterval(id);
+  }, [flight]);
+  function cancel() {
+    request.current?.abort();
+    request.current = null;
+    active.current = false;
+    setFlight(null);
+    setError(
+      live
+        ? "Request canceled. A provider may still bill work already started."
+        : "Route preview canceled.",
+    );
   }
-  const openInfo = () => dialogRef.current?.showModal();
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (active.current || !prompt.trim()) return;
+    active.current = true;
+    const controller = new AbortController();
+    request.current = controller;
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const started = performance.now();
+    setSubmitted(prompt.trim());
+    setError("");
+    setResult(null);
+    setElapsed(0);
+    setAnswerReady(false);
+    const at = Date.now();
+    setSnapshotAt(at);
+    setFlight({ id: at, started, reduced });
+    try {
+      let answer: ChatSuccessBody | null = null;
+      if (live) {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: prompt.trim(), provider }),
+          signal: AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(55000),
+          ]),
+        });
+        const body = await response.json();
+        if (!response.ok)
+          throw new Error(
+            typeof body.error === "string" ? body.error : "Request failed.",
+          );
+        if (!isChatSuccessBody(body) || body.provider !== provider)
+          throw new Error("The provider returned an invalid result.");
+        answer = body;
+      }
+      if (controller.signal.aborted) return;
+      setAnswerReady(true);
+      await new Promise<void>((resolve, reject) => {
+        const wait = Math.max(
+          0,
+          (reduced ? 300 : JOURNEY_MS) - (performance.now() - started),
+        );
+        const timer = setTimeout(() => {
+          controller.signal.removeEventListener("abort", abort);
+          resolve();
+        }, wait);
+        const abort = () => {
+          clearTimeout(timer);
+          reject(new DOMException("Aborted", "AbortError"));
+        };
+        controller.signal.addEventListener("abort", abort, { once: true });
+      });
+      if (controller.signal.aborted) return;
+      setResult(answer);
+      setFlight(null);
+      setResults(true);
+    } catch (e) {
+      if (!controller.signal.aborted) {
+        setFlight(null);
+        setError(
+          e instanceof Error
+            ? e.message
+            : "The request failed. Please try again.",
+        );
+      }
+    } finally {
+      if (request.current === controller) {
+        active.current = false;
+        request.current = null;
+      }
+    }
+  }
+  const progress = flight?.reduced
+    ? "Comparing the two paths"
+    : elapsed < 1600
+      ? "Leaving your location"
+      : elapsed < 3500
+        ? "Reaching the uplink gateway"
+        : elapsed < 5400
+          ? "Uplink to the orbital ring"
+          : elapsed < 7800
+            ? "Four laser hops to compute"
+            : elapsed < 10100
+              ? "Following the ground route"
+              : elapsed < JOURNEY_MS
+                ? "Bringing both paths together"
+                : answerReady
+                  ? "Your comparison is ready"
+                  : "Waiting for the AI response";
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <Link href="/" className="brand" aria-label="Starcloud home">
-          <span className="brand-mark">
-            <Icon name="spark" size={25} />
-          </span>
-          starcloud
-          <span className="brand-divider" />
-          <span className="brand-subtitle">SIMULATOR</span>
+    <main
+      className={`simulator ${flight ? "in-flight" : ""} ${results || sources || locations ? "modal-open" : ""}`}
+    >
+      <OrbitalScene
+        origin={origin}
+        site={site}
+        flight={flight}
+        onLocation={setOrigin}
+        focusId={focusId}
+        zoom={zoom}
+        onReady={onReady}
+      />
+      <header className="site-header">
+        <Link href="/" className="wordmark" aria-label="Spacedata home">
+          <span className="brand-orbit" />
+          spacedata<span className="wordmark-dot">.</span>
         </Link>
-        <nav aria-label="Main navigation">
-          <span className="nav-current">Mission control</span>
-          <button className="text-button" onClick={openInfo}>
-            How it works <Icon name="info" size={14} />
-          </button>
-        </nav>
-        <span className="system-status">
-          <span className="status-dot" />
-          {busy ? "Transmission in progress" : "All systems ready"}
-        </span>
+        <button
+          className="about-button"
+          onClick={() => setSources(true)}
+          disabled={Boolean(flight)}
+        >
+          About the experiment <span>↗</span>
+        </button>
       </header>
-      <div className="workspace">
-        <section className="intro">
-          <div>
-            <p className="eyebrow">
-              <span className="tiny-cross">+</span> A NEW PERSPECTIVE ON COMPUTE
-            </p>
-            <h1>
-              Intelligence. <span>Above it all.</span>
-            </h1>
-            <p className="intro-copy">
-              One prompt. Two paths. Explore AI on Earth and in orbit.
-            </p>
-          </div>
-          <button className="intro-link" onClick={openInfo}>
-            Behind the simulation <Icon name="arrow" size={17} />
-          </button>
-        </section>
-        <section className="mission" aria-label="Mission visualization">
-          <div className="mission-toolbar">
-            <span className="mission-title">
-              <Icon name="globe" size={16} /> EARTH TO ORBIT{" "}
-              <span className="preview-badge">CONCEPT VIEW</span>
-            </span>
-            <div className="view-switch" aria-label="Visible routes">
-              {(["both", "space", "ground"] as const).map((value) => (
-                <button
-                  key={value}
-                  aria-pressed={focus === value}
-                  onClick={() => setFocus(value)}
-                >
-                  {value === "both"
-                    ? "Both paths"
-                    : value === "space"
-                      ? "Space"
-                      : "Ground"}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="scene-wrap">
-            <OrbitalScene
-              phase={phase}
-              reducedMotion={reducedMotion || paused}
-              focus={focus}
-            />
-            <aside className="scene-note">
-              <span className="eyebrow">A DIFFERENT KIND OF CLOUD</span>
-              <p>
-                Less footprint.
-                <br />
-                <span>More possibility.</span>
-              </p>
-              <div className="scene-note-rule" />
-              <span className="scene-note-detail">
-                Solar-powered compute.
-                <br />
-                Radiative cooling. Zero cooling water.
-              </span>
-            </aside>
-            <div className="orbit-tag">
-              <span className="status-dot" />
-              <div>
-                Starcloud constellation
-                <small>Illustrative low-Earth orbit</small>
-              </div>
-            </div>
-            <div className="scene-bottom">
-              <span>
-                <span className="legend-dot space-color" />
-                Orbital link <span className="legend-dot ground-color" />
-                Ground link
-              </span>
-              <button
-                className="scene-motion"
-                onClick={() => setPaused(!paused)}
-                aria-pressed={paused}
-              >
-                {paused ? "Resume motion" : "Pause motion"}
-              </button>
-            </div>
-          </div>
-          <div className="journey">
-            <div className="journey-status" role="status">
-              <span className={`status-orb ${busy ? "is-busy" : ""}`}>
-                <Icon
-                  name={phase === "compare" ? "check" : "satellite"}
-                  size={19}
-                />
-              </span>
-              <div>
-                <span className="eyebrow">
-                  {busy
-                    ? "TRANSMISSION IN PROGRESS"
-                    : phase === "compare"
-                      ? "BACK ON EARTH"
-                      : "YOUR NEXT JOURNEY"}
-                </span>
-                <p>
-                  {error && phase === "compare"
-                    ? "Route complete · answer unavailable"
-                    : phaseCopy[phase]}
-                </p>
-              </div>
-            </div>
-            <ol className="journey-steps">
-              {steps.map(([n, name, detail], i) => (
-                <li
-                  key={n}
-                  className={
-                    stepIndex === i
-                      ? "step-active"
-                      : stepIndex > i
-                        ? "step-done"
-                        : ""
-                  }
-                >
-                  <span className="step-number">
-                    {stepIndex > i ? <Icon name="check" size={12} /> : n}
-                  </span>
-                  <div>
-                    <span>{name}</span>
-                    <small>{detail}</small>
-                  </div>
-                  {i < 2 && <Icon name="chevron" size={12} />}
-                </li>
-              ))}
-            </ol>
-          </div>
-        </section>
-        <div className="control-grid">
-          <section className="prompt-card" aria-labelledby="prompt-heading">
-            <div className="card-heading">
-              <h2 id="prompt-heading">
-                <Icon name="spark" size={17} /> Send a little curiosity into
-                space.
-              </h2>
-              <span className="mode-label">
-                {mode === "live" ? "LIVE AI" : "SIMULATION"}
-              </span>
-            </div>
-            <form onSubmit={send} aria-busy={busy}>
-              <div className="composer">
-                <label className="sr-only" htmlFor="prompt">
-                  Your prompt
-                </label>
-                <textarea
-                  ref={promptRef}
-                  id="prompt"
-                  rows={2}
-                  maxLength={CHAT_MAX_CHARS}
-                  value={draft}
-                  disabled={busy}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder="What if the next big idea started in orbit?"
-                  onKeyDown={(e) => {
-                    if (
-                      e.key === "Enter" &&
-                      !e.shiftKey &&
-                      !e.nativeEvent.isComposing
-                    ) {
-                      e.preventDefault();
-                      void send();
-                    }
-                  }}
-                />
-                <button
-                  className="send-button"
-                  type="submit"
-                  disabled={busy || !draft.trim()}
-                >
-                  <span>{busy ? "In flight" : "Send prompt"}</span>
-                  <Icon name="arrow" size={19} />
-                </button>
-              </div>
-              <div className="composer-footer">
-                <span>
-                  {draft.length > 1700
-                    ? `${draft.length} / ${CHAT_MAX_CHARS} characters`
-                    : mode === "live"
-                      ? "Same model. Two answers. A different footprint."
-                      : "Explore the route. No AI answer is generated."}
-                </span>
-                <span className="enter-hint">↵ to send</span>
-              </div>
-            </form>
-            <div className="suggestions">
-              <span>TRY ASKING</span>
-              {["Why compute in space?", "Explain orbital cooling"].map(
-                (text) => (
-                  <button
-                    type="button"
-                    key={text}
-                    disabled={busy}
-                    onClick={() => {
-                      setDraft(text);
-                      promptRef.current?.focus();
-                    }}
-                  >
-                    {text}
-                    <span>↗</span>
-                  </button>
-                ),
-              )}
-            </div>
-            <div className="prompt-options">
-              <div className="mode-switch" aria-label="Prompt mode">
-                <button
-                  aria-pressed={mode === "simulation"}
-                  disabled={busy}
-                  onClick={() => setMode("simulation")}
-                >
-                  Simulation
-                </button>
-                <button
-                  aria-pressed={mode === "live"}
-                  disabled={busy || !liveAvailable}
-                  title={
-                    liveAvailable
-                      ? "Ask Gemini using the server connection"
-                      : "Live AI is available on the deployment with a configured Gemini key"
-                  }
-                  onClick={() => setMode("live")}
-                >
-                  Live AI{" "}
-                  {!liveAvailable && <span className="unavailable-dot" />}
-                </button>
-              </div>
-              {(busy || phase === "compare") && (
-                <button className="text-button" onClick={showBaseline}>
-                  <Icon name={busy ? "stop" : "reset"} size={13} />
-                  {busy ? "Cancel" : "Reset journey"}
-                </button>
-              )}
-            </div>
-          </section>
-          <section className="metrics-card" aria-labelledby="metrics-heading">
-            <div className="card-heading">
-              <h2 id="metrics-heading">The footprint, in real time.</h2>
-              <span className="metric-live">MODELED</span>
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">
-                    <span className="sr-only">Metric</span>
-                  </th>
-                  <th scope="col">
-                    <span className="legend-dot space-color" />
-                    Space
-                  </th>
-                  <th scope="col">
-                    <span className="legend-dot ground-color" />
-                    Ground
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th scope="row">Energy cost</th>
-                  <td>{formatSessionUsd(space.energyCostUsd)}</td>
-                  <td>{formatSessionUsd(ground.energyCostUsd)}</td>
-                </tr>
-                <tr>
-                  <th scope="row">Cooling water</th>
-                  <td>
-                    {formatLiters(space.waterLiters)} <span>L</span>
-                  </td>
-                  <td>
-                    {formatLiters(ground.waterLiters)} <span>L</span>
-                  </td>
-                </tr>
-                <tr>
-                  <th scope="row">Network latency</th>
-                  <td>
-                    {space.latencyMs.toFixed(1)} <span>ms</span>
-                  </td>
-                  <td>
-                    {ground.latencyMs.toFixed(1)} <span>ms</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <p className="metrics-footnote">
-              Cumulative session · 40 MW model{" "}
-              <button onClick={openInfo} aria-label="About the modeled metrics">
-                <Icon name="info" size={13} />
-              </button>
-            </p>
-          </section>
+      {!ready && (
+        <div className="loading-scene" role="status">
+          <span />
+          Preparing your world
         </div>
-        {phase === "compare" && (
-          <div ref={resultRef} className="results-wrap">
-            <InferenceComparison />
+      )}
+      {flight ? (
+        <section className="journey-status" aria-label="Request journey">
+          <div className="journey-step">
+            <span className="live-dot" />
+            {live ? "LIVE REQUEST" : "ROUTE PREVIEW"}
+            <span className="elapsed">{(elapsed / 1000).toFixed(1)} s</span>
           </div>
-        )}
-        <footer className="footer">
-          <span>Built to explore a future beyond Earth.</span>
-          <button onClick={openInfo}>
-            Model assumptions & sources <Icon name="arrow" size={12} />
+          <h1 aria-live="polite">{progress}</h1>
+          <p>
+            {live
+              ? answerReady
+                ? "AI response received · finishing the visual journey"
+                : `${PROVIDERS[provider].name} is processing your message`
+              : "Illustrative travel · no AI request or charge"}
+          </p>
+          <div className="journey-track">
+            <span
+              style={{
+                width: `${Math.min(100, elapsed / (JOURNEY_MS / 100))}%`,
+              }}
+            />
+          </div>
+          <button className="text-button" onClick={cancel}>
+            Cancel journey
           </button>
-          <span className="footer-coordinate">
-            40.7128° N &nbsp; 74.0060° W
-          </span>
-        </footer>
+        </section>
+      ) : (
+        <section className="composer" aria-label="Send a prompt">
+          <div className="composer-heading">
+            <span className="eyebrow">EARTH, OR ORBIT?</span>
+            <h1>
+              Give your next thought
+              <br className="mobile-break" /> a different path.
+            </h1>
+          </div>
+          <form onSubmit={submit} className="prompt-glass">
+            <textarea
+              ref={textarea}
+              aria-label="Your message"
+              placeholder="Ask anything. Watch where it goes."
+              value={prompt}
+              maxLength={2000}
+              rows={2}
+              onChange={(e) => {
+                setPrompt(e.target.value);
+                setError("");
+              }}
+              onKeyDown={(e) => {
+                if (
+                  e.key === "Enter" &&
+                  !e.shiftKey &&
+                  !e.nativeEvent.isComposing
+                ) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
+            <div className="composer-toolbar">
+              <div className="model-select">
+                <span className={`connection-dot ${live ? "connected" : ""}`} />
+                <select
+                  aria-label="AI provider"
+                  value={provider}
+                  onChange={(e) => setProvider(e.target.value as ProviderId)}
+                >
+                  {PROVIDER_IDS.map((id) => (
+                    <option key={id} value={id}>
+                      {PROVIDERS[id].name}
+                      {available.includes(id) ? "" : " · preview"}
+                    </option>
+                  ))}
+                </select>
+                <span className="select-chevron">⌄</span>
+              </div>
+              <button
+                type="button"
+                className="location-button"
+                onClick={() => setLocations(true)}
+                aria-label="Choose your location"
+              >
+                <span>⌖</span>
+                <span>
+                  {Math.abs(origin.lat).toFixed(1)}°
+                  {origin.lat >= 0 ? "N" : "S"} ·{" "}
+                  {Math.abs(origin.lon).toFixed(1)}°
+                  {origin.lon >= 0 ? "E" : "W"}
+                </span>
+              </button>
+              <button
+                type="submit"
+                className="send-button"
+                disabled={!prompt.trim()}
+                aria-label={live ? "Send message" : "Preview route"}
+              >
+                ↑
+              </button>
+            </div>
+          </form>
+          <p className="composer-hint">
+            {live
+              ? "A real AI response. Two modeled paths."
+              : "Route preview · this model is not connected."}{" "}
+            <button onClick={() => setSources(true)}>How it works</button>
+          </p>
+          {error && (
+            <p className="request-error" role="alert">
+              {error}
+            </p>
+          )}
+        </section>
+      )}
+      <div className="map-controls">
+        <span className="map-hint">Drag to explore · hold the pin to move</span>
+        <div>
+          <button
+            onClick={() => setZoom((z) => z + 1)}
+            disabled={Boolean(flight)}
+            aria-label="Zoom in"
+          >
+            +
+          </button>
+          <button
+            onClick={() => setZoom((z) => z - 1)}
+            disabled={Boolean(flight)}
+            aria-label="Zoom out"
+          >
+            −
+          </button>
+          <button
+            onClick={() => setFocusId((v) => v + 1)}
+            disabled={Boolean(flight)}
+            aria-label="Center on your location"
+          >
+            ⌖
+          </button>
+        </div>
       </div>
-      <dialog
-        ref={dialogRef}
-        className="info-dialog"
-        aria-labelledby="dialog-title"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) dialogRef.current?.close();
+      <footer className="site-footer">
+        <span>AN ORBITAL COMPUTE EXPERIMENT</span>
+        <span>
+          made by <strong>Oleh Lahoda</strong>
+        </span>
+      </footer>
+      {locations && (
+        <LocationPicker
+          origin={origin}
+          onClose={() => setLocations(false)}
+          onChoose={(p) => {
+            setOrigin(p);
+            setFocusId((v) => v + 1);
+            setLocations(false);
+          }}
+        />
+      )}
+      {results && (
+        <InferenceComparison
+          result={result}
+          provider={provider}
+          origin={origin}
+          site={site}
+          prompt={submitted}
+          snapshotAt={snapshotAt}
+          joules={joules}
+          onClose={() => {
+            setResults(false);
+            setTimeout(() => textarea.current?.focus(), 0);
+          }}
+          onSources={() => setSources(true)}
+        />
+      )}
+      {sources && (
+        <SourcesNote
+          provider={provider}
+          joules={joules}
+          onJoules={setJoules}
+          onClose={() => setSources(false)}
+        />
+      )}
+    </main>
+  );
+}
+function LocationPicker({
+  origin,
+  onChoose,
+  onClose,
+}: {
+  origin: Location;
+  onChoose: (p: Location) => void;
+  onClose: () => void;
+}) {
+  const [lat, setLat] = useState(origin.lat.toFixed(3)),
+    [lon, setLon] = useState(origin.lon.toFixed(3));
+  return (
+    <Modal title="Where does your thought begin?" onClose={onClose}>
+      <p className="result-intro">
+        Hold the pin and drag it across the globe, double-click the map, or
+        enter any coordinates.
+      </p>
+      <div className="city-grid">
+        {PRESETS.map((p) => (
+          <button key={p.name} onClick={() => onChoose(p)}>
+            {p.name}
+            <span>↗</span>
+          </button>
+        ))}
+      </div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (
+            lat.trim() &&
+            lon.trim() &&
+            Number.isFinite(Number(lat)) &&
+            Number.isFinite(Number(lon))
+          )
+            onChoose({ lat: Number(lat), lon: Number(lon) });
         }}
       >
-        <div className="dialog-content">
-          <button
-            className="close-button"
-            aria-label="Close explanation"
-            onClick={() => dialogRef.current?.close()}
-          >
-            <Icon name="close" />
-          </button>
-          <span className="eyebrow">BEHIND THE SIMULATION</span>
-          <h2 id="dialog-title">
-            Same question.
-            <br />A new perspective.
-          </h2>
-          <p>
-            Follow a prompt from New York to an illustrative orbital
-            constellation and a ground datacenter in Nevada. The view follows
-            your request through uplink, compute, and downlink.
-          </p>
-          <div className="explanation-grid">
-            <div>
-              <Icon name="satellite" />
-              <h3>In orbit</h3>
-              <p>
-                Solar energy supplies compute. Radiators release heat into space
-                without consuming cooling water.
-              </p>
-            </div>
-            <div>
-              <Icon name="globe" />
-              <h3>On Earth</h3>
-              <p>
-                The ground model includes grid electricity and water used for
-                cooling.
-              </p>
-            </div>
-          </div>
-          <p>
-            Distances, satellite positions, and animation timing are
-            illustrative. The network latency values are model assumptions, not
-            measured response times. Counters represent a modeled 40 MW cluster
-            at partial load; they are not your device’s usage or API bill.
-          </p>
-          <p>
-            Simulation mode animates the route without calling an AI. Live AI
-            makes two Gemini requests using the deployment’s server-side key.
-            Both answers come from the same provider—not physical orbital
-            hardware.
-          </p>
-          <SourcesNote />
+        <div className="coordinate-fields">
+          <label>
+            Latitude
+            <input
+              type="number"
+              min="-90"
+              max="90"
+              step="any"
+              required
+              value={lat}
+              onChange={(e) => setLat(e.target.value)}
+            />
+          </label>
+          <label>
+            Longitude
+            <input
+              type="number"
+              min="-180"
+              max="180"
+              step="any"
+              required
+              value={lon}
+              onChange={(e) => setLon(e.target.value)}
+            />
+          </label>
         </div>
-      </dialog>
-    </main>
+        <button className="primary-button" type="submit">
+          Place pin ↗
+        </button>
+      </form>
+    </Modal>
   );
 }

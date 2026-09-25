@@ -1,94 +1,191 @@
 "use client";
-import { useSimulator } from "./simulator-provider";
-import { Icon } from "./icon";
-import { priceTokens } from "@/lib/starcloud/engine";
-
-export function InferenceComparison() {
-  const { prompt, result, error, mode, showBaseline } = useSimulator();
-  const space = priceTokens("space", 1_000_000_000, false);
-  const ground = priceTokens("ground", 1_000_000_000, false);
+import { compare } from "@/lib/starcloud/comparison";
+import {
+  PROVIDERS,
+  type ProviderId,
+  type Location,
+  type Site,
+} from "@/lib/starcloud/catalog";
+import type { ChatSuccessBody } from "@/lib/starcloud/chat-types";
+import { Modal } from "./modal";
+const number = (n: number) =>
+  n === 0
+    ? "0"
+    : n < 0.001
+      ? n.toPrecision(2)
+      : n.toLocaleString(undefined, { maximumFractionDigits: 3 });
+const money = (n: number) => `$${n < 0.0001 ? n.toFixed(8) : n.toFixed(6)}`;
+function Cup({ dry = false }: { dry?: boolean }) {
   return (
-    <section className="comparison" aria-label="Prompt comparison">
-      <div className="comparison-heading">
-        <div>
-          <p className="eyebrow">
-            {mode === "simulation"
-              ? "SIMULATED JOURNEY COMPLETE"
-              : "YOUR RESULTS"}
-          </p>
-          <h2>One question. Two footprints.</h2>
+    <span aria-hidden="true" className={`water-cup ${dry ? "dry" : ""}`}>
+      <span />
+    </span>
+  );
+}
+export function InferenceComparison({
+  result,
+  provider,
+  origin,
+  site,
+  prompt,
+  onClose,
+  onSources,
+  joules,
+  snapshotAt,
+}: {
+  result: ChatSuccessBody | null;
+  provider: ProviderId;
+  origin: Location;
+  site: Site;
+  prompt: string;
+  onClose: () => void;
+  onSources: () => void;
+  joules: number;
+  snapshotAt: number;
+}) {
+  const c = compare(
+    provider,
+    origin,
+    site,
+    result,
+    Math.ceil(prompt.length / 4) + 256,
+    joules,
+    snapshotAt,
+  );
+  const energy = (s: typeof c.ground) =>
+    `${number(s.energyRange[0])}–${number(s.energyRange[1])}`;
+  return (
+    <Modal title="One question. Two paths." wide onClose={onClose}>
+      <p className="result-intro">
+        {result
+          ? "One real AI answer, compared across two infrastructure scenarios."
+          : "Route preview · no API call was made and no AI answer was generated."}
+      </p>
+      <div
+        className="comparison-table"
+        role="table"
+        aria-label="Modeled infrastructure comparison"
+      >
+        <div className="compare-row compare-head" role="row">
+          <span role="columnheader">PER REQUEST</span>
+          <div role="columnheader">
+            <i className="route-key ground" />
+            On Earth<small>{site.name}</small>
+          </div>
+          <div role="columnheader">
+            <i className="route-key" />
+            In orbit<small>Starcloud concept</small>
+          </div>
         </div>
-        <button className="text-button" onClick={showBaseline}>
-          <Icon name="reset" size={14} /> New journey
-        </button>
+        <div className="compare-row" role="row">
+          <div role="rowheader">
+            Electricity cost<small>Modeled · excludes hardware & API fee</small>
+          </div>
+          <strong role="cell">{money(c.ground.powerCostUsd)}</strong>
+          <strong role="cell">{money(c.space.powerCostUsd)}</strong>
+        </div>
+        <div className="compare-row water-row" role="row">
+          <div role="rowheader">
+            Cooling water<small>On-site consumption · sensitivity range</small>
+          </div>
+          <div role="cell" className="water-value">
+            <Cup />
+            <strong>
+              {number(c.ground.waterMl[0])}–{number(c.ground.waterMl[1])}
+              <small>mL</small>
+            </strong>
+          </div>
+          <div role="cell" className="water-value">
+            <Cup dry />
+            <strong>
+              0<small>mL · closed-loop assumption</small>
+            </strong>
+          </div>
+        </div>
+        <div className="compare-row" role="row">
+          <div role="rowheader">
+            Network round trip<small>Modeled · excludes AI processing</small>
+          </div>
+          <strong role="cell">
+            {c.ground.rttMs.toFixed(1)}
+            <small>ms</small>
+          </strong>
+          <strong role="cell">
+            {c.space.rttMs.toFixed(1)}
+            <small>ms</small>
+          </strong>
+        </div>
+        <div className="compare-row" role="row">
+          <div role="rowheader">
+            Facility energy<small>Modeled · sensitivity range</small>
+          </div>
+          <strong role="cell">
+            {energy(c.ground)}
+            <small>Wh</small>
+          </strong>
+          <strong role="cell">
+            {energy(c.space)}
+            <small>Wh</small>
+          </strong>
+        </div>
       </div>
-      <p className="quoted-prompt">“{prompt}”</p>
-      {error ? (
-        <div role="alert" className="error-message">
-          <Icon name="info" />
-          <div>
-            <h3>We couldn’t get the live answers.</h3>
-            <p>{error}</p>
-            <p>
-              Your prompt is still in the composer. Send it again, or switch to
-              Simulation.
-            </p>
-          </div>
+      <div className="measured-strip">
+        <div>
+          <span>{result ? "API response time" : "AI response time"}</span>
+          <strong>
+            {result
+              ? `${(result.latencyMs / 1000).toFixed(2)} s`
+              : "Not measured"}
+          </strong>
         </div>
-      ) : result ? (
-        <>
-          <p className="answer-caption">
-            Two independent answers from {result.model}. Infrastructure metrics
-            are simulated.
-          </p>
-          <div className="answer-grid">
-            {(["space", "ground"] as const).map((venue) => (
-              <article key={venue}>
-                <h3>
-                  <Icon
-                    name={venue === "space" ? "satellite" : "globe"}
-                    size={18}
-                  />
-                  {venue === "space" ? "Space" : "Ground"}
-                  <span>
-                    {result[venue].totalTokens.toLocaleString()} tokens
-                    {result[venue].usageEstimated ? " · estimated" : ""}
-                  </span>
-                </h3>
-                <p>{result[venue].text}</p>
-              </article>
-            ))}
-          </div>
-        </>
-      ) : (
-        <p className="simulation-complete">
-          <Icon name="check" size={17} /> Your prompt completed both simulated
-          routes. Switch to Live AI for generated answers when a server
-          connection is available.
+        <div>
+          <span>
+            {c.estimated ? "Illustrative tokens" : "Provider-reported tokens"}
+          </span>
+          <strong>{c.tokens.toLocaleString()}</strong>
+        </div>
+        <div>
+          <span>Shared API fee estimate</span>
+          <strong>
+            {c.apiCostUsd !== null ? money(c.apiCostUsd) : "No charge"}
+          </strong>
+        </div>
+      </div>
+      {result && (
+        <details className="answer" open>
+          <summary>
+            {PROVIDERS[provider].name}’s answer <span>↗</span>
+          </summary>
+          <p>{result.answer.text}</p>
+          <small>
+            {result.answer.promptTokens} input ·{" "}
+            {result.answer.completionTokens} output · {result.model}
+            <br />
+            Measured at {new Date(result.completedAt).toLocaleTimeString()}. No
+            prompt history is stored by this app.
+          </small>
+        </details>
+      )}
+      {!result && (
+        <p className="preview-explanation">
+          The preview assumes your input plus 256 output tokens. Connect{" "}
+          {PROVIDERS[provider].company} to compare a real workload.
         </p>
       )}
-      <div className="comparison-stats">
-        <div>
-          <span>ENERGY COST / 1B TOKENS</span>
-          <strong>
-            ${space.energyCostUsd.toFixed(2)} <small>space</small>
-            <i> / </i>${ground.energyCostUsd.toFixed(2)} <small>ground</small>
-          </strong>
-        </div>
-        <div>
-          <span>COOLING WATER / 1B TOKENS</span>
-          <strong>
-            0 L <small>space</small>
-            <i> / </i>
-            {ground.waterLiters.toFixed(1)} L <small>ground</small>
-          </strong>
-        </div>
-        <p>
-          Same workload, modeled at scale.
-          <br />
-          Energy cost excludes hardware and API fees.
-        </p>
+      <p className="result-note">
+        This is a counterfactual comparison, not two live datacenter runs. The
+        actual serving location, energy, water and orbital response time are not
+        observable. Orbital price is a 2024 projection; total ownership cost and
+        launch impacts are excluded.
+      </p>
+      <div className="dialog-actions">
+        <button className="text-button" onClick={onSources}>
+          Sources & assumptions ↗
+        </button>
+        <button className="primary-button" onClick={onClose}>
+          Try another question <span>↗</span>
+        </button>
       </div>
-    </section>
+    </Modal>
   );
 }

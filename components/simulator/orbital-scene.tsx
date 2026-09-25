@@ -1,322 +1,825 @@
 "use client";
-
-import { memo } from "react";
-import { geoGraticule10, geoOrthographic, geoPath } from "d3-geo";
-import { feature, mesh } from "topojson-client";
-import type { GeometryCollection, Topology } from "topojson-specification";
-import atlas from "world-atlas/countries-110m.json";
-import type { RoutePhase } from "@/lib/starcloud/route-timeline";
-
-const world = atlas as unknown as Topology<{
-  countries: GeometryCollection;
-  land: GeometryCollection;
-}>;
-const projection = geoOrthographic()
-  .translate([600, 773])
-  .scale(490)
-  .rotate([104, -9, -17])
-  .precision(0.3);
-const path = geoPath(projection);
-const landPath = path(feature(world, world.objects.land)) ?? "";
-const borderPath =
-  path(mesh(world, world.objects.countries, (a, b) => a !== b)) ?? "";
-const gridPath = path(geoGraticule10()) ?? "";
-const origin = projection([-74.006, 40.7128])!;
-const ground = projection([-119.8, 39.5])!;
-const satellites = [
-  [137, 340, -43],
-  [216, 248, -33],
-  [316, 180, -24],
-  [427, 136, -13],
-  [544, 116, -3],
-  [663, 121, 8],
-  [778, 148, 20],
-  [887, 199, 30],
-  [980, 270, 40],
-  [1056, 360, 49],
-];
-const routes = {
-  uplink: `M${origin} Q${origin[0] - 40},290 427,136`,
-  relay: "M427,136 Q601,86 778,148",
-  downlink: `M778,148 Q${origin[0] + 72},320 ${origin}`,
-  ground: `M${origin} Q${(origin[0] + ground[0]) / 2},${Math.min(origin[1], ground[1]) - 65} ${ground}`,
+import { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { type Location, type Site } from "@/lib/starcloud/catalog";
+export type Flight = { id: number; started: number; reduced: boolean };
+type Props = {
+  origin: Location;
+  site: Site;
+  flight: Flight | null;
+  onLocation: (p: Location) => void;
+  focusId: number;
+  zoom: number;
+  onReady: () => void;
 };
-const labels: [string, [number, number]][] = [
-  ["CANADA", [-108, 57]],
-  ["UNITED STATES", [-99, 37]],
-  ["GREENLAND", [-42, 69]],
-  ["MEXICO", [-103, 23]],
-];
-
-export const OrbitalScene = memo(function OrbitalScene({
-  phase = "idle",
-  reducedMotion = false,
-  focus = "both",
-}: {
-  phase?: RoutePhase;
-  reducedMotion?: boolean;
-  focus?: "both" | "space" | "ground";
-}) {
-  const flying = phase !== "idle" && phase !== "compare";
-  const activePath =
-    phase === "uplink" ? "uplink" : phase === "split" ? "relay" : "downlink";
-  return (
-    <svg
-      className={`globe-scene phase-${phase} focus-${focus} ${reducedMotion ? "reduce-motion" : ""}`}
-      viewBox="0 0 1200 650"
-      role="img"
-      aria-label="Earth with Canada, the United States and Greenland. A prompt travels from New York to an arc of satellites, across an orbital link, and back to Earth. A second route connects to a Nevada datacenter."
-    >
-      <defs>
-        <radialGradient id="ocean" cx="44%" cy="5%" r="80%">
-          <stop stopColor="#172b33" />
-          <stop offset=".55" stopColor="#0d1d27" />
-          <stop offset="1" stopColor="#090f18" />
-        </radialGradient>
-        <linearGradient id="land" x2=".4" y2="1">
-          <stop stopColor="#455d55" />
-          <stop offset=".65" stopColor="#243f3d" />
-          <stop offset="1" stopColor="#132b2f" />
-        </linearGradient>
-        <radialGradient id="shade" cx="46%" cy="0%" r="84%">
-          <stop offset=".2" stopColor="#050b13" stopOpacity="0" />
-          <stop offset="1" stopColor="#050b13" stopOpacity=".88" />
-        </radialGradient>
-        <filter id="glow">
-          <feGaussianBlur stdDeviation="5" />
-        </filter>
-        <pattern id="dots" width="6" height="6" patternUnits="userSpaceOnUse">
-          <circle cx="1" cy="1" r=".65" fill="#adc9ad" opacity=".27" />
-        </pattern>
-        <clipPath id="earth-clip">
-          <circle cx="600" cy="773" r="490" />
-        </clipPath>
-        {Object.entries(routes).map(([id, d]) => (
-          <path key={id} id={`path-${id}`} d={d} />
-        ))}
-      </defs>
-      <g>
-        {Array.from({ length: 90 }, (_, i) => (
-          <circle
-            key={i}
-            cx={(i * 137.51 + 29) % 1200}
-            cy={(i * 81.17 + 71) % 620}
-            r={i % 6 === 0 ? 1.1 : 0.6}
-            opacity={0.1 + (i % 4) * 0.1}
-            fill="#bacfda"
-          />
-        ))}
-      </g>
-      <circle
-        cx="600"
-        cy="773"
-        r="492"
-        fill="none"
-        stroke="#8bd4c5"
-        strokeWidth="8"
-        opacity=".15"
-        filter="url(#glow)"
-      />
-      <circle
-        cx="600"
-        cy="773"
-        r="490"
-        fill="url(#ocean)"
-        stroke="#8eb7ac"
-        strokeWidth="1.3"
-      />
-      <g clipPath="url(#earth-clip)">
-        <path
-          d={landPath}
-          fill="url(#land)"
-          stroke="#91a995"
-          strokeWidth=".65"
-        />
-        <path d={landPath} fill="url(#dots)" />
-        <path
-          d={borderPath}
-          fill="none"
-          stroke="#89a193"
-          strokeWidth=".65"
-          opacity=".5"
-        />
-        <path
-          d={gridPath}
-          fill="none"
-          stroke="#9ebfbe"
-          strokeWidth=".5"
-          opacity=".12"
-        />
-        <circle cx="600" cy="773" r="490" fill="url(#shade)" />
-      </g>
-      {labels.map(([name, coordinates]) => {
-        const point = projection(coordinates)!;
-        return (
-          <text
-            key={name}
-            x={point[0]}
-            y={point[1]}
-            textAnchor="middle"
-            className="country-label"
-          >
-            {name}
-          </text>
-        );
-      })}
-      <path
-        d="M92 398 Q590 -188 1100 416"
-        fill="none"
-        stroke="#a0b5bf"
-        strokeWidth=".7"
-        strokeDasharray="3 7"
-        opacity=".22"
-      />
-      <text x="598" y="66" textAnchor="middle" className="orbit-caption">
-        THE ORBITAL COMPUTE LAYER
-      </text>
-      <g className="space-paths">
-        {(["uplink", "relay", "downlink"] as const).map((id) => (
-          <path
-            key={id}
-            d={routes[id]}
-            pathLength="1"
-            className={`route-line ${flying && activePath === id ? "route-active" : ""}`}
-          />
-        ))}
-        {phase === "split" && (
-          <circle
-            cx="778"
-            cy="148"
-            r="29"
-            className="compute-pulse"
-            fill="none"
-            stroke="#c4efb1"
-          />
-        )}
-      </g>
-      {satellites.map(([x, y, angle], i) => (
-        <g
-          key={i}
-          transform={`translate(${x} ${y}) rotate(${angle})`}
-          className={`satellite ${i === 3 || i === 6 ? "selected-satellite" : ""}`}
-        >
-          <g
-            className="satellite-body"
-            style={{ animationDelay: `${i * -0.7}s` }}
-          >
-            <rect
-              x="-27"
-              y="-10"
-              width="18"
-              height="20"
-              rx="1"
-              fill="#1e303c"
-              stroke="#6c8492"
-              strokeWidth=".9"
-            />
-            <rect
-              x="9"
-              y="-10"
-              width="18"
-              height="20"
-              rx="1"
-              fill="#1e303c"
-              stroke="#6c8492"
-              strokeWidth=".9"
-            />
-            <path
-              d="M-21 -10v20m6-20v20m30-20v20m6-20v20M-27 0h18m18 0h18"
-              stroke="#708996"
-              strokeWidth=".55"
-            />
-            <path d="M-9 0H9M0 -8v-8" stroke="#b3c5ca" strokeWidth="1.2" />
-            <rect
-              x="-5"
-              y="-8"
-              width="10"
-              height="16"
-              rx="2"
-              fill="#aebeaf"
-              stroke="#e2e9d3"
-              strokeWidth=".6"
-            />
-            <circle cy="-17" r="1.5" fill="#c7efb3" />
-          </g>
-        </g>
-      ))}
-      <g className="ground-paths">
-        <path
-          d={routes.ground}
-          className={`ground-route ${flying ? "route-active" : ""}`}
-        />
-        <g transform={`translate(${ground})`}>
-          <circle r="18" fill="#bcb1e5" opacity=".07" />
-          <rect
-            x="-7"
-            y="-9"
-            width="14"
-            height="17"
-            rx="2"
-            fill="#17232e"
-            stroke="#c0b9df"
-          />
-          <path d="M-4 -5h8m-8 5h8m-8 5h8" stroke="#b6b2e3" />
-          <text x="-19" y="28" textAnchor="end" className="map-label">
-            NEVADA
-          </text>
-          <text x="-19" y="44" textAnchor="end" className="map-sublabel">
-            GROUND DATACENTER
-          </text>
-        </g>
-      </g>
-      <g transform={`translate(${origin})`}>
-        <circle r="23" fill="#c5f4b2" opacity=".06" />
-        <circle
-          className={flying ? "origin-ring pulse" : "origin-ring"}
-          r="13"
-          fill="none"
-          stroke="#c5f4b2"
-          opacity=".4"
-        />
-        <circle r="5" fill="#c5f4b2" />
-        <circle r="2" fill="#fff" />
-        <path d="M-14 2h-10l-8 14" fill="none" stroke="#c5f4b2" opacity=".55" />
-        <text x="-38" y="29" textAnchor="end" className="map-label">
-          NEW YORK
-        </text>
-        <text x="-38" y="46" textAnchor="end" className="map-sublabel">
-          YOUR PROMPT STARTS HERE
-        </text>
-      </g>
-      {!reducedMotion && flying && (
-        <g key={phase}>
-          <circle r="4" fill="#e7ffd4" className="space-packet">
-            <animateMotion
-              dur={
-                phase === "uplink"
-                  ? "1.6s"
-                  : phase === "split"
-                    ? "2.4s"
-                    : "2.1s"
-              }
-              repeatCount="indefinite"
-            >
-              <mpath href={`#path-${activePath}`} />
-            </animateMotion>
-          </circle>
-          <circle r="3" fill="#d2c6f1" className="ground-packet">
-            <animateMotion
-              dur="2.1s"
-              repeatCount="indefinite"
-              keyPoints={phase === "pullback" ? "1;0" : "0;1"}
-              keyTimes="0;1"
-              calcMode="linear"
-            >
-              <mpath href="#path-ground" />
-            </animateMotion>
-          </circle>
-        </g>
-      )}
-    </svg>
+import {
+  orbitalNodes,
+  routeAt,
+  NODE_COUNT,
+  JOURNEY_MS,
+} from "@/lib/starcloud/network";
+const R = 3.5;
+function position(p: Location, r = R) {
+  const lat = (p.lat * Math.PI) / 180,
+    lon = (p.lon * Math.PI) / 180;
+  return new THREE.Vector3(
+    Math.cos(lat) * Math.sin(lon),
+    Math.sin(lat),
+    Math.cos(lat) * Math.cos(lon),
+  ).multiplyScalar(r);
+}
+function location(v: THREE.Vector3): Location {
+  const n = v.clone().normalize();
+  return {
+    lat: (Math.asin(n.y) * 180) / Math.PI,
+    lon: (Math.atan2(n.x, n.z) * 180) / Math.PI,
+  };
+}
+function line(
+  points: THREE.Vector3[],
+  color: number,
+  opacity = 1,
+  dashed = false,
+) {
+  const g = new THREE.BufferGeometry().setFromPoints(points);
+  const m = dashed
+    ? new THREE.LineDashedMaterial({
+        color,
+        transparent: true,
+        opacity,
+        dashSize: 0.035,
+        gapSize: 0.045,
+      })
+    : new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+  const l = new THREE.Line(g, m);
+  if (dashed) l.computeLineDistances();
+  return l;
+}
+function disposeTree(root: THREE.Object3D) {
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    mesh.geometry?.dispose();
+    if (mesh.material)
+      (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).forEach(
+        (m) => m.dispose(),
+      );
+  });
+}
+function satellite() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(0.11, 0.15, 0.1),
+    new THREE.MeshStandardMaterial({
+      color: 0xb5bcc3,
+      metalness: 0.7,
+      roughness: 0.38,
+    }),
   );
-});
+  group.add(body);
+  for (const side of [-1, 1]) {
+    const wing = new THREE.Mesh(
+      new THREE.BoxGeometry(0.23, 0.12, 0.008),
+      new THREE.MeshStandardMaterial({
+        color: 0x293039,
+        metalness: 0.4,
+        roughness: 0.7,
+      }),
+    );
+    wing.position.x = side * 0.19;
+    group.add(wing);
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(wing.geometry),
+      new THREE.LineBasicMaterial({ color: 0x818b94 }),
+    );
+    edges.position.copy(wing.position);
+    group.add(edges);
+    for (let i = 0; i < 5; i++)
+      group.add(
+        line(
+          [
+            new THREE.Vector3(side * 0.08 + side * i * 0.045, -0.06, 0.006),
+            new THREE.Vector3(side * 0.08 + side * i * 0.045, 0.06, 0.006),
+          ],
+          0x65717d,
+          0.7,
+        ),
+      );
+    const radiator = new THREE.Mesh(
+      new THREE.BoxGeometry(0.055, 0.12, 0.008),
+      new THREE.MeshStandardMaterial({ color: 0x69717b }),
+    );
+    radiator.position.set(side * 0.065, -0.13, 0);
+    group.add(radiator);
+  }
+  const dish = new THREE.Mesh(
+    new THREE.ConeGeometry(0.045, 0.035, 16, 1, true),
+    new THREE.MeshStandardMaterial({ color: 0xdce1e5, side: THREE.DoubleSide }),
+  );
+  dish.rotation.x = Math.PI / 2;
+  dish.position.z = 0.075;
+  group.add(dish);
+  return group;
+}
+export function OrbitalScene(props: Props) {
+  const host = useRef<HTMLDivElement>(null),
+    pin = useRef<HTMLButtonElement>(null),
+    groundLabel = useRef<HTMLDivElement>(null),
+    spaceLabel = useRef<HTMLDivElement>(null),
+    relayLabel = useRef<HTMLDivElement>(null),
+    gatewayLabel = useRef<HTMLDivElement>(null),
+    latest = useRef(props);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    latest.current = props;
+  }, [props]);
+  useEffect(() => {
+    const el = host.current;
+    if (!el) return;
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+        powerPreference: "low-power",
+      });
+    } catch {
+      const fallback = window.setTimeout(() => {
+        setError(
+          "3D is unavailable in this browser. You can still choose a location and compare a request.",
+        );
+        latest.current.onReady();
+      }, 0);
+      return () => clearTimeout(fallback);
+    }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.8));
+    renderer.setClearColor(0x020304, 1);
+    renderer.domElement.setAttribute(
+      "aria-label",
+      "Interactive Earth. Drag to rotate, scroll to zoom, double-click to move your pin.",
+    );
+    renderer.domElement.setAttribute("role", "img");
+    el.prepend(renderer.domElement);
+    const homeDistance = el.clientWidth < 700 ? 9.8 : 7.8,
+      homeOffset = el.clientWidth < 700 ? 0.25 : 0.4;
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(43, 1, 0.05, 100);
+    camera.position.copy(position({ lat: 8, lon: -91 }, homeDistance));
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.065;
+    controls.enablePan = false;
+    controls.minDistance = 4.7;
+    controls.maxDistance = 15;
+    controls.rotateSpeed = 0.5;
+    controls.zoomSpeed = 0.55;
+    scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+    const sun = new THREE.DirectionalLight(0xffffff, 3);
+    sun.position.set(-5, 9, 7);
+    scene.add(sun);
+    const earth = new THREE.Mesh(
+      new THREE.SphereGeometry(R, 96, 64),
+      new THREE.MeshBasicMaterial({ color: 0x0b0e11 }),
+    );
+    scene.add(earth);
+    const atmosphere = new THREE.Mesh(
+      new THREE.SphereGeometry(R * 1.006, 96, 64),
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        uniforms: {},
+        vertexShader:
+          "varying vec3 n; varying vec3 v; void main(){vec4 mv=modelViewMatrix*vec4(position,1.0); n=normalize(normalMatrix*normal); v=normalize(-mv.xyz); gl_Position=projectionMatrix*mv;}",
+        fragmentShader:
+          "varying vec3 n; varying vec3 v; void main(){float rim=pow(1.0-max(0.0,dot(n,v)),5.0); gl_FragColor=vec4(vec3(0.6,0.67,0.73),rim*0.28);}",
+      }),
+    );
+    scene.add(atmosphere);
+    const abort = new AbortController();
+    let disposed = false;
+    fetch("/globe-land.json", { signal: abort.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error("map");
+        return r.json();
+      })
+      .then(
+        (data: {
+          dots: [number, number][];
+          borderDots: [number, number][];
+        }) => {
+          if (disposed) return;
+          for (const [coordinates, color, opacity] of [
+            [data.dots, 0x8795a1, 0.63],
+            [data.borderDots, 0xf1f6fa, 0.95],
+          ] as const) {
+            scene.add(
+              new THREE.Points(
+                new THREE.BufferGeometry().setFromPoints(
+                  coordinates.map(([lon, lat]) =>
+                    position({ lat, lon }, R + 0.018),
+                  ),
+                ),
+                new THREE.PointsMaterial({
+                  color,
+                  size: 0.017,
+                  transparent: true,
+                  opacity,
+                  sizeAttenuation: true,
+                }),
+              ),
+            );
+          }
+          latest.current.onReady();
+        },
+      )
+      .catch((e) => {
+        if (e.name !== "AbortError") {
+          setError(
+            "Map detail could not load. Reload to restore country outlines.",
+          );
+          latest.current.onReady();
+        }
+      });
+    // Connected optical ring. Every straight link joins immediate neighbors and clears Earth.
+    const front = position({ lat: 8, lon: -91 }, 1),
+      right = new THREE.Vector3()
+        .crossVectors(new THREE.Vector3(0, 1, 0), front)
+        .normalize();
+    const ring = new THREE.Group();
+    scene.add(ring);
+    const satellites = Array.from({ length: NODE_COUNT }, () => {
+      const node = satellite();
+      node.scale.setScalar(0.78);
+      ring.add(node);
+      return node;
+    });
+    const ringGeometry = new THREE.BufferGeometry();
+    ringGeometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array(NODE_COUNT * 6), 3),
+    );
+    const ringMaterial = new THREE.LineBasicMaterial({
+      color: 0x9bacba,
+      transparent: true,
+      opacity: 0.19,
+    });
+    ring.add(new THREE.LineSegments(ringGeometry, ringMaterial));
+    const starPositions: number[] = [],
+      starColors: number[] = [];
+    let seed = 917;
+    const random = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+    for (let i = 0; i < 1500; i++) {
+      const u = random() * 2 - 1,
+        a = random() * Math.PI * 2,
+        r = 30;
+      starPositions.push(
+        r * Math.sqrt(1 - u * u) * Math.cos(a),
+        r * u,
+        r * Math.sqrt(1 - u * u) * Math.sin(a),
+      );
+      const brightness = 0.25 + random() * 0.55;
+      starColors.push(brightness, brightness, brightness);
+    }
+    const starsGeometry = new THREE.BufferGeometry();
+    starsGeometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(starPositions, 3),
+    );
+    starsGeometry.setAttribute(
+      "color",
+      new THREE.Float32BufferAttribute(starColors, 3),
+    );
+    scene.add(
+      new THREE.Points(
+        starsGeometry,
+        new THREE.PointsMaterial({
+          size: 0.085,
+          sizeAttenuation: true,
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.8,
+          depthWrite: false,
+        }),
+      ),
+    );
+    const originMarker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.033, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0x78b8ee }),
+    );
+    scene.add(originMarker);
+    const routeGroup = new THREE.Group();
+    scene.add(routeGroup);
+    let groundPath: THREE.Vector3[] = [],
+      spacePath: THREE.Vector3[] = [];
+    const groundDot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.032, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0x86b5d5 }),
+    );
+    const spaceDot = groundDot.clone();
+    spaceDot.material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    scene.add(groundDot, spaceDot);
+    let compute = satellites[0],
+      relay = satellites[1];
+    const gateway = new THREE.Mesh(
+      new THREE.ConeGeometry(0.055, 0.085, 16, 1, true),
+      new THREE.MeshStandardMaterial({
+        color: 0xc8dae7,
+        side: THREE.DoubleSide,
+      }),
+    );
+    scene.add(gateway);
+    const dc = new THREE.Group();
+    for (let i = 0; i < 3; i++) {
+      const rack = new THREE.Mesh(
+        new THREE.BoxGeometry(0.055, 0.1, 0.05),
+        new THREE.MeshStandardMaterial({ color: 0x8d969e }),
+      );
+      rack.position.x = (i - 1) * 0.072;
+      dc.add(rack);
+    }
+    scene.add(dc);
+    let lastRoute = "",
+      lastFocus = latest.current.focusId,
+      lastZoom = latest.current.zoom,
+      lastFlight = 0;
+    const motionPreference = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    );
+    const epoch = Date.now(),
+      startClock = performance.now();
+    const idleCamera = camera.position.clone(),
+      idleTarget = new THREE.Vector3();
+    let drag = false,
+      pointerId = -1;
+    const raycaster = new THREE.Raycaster(),
+      pointer = new THREE.Vector2();
+    const hit = (event: PointerEvent | MouseEvent) => {
+      const rect = el.getBoundingClientRect();
+      pointer.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        (-(event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      raycaster.setFromCamera(pointer, camera);
+      return raycaster.intersectObject(earth)[0]?.point;
+    };
+    const move = (e: PointerEvent) => {
+      if (!drag) return;
+      const point = hit(e);
+      if (point) latest.current.onLocation(location(point));
+    };
+    const down = (e: PointerEvent) => {
+      if (latest.current.flight) return;
+      e.stopPropagation();
+      drag = true;
+      pointerId = e.pointerId;
+      controls.enabled = false;
+      pin.current?.setPointerCapture(e.pointerId);
+      pin.current?.classList.add("dragging");
+    };
+    const end = () => {
+      drag = false;
+      controls.enabled = !latest.current.flight;
+      pin.current?.classList.remove("dragging");
+      if (pointerId >= 0 && pin.current?.hasPointerCapture(pointerId))
+        pin.current.releasePointerCapture(pointerId);
+      pointerId = -1;
+    };
+    const place = (e: MouseEvent) => {
+      if (latest.current.flight) return;
+      const point = hit(e);
+      if (point) latest.current.onLocation(location(point));
+    };
+    const button = pin.current;
+    button?.addEventListener("pointerdown", down);
+    button?.addEventListener("pointermove", move);
+    button?.addEventListener("pointerup", end);
+    button?.addEventListener("pointercancel", end);
+    renderer.domElement.addEventListener("dblclick", place);
+    const contextLost = (e: Event) => {
+      e.preventDefault();
+      setError(
+        "The 3D scene paused. Reload to restore it; the comparison is still available.",
+      );
+    };
+    renderer.domElement.addEventListener("webglcontextlost", contextLost);
+    let width = 1,
+      height = 1;
+    const resize = () => {
+      width = el.clientWidth;
+      height = el.clientHeight;
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+    const ro = new ResizeObserver(resize);
+    ro.observe(el);
+    resize();
+    let frame = 0;
+    let lastOffset = homeOffset;
+    let returning: {
+      started: number;
+      camera: THREE.Vector3;
+      target: THREE.Vector3;
+      offset: number;
+    } | null = null;
+    const smooth = (t: number) => {
+      t = Math.min(1, Math.max(0, t));
+      return t * t * (3 - 2 * t);
+    };
+    const labelBoxes: {
+      left: number;
+      right: number;
+      top: number;
+      bottom: number;
+    }[] = [];
+    const project = (
+      node: HTMLElement | null,
+      v: THREE.Vector3,
+      show = true,
+    ) => {
+      if (!node) return;
+      const point = v.clone().project(camera),
+        anchorX = (point.x * 0.5 + 0.5) * width,
+        anchorY = (-point.y * 0.5 + 0.5) * height;
+      const isPin = node === pin.current;
+      const nodeWidth = node.offsetWidth,
+        nodeHeight = node.offsetHeight;
+      let x = anchorX,
+        y = anchorY;
+      if (node === groundLabel.current) {
+        x -= width < 700 ? 85 : 130;
+        y -= 5;
+      }
+      if (node === gatewayLabel.current) {
+        x += 90;
+        y -= 30;
+      }
+      if (!isPin)
+        x = Math.max(
+          nodeWidth / 2 + 16,
+          Math.min(width - nodeWidth / 2 - 16, x),
+        );
+      let box = {
+        left: x - nodeWidth / 2,
+        right: x + nodeWidth / 2,
+        top: y - nodeHeight,
+        bottom: y + 20,
+      };
+      if (!isPin) {
+        for (let i = 0; i < 4; i++) {
+          if (
+            !labelBoxes.some(
+              (b) =>
+                box.left < b.right + 12 &&
+                box.right > b.left - 12 &&
+                box.top < b.bottom + 10 &&
+                box.bottom > b.top - 10,
+            )
+          )
+            break;
+          y -= nodeHeight + 18;
+          box = { ...box, top: y - nodeHeight, bottom: y + 12 };
+        }
+      }
+      const composer = el.parentElement
+        ?.querySelector(".composer, .journey-status")
+        ?.getBoundingClientRect();
+      if (
+        !isPin &&
+        composer &&
+        box.right > composer.left - 10 &&
+        box.left < composer.right + 10 &&
+        box.bottom > composer.top - 2 &&
+        box.top < composer.bottom + 15
+      ) {
+        y = composer.top - 30;
+        box = { ...box, top: y - nodeHeight, bottom: y + 12 };
+      }
+      const obscured =
+        composer &&
+        box.right > composer.left - 10 &&
+        box.left < composer.right + 10 &&
+        box.bottom > composer.top - 2 &&
+        box.top < composer.bottom + 15;
+      const visible =
+        show &&
+        !obscured &&
+        box.top > 82 &&
+        box.bottom < height - 62 &&
+        anchorX > 0 &&
+        anchorX < width &&
+        v.clone().normalize().dot(camera.position.clone().sub(v).normalize()) >
+          -0.02 &&
+        point.z < 1;
+      if (node === groundLabel.current) {
+        const dx = anchorX - (x + nodeWidth / 2),
+          dy = anchorY - (y - nodeHeight / 2);
+        node.style.setProperty("--leader-length", `${Math.hypot(dx, dy)}px`);
+        node.style.setProperty("--leader-angle", `${Math.atan2(dy, dx)}rad`);
+      }
+      node.style.visibility = visible ? "visible" : "hidden";
+      node.style.transform = `translate(${x}px,${y}px) translate(-50%,-100%)`;
+      if (visible) labelBoxes.push(box);
+    };
+    function render(now: number) {
+      if (disposed) return;
+      frame = requestAnimationFrame(render);
+      const p = latest.current;
+      const networkTime = motionPreference.matches
+        ? epoch
+        : epoch + now - startClock;
+      const orbital = orbitalNodes(networkTime);
+      const lockedRoute = p.flight ? routeAt(p.origin, p.flight.id) : null;
+      const network = lockedRoute ?? routeAt(p.origin, networkTime);
+      const linkPositions = ringGeometry.attributes
+        .position as THREE.BufferAttribute;
+      for (let i = 0; i < NODE_COUNT; i++) {
+        const a = position(orbital[i], 4.55),
+          b = position(orbital[(i + 1) % NODE_COUNT], 4.55);
+        satellites[i].position.copy(a);
+        satellites[i].lookAt(a.clone().add(front));
+        satellites[i].rotateZ(Math.sin(networkTime / 1000000 + i) * 0.12);
+        linkPositions.setXYZ(i * 2, a.x, a.y, a.z);
+        linkPositions.setXYZ(i * 2 + 1, b.x, b.y, b.z);
+      }
+      linkPositions.needsUpdate = true;
+      compute = satellites[network.compute];
+      relay = satellites[network.ingress];
+      const gatewayLocation = orbital[network.ingress];
+      gateway.position.copy(position(gatewayLocation, R + 0.035));
+      gateway.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        gateway.position.clone().normalize(),
+      );
+      // Update moving endpoints at 5 Hz, plus immediately on pin/provider changes.
+      const routeKey = `${p.origin.lat.toFixed(4)},${p.origin.lon.toFixed(4)},${p.site.name},${Math.floor(networkTime / 200)}`;
+      if (routeKey !== lastRoute) {
+        lastRoute = routeKey;
+        const origin = position(p.origin, R + 0.035),
+          destination = position(p.site, R + 0.035);
+        originMarker.position.copy(origin);
+        dc.position.copy(destination);
+        dc.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0, 1, 0),
+          destination.clone().normalize(),
+        );
+        disposeTree(routeGroup);
+        routeGroup.clear();
+        const surface = (from: THREE.Vector3, to: THREE.Vector3) => {
+          const a = from.clone().normalize(),
+            b = to.clone().normalize(),
+            axis = new THREE.Vector3().crossVectors(a, b);
+          if (axis.lengthSq() < 1e-8)
+            axis.crossVectors(a, new THREE.Vector3(0, 1, 0));
+          if (axis.lengthSq() < 1e-8) axis.set(1, 0, 0);
+          axis.normalize();
+          const angle = a.angleTo(b);
+          return Array.from({ length: 129 }, (_, i) =>
+            a
+              .clone()
+              .applyAxisAngle(axis, (angle * i) / 128)
+              .multiplyScalar(
+                R + 0.035 + Math.sin((Math.PI * i) / 128) * 0.025,
+              ),
+          );
+        };
+        groundPath = surface(origin, destination);
+        const gatewayPath = surface(origin, gateway.position);
+        spacePath = [...gatewayPath];
+        const ingress = relay.position.clone();
+        for (let i = 1; i <= 48; i++)
+          spacePath.push(gateway.position.clone().lerp(ingress, i / 48));
+        routeGroup.add(
+          line(groundPath, 0x73a9d2, 0.85, true),
+          line(gatewayPath, 0xbecdd9, 0.72, true),
+          line([gateway.position, ingress], 0xf0f5f8, 0.95),
+        );
+        for (let i = 1; i < network.hops.length; i++) {
+          const a = satellites[network.hops[i - 1]].position,
+            b = satellites[network.hops[i]].position;
+          routeGroup.add(line([a, b], 0xf3f7fa, 0.95));
+          for (let j = 1; j <= 32; j++)
+            spacePath.push(a.clone().lerp(b, j / 32));
+        }
+      }
+      if (p.focusId !== lastFocus) {
+        lastFocus = p.focusId;
+        camera.position.copy(
+          position(
+            {
+              lat: Math.max(-65, Math.min(65, p.origin.lat - 32)),
+              lon: p.origin.lon - 10,
+            },
+            homeDistance,
+          ),
+        );
+        controls.target.set(0, 0, 0);
+      }
+      if (p.zoom !== lastZoom) {
+        camera.position
+          .sub(controls.target)
+          .multiplyScalar(p.zoom > lastZoom ? 0.84 : 1.19)
+          .clampLength(4.7, 15)
+          .add(controls.target);
+        lastZoom = p.zoom;
+      }
+      let offset = homeOffset;
+      if (p.flight) {
+        controls.enabled = false;
+        const f = p.flight;
+        if (f.id !== lastFlight) {
+          if (returning) {
+            camera.position.copy(idleCamera);
+            controls.target.copy(idleTarget);
+            returning = null;
+          }
+          lastFlight = f.id;
+          idleCamera.copy(camera.position);
+          idleTarget.copy(controls.target);
+        }
+        const elapsed = f.reduced ? JOURNEY_MS : now - f.started;
+        const origin = position(p.origin, R + 0.03),
+          orbital = compute.position,
+          destination = position(p.site, R + 0.04);
+        const originCam = origin
+          .clone()
+          .normalize()
+          .multiplyScalar(5.1)
+          .add(right.clone().multiplyScalar(0.7));
+        const spaceTarget = orbital.clone().lerp(relay.position, 0.5);
+        const spaceCam = spaceTarget
+          .clone()
+          .normalize()
+          .multiplyScalar(8.6)
+          .add(right.clone().multiplyScalar(1.0));
+        const groundCam = destination
+          .clone()
+          .normalize()
+          .multiplyScalar(5.15)
+          .add(right.clone().multiplyScalar(0.65));
+        const gatewayCam = gateway.position
+          .clone()
+          .normalize()
+          .multiplyScalar(6)
+          .add(right.clone().multiplyScalar(0.65));
+        const relayCam = relay.position
+          .clone()
+          .normalize()
+          .multiplyScalar(8)
+          .add(right.clone().multiplyScalar(0.7));
+        const stages = [
+          { t: 0, c: idleCamera, v: idleTarget, o: homeOffset },
+          { t: 1600, c: originCam, v: origin, o: -0.18 },
+          { t: 3500, c: gatewayCam, v: gateway.position, o: -0.18 },
+          { t: 5400, c: relayCam, v: relay.position, o: -0.18 },
+          { t: 7800, c: spaceCam, v: spaceTarget, o: -0.18 },
+          { t: 10100, c: groundCam, v: destination, o: -0.18 },
+          { t: JOURNEY_MS - 200, c: idleCamera, v: idleTarget, o: homeOffset },
+        ];
+        const idx = Math.max(0, stages.findIndex((s) => s.t > elapsed) - 1);
+        const from = elapsed >= JOURNEY_MS - 200 ? stages[6] : stages[idx],
+          to = elapsed >= JOURNEY_MS - 200 ? from : stages[idx + 1];
+        const t =
+          from === to ? 1 : smooth((elapsed - from.t) / (to.t - from.t));
+        const camRotation = new THREE.Quaternion().setFromUnitVectors(
+          from.c.clone().normalize(),
+          to.c.clone().normalize(),
+        );
+        camera.position
+          .copy(from.c)
+          .normalize()
+          .applyQuaternion(new THREE.Quaternion().slerp(camRotation, t))
+          .multiplyScalar(
+            THREE.MathUtils.lerp(from.c.length(), to.c.length(), t),
+          );
+        controls.target.lerpVectors(from.v, to.v, t);
+        offset = THREE.MathUtils.lerp(from.o, to.o, t);
+      } else {
+        if (lastFlight !== 0) {
+          lastFlight = 0;
+          if (camera.position.distanceTo(idleCamera) > 0.01)
+            returning = {
+              started: now,
+              camera: camera.position.clone(),
+              target: controls.target.clone(),
+              offset: lastOffset,
+            };
+        }
+        if (returning) {
+          const t = motionPreference.matches
+            ? 1
+            : smooth((now - returning.started) / 950);
+          const q = new THREE.Quaternion().setFromUnitVectors(
+            returning.camera.clone().normalize(),
+            idleCamera.clone().normalize(),
+          );
+          camera.position
+            .copy(returning.camera)
+            .normalize()
+            .applyQuaternion(new THREE.Quaternion().slerp(q, t))
+            .multiplyScalar(
+              THREE.MathUtils.lerp(
+                returning.camera.length(),
+                idleCamera.length(),
+                t,
+              ),
+            );
+          controls.target.lerpVectors(returning.target, idleTarget, t);
+          offset = THREE.MathUtils.lerp(returning.offset, homeOffset, t);
+          if (t >= 1) returning = null;
+        }
+        controls.enabled = !drag && !returning;
+      }
+      lastOffset = offset;
+      controls.minDistance = p.flight || returning ? 0.1 : 4.7;
+      controls.maxDistance = p.flight || returning ? 40 : 15;
+      controls.enableDamping = !p.flight && !returning;
+      camera.setViewOffset(width, height, 0, -height * offset, width, height);
+      controls.update();
+      const active = Boolean(p.flight);
+      routeGroup.visible = active;
+      dc.visible = true;
+      gateway.visible = active;
+      ringMaterial.opacity = active ? 0.3 : 0.13;
+      groundDot.visible = spaceDot.visible = active;
+      if (active) {
+        const cycle = ((now - p.flight!.started) / 5000) % 2,
+          t = p.flight!.reduced ? 0.65 : cycle <= 1 ? cycle : 2 - cycle;
+        const follow = (dot: THREE.Mesh, points: THREE.Vector3[]) => {
+          const n = t * (points.length - 1),
+            i = Math.floor(n);
+          dot.position
+            .copy(points[i])
+            .lerp(points[Math.min(i + 1, points.length - 1)], n - i);
+        };
+        follow(groundDot, groundPath);
+        follow(spaceDot, spacePath);
+      }
+      labelBoxes.length = 0;
+      project(pin.current, originMarker.position, !active);
+      project(groundLabel.current, dc.position, true);
+      project(spaceLabel.current, compute.position, active);
+      project(relayLabel.current, relay.position, active);
+      project(gatewayLabel.current, gateway.position, active);
+      renderer.render(scene, camera);
+    }
+    frame = requestAnimationFrame(render);
+    return () => {
+      disposed = true;
+      abort.abort();
+      cancelAnimationFrame(frame);
+      ro.disconnect();
+      controls.dispose();
+      button?.removeEventListener("pointerdown", down);
+      button?.removeEventListener("pointermove", move);
+      button?.removeEventListener("pointerup", end);
+      button?.removeEventListener("pointercancel", end);
+      renderer.domElement.removeEventListener("dblclick", place);
+      renderer.domElement.removeEventListener("webglcontextlost", contextLost);
+      disposeTree(scene);
+      renderer.dispose();
+      renderer.domElement.remove();
+    };
+  }, []);
+  return (
+    <div ref={host} className="orbital-scene">
+      <button
+        ref={pin}
+        className="origin-pin"
+        aria-label="Drag your blue location pin. Use Location for keyboard controls."
+        title="Hold and drag to move your location"
+      >
+        <span className="pin-head">
+          <span />
+        </span>
+        <span className="pin-caption">YOU</span>
+      </button>
+      <div ref={groundLabel} className="scene-label ground-label">
+        <span className="label-card">
+          <small>{props.site.kind.toUpperCase()}</small>
+          {props.site.name}
+          <span className="label-caption">
+            Nearest reference · not live routing
+          </span>
+        </span>
+      </div>
+      <div ref={spaceLabel} className="scene-label">
+        Orbital compute<small>STARCLOUD · CONCEPT</small>
+      </div>
+      <div ref={relayLabel} className="scene-label relay-label">
+        Uplink relay<small>4 LASER HOPS → COMPUTE</small>
+      </div>
+      <div ref={gatewayLabel} className="scene-label gateway-label">
+        Uplink gateway<small>MODELED TERMINAL · FIBER → RF / OPTICAL</small>
+      </div>
+      {error && (
+        <p className="scene-error" role="status">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}

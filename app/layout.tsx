@@ -4,9 +4,9 @@ import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Starcloud Simulator",
+  title: "Spacedata — Earth, or orbit?",
   description:
-    "Compare a Starcloud orbital AI datacenter with a terrestrial cluster.",
+    "Follow your AI prompt around Earth and into orbit. Compare measured AI usage with transparent infrastructure scenarios.",
 };
 
 export const viewport: Viewport = {

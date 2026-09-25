@@ -1,190 +1,482 @@
 import { test, expect } from "@playwright/test";
 import {
-  createEngineState,
-  stepEngine,
-  priceTokens,
-  withUtilization,
-  snapshot,
-} from "../lib/starcloud/engine";
-import { phaseDuration, phaseFraction } from "../lib/starcloud/route-timeline";
-import { assertPromptText, takeRateToken } from "../lib/server/chat-guard";
+  distanceKm,
+  nearestSite,
+  PROVIDERS,
+  PROVIDER_IDS,
+  DEFAULT_LOCATION,
+} from "../lib/starcloud/catalog";
+import { compare } from "../lib/starcloud/comparison";
+import {
+  acceptPrompt,
+  assertPromptText,
+  clientAddress,
+  takeRateToken,
+  reserveRequest,
+} from "../lib/server/chat-guard";
+import { runAnswer, availableProviders, providerKey } from "../lib/server/llm";
 import { isChatSuccessBody } from "../lib/starcloud/chat-types";
 import { POST } from "../app/api/chat/route";
-
 const originalFetch = globalThis.fetch;
-const originalKey = process.env.GEMINI_API_KEY;
-const originalAlias = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-const originalModel = process.env.GEMINI_MODEL;
+const envNames = [
+  "GEMINI_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "XAI_API_KEY",
+  "UPSTASH_REDIS_REST_URL",
+  "UPSTASH_REDIS_REST_TOKEN",
+  "NODE_ENV",
+  "VERCEL",
+  "APP_ORIGIN",
+  "CHAT_DAILY_LIMIT",
+];
+const env = Object.fromEntries(envNames.map((k) => [k, process.env[k]]));
+test.beforeEach(() => {
+  for (const k of envNames) delete process.env[k];
+  Object.assign(process.env, {
+    GEMINI_API_KEY: "test-secret",
+    UPSTASH_REDIS_REST_URL: "https://limiter.upstash.io",
+    UPSTASH_REDIS_REST_TOKEN: "test-redis",
+    NODE_ENV: "production",
+  });
+});
 test.afterEach(() => {
   globalThis.fetch = originalFetch;
-  for (const [name, value] of Object.entries({
-    GEMINI_API_KEY: originalKey,
-    GOOGLE_GENERATIVE_AI_API_KEY: originalAlias,
-    GEMINI_MODEL: originalModel,
-  })) {
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
+  for (const [k, v] of Object.entries(env)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
   }
 });
-function request(body: unknown, ip: string, contentType = "application/json") {
-  return new Request("http://localhost/api/chat", {
+function req(
+  body: unknown = { prompt: "Why is the sky blue?", provider: "gemini" },
+  headers: Record<string, string> = {},
+) {
+  return new Request("https://example.test/api/chat", {
     method: "POST",
-    headers: { "content-type": contentType, "x-forwarded-for": ip },
+    headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
 }
-function mockGemini(text: string) {
+function gemini() {
   return Response.json({
-    candidates: [{ content: { parts: [{ text }] } }],
+    candidates: [
+      {
+        content: {
+          parts: [
+            { text: "private thought", thought: true },
+            { text: "Light scatters." },
+          ],
+        },
+      },
+    ],
     usageMetadata: {
-      promptTokenCount: 8,
+      promptTokenCount: 24,
       candidatesTokenCount: 12,
-      totalTokenCount: 20,
+      totalTokenCount: 40,
+      cachedContentTokenCount: 4,
     },
   });
 }
-
-test("session energy integration is invariant under frame subdivision", () => {
-  const full = stepEngine("ground", createEngineState(0.22), 10);
-  let divided = createEngineState(0.22);
-  for (let i = 0; i < 100; i++) divided = stepEngine("ground", divided, 0.1);
-  expect(divided.itKwh).toBeCloseTo(full.itKwh, 9);
-  expect(divided.waterLiters).toBeCloseTo(full.waterLiters, 9);
-  expect(divided.energyCostUsd).toBeCloseTo(full.energyCostUsd, 9);
-});
-test("matched workloads use the same compute energy and orbit consumes no cooling water", () => {
-  const space = priceTokens("space", 1e9, false);
-  const ground = priceTokens("ground", 1e9, false);
-  expect(space.itKwh).toBe(ground.itKwh);
-  expect(space.waterLiters).toBe(0);
-  expect(ground.waterLiters).toBeGreaterThan(0);
-  expect(ground.energyCostUsd / space.energyCostUsd).toBeCloseTo(23.625);
-});
-test("canceling inference can restore idle load without losing accumulated totals", () => {
-  const busy = stepEngine("space", createEngineState(0.22), 4);
-  const idle = withUtilization(busy, 0.06);
-  expect(idle.itKwh).toBe(busy.itKwh);
-  expect(snapshot("space", idle).tokensPerSecond).toBeLessThan(
-    snapshot("space", busy).tokensPerSecond,
-  );
-});
-test("invalid token counts and utilization cannot poison the metrics", () => {
-  for (const value of [NaN, Infinity, -1]) {
-    expect(priceTokens("ground", value, true).energyCostUsd).toBe(0);
-    expect(createEngineState(value).utilization).toBe(0);
-  }
-});
-test("route timing has bounded progress and supports reduced motion", () => {
-  expect(phaseFraction("uplink", 100, 0, false)).toBe(0);
-  expect(phaseFraction("uplink", 0, 9999, false)).toBe(1);
-  expect(phaseDuration("split", true)).toBeLessThan(
-    phaseDuration("split", false),
-  );
-  expect(phaseDuration("idle", false)).toBe(0);
-});
-test("prompt validation handles empty, oversized, multiline and unicode input", () => {
-  expect(() => assertPromptText("   ")).toThrow();
-  expect(() => assertPromptText("hello ".repeat(400))).toThrow();
-  expect(assertPromptText("  Why orbit?\nПоясни.  ")).toBe(
-    "Why orbit?\nПоясни.",
-  );
-});
-test("rate limits expire and give a retry interval", () => {
-  expect(takeRateToken("unit-rate", 0)).toEqual({ ok: true });
-  expect(takeRateToken("unit-rate", 1000)).toEqual({
-    ok: false,
-    retryAfterSec: 2,
-  });
-  expect(takeRateToken("unit-rate", 600_001)).toEqual({ ok: true });
-});
-test("missing server key is a clear 503, with no external request", async () => {
-  delete process.env.GEMINI_API_KEY;
-  delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  globalThis.fetch = async () => {
-    throw new Error("Unexpected external call");
+function mockProvider(
+  fn: (url: string, init?: RequestInit) => Response | Promise<Response>,
+) {
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("upstash.io")) return Response.json({ result: [1, 0] });
+    return fn(url, init);
   };
-  const response = await POST(
-    request({ prompt: "Why compute in space?" }, "missing-key"),
+}
+test("geodesic distance handles the dateline, poles and antipodes", () => {
+  expect(distanceKm({ lat: 0, lon: 179 }, { lat: 0, lon: -179 })).toBeCloseTo(
+    222.39,
+    1,
   );
-  expect(response.status).toBe(503);
-  expect((await response.json()).error).toContain(
-    "Live inference is unavailable",
+  expect(distanceKm({ lat: 90, lon: 0 }, { lat: 90, lon: 180 })).toBeCloseTo(0);
+  expect(distanceKm({ lat: 0, lon: 0 }, { lat: 0, lon: 180 })).toBeCloseTo(
+    20015,
+    0,
   );
 });
-test("API rejects invalid requests before calling the provider", async () => {
+test("pin and provider select the nearest published reference", () => {
+  expect(nearestSite("gemini", { lat: 1.4, lon: 103.8 }).name).toBe(
+    "Singapore",
+  );
+  expect(nearestSite("anthropic", { lat: -37.8, lon: 145 }).name).toBe(
+    "Melbourne",
+  );
+  expect(nearestSite("openai", { lat: -34, lon: 151 }).name).toContain(
+    "Australia",
+  );
+  expect(nearestSite("xai", { lat: 40.7, lon: -74 }).name).toContain("East");
+});
+test("matched workload energy and water have correct units and explicit assumptions", () => {
+  const c = compare(
+    "gemini",
+    DEFAULT_LOCATION,
+    nearestSite("gemini", DEFAULT_LOCATION),
+    null,
+    3600,
+    1,
+  );
+  expect(c.ground.energyWh).toBe(1.09);
+  expect(c.space.energyWh).toBe(1.04);
+  expect(c.ground.waterMl).toEqual([1.09 * 0.5 * 0.2, 1.09 * 2 * 2]);
+  expect(c.space.waterMl).toEqual([0, 0]);
+  expect(c.ground.powerCostUsd).toBeCloseTo((1.09 / 1000) * 0.045, 12);
+  expect(c.apiCostUsd).toBeNull();
+});
+test("orbital network is not universally faster than nearby ground", () => {
+  const site = nearestSite("gemini", DEFAULT_LOCATION);
+  const c = compare("gemini", site, site, null);
+  expect(c.space.rttMs).toBeGreaterThan(c.ground.rttMs);
+  expect(c.ground.rttMs).toBe(10);
+});
+test("rejects invalid energy and token assumptions", () => {
+  for (const n of [NaN, Infinity, -1])
+    expect(() =>
+      compare(
+        "gemini",
+        DEFAULT_LOCATION,
+        nearestSite("gemini", DEFAULT_LOCATION),
+        null,
+        n,
+      ),
+    ).toThrow();
+  expect(() =>
+    compare(
+      "gemini",
+      DEFAULT_LOCATION,
+      nearestSite("gemini", DEFAULT_LOCATION),
+      null,
+      50,
+      0,
+    ),
+  ).toThrow();
+});
+test("ordinary technical prompts and Unicode are allowed without brittle injection regexes", () => {
+  expect(assertPromptText(" What is an API key? ")).toBe("What is an API key?");
+  expect(assertPromptText("你好，解释一下卫星")).toContain("卫星");
+  expect(() => assertPromptText("x".repeat(2001))).toThrow();
+  expect(() => assertPromptText("hello\u0000")).toThrow();
+});
+test("local limiter enforces burst, interval and expiry", () => {
+  for (let i = 0; i < 8; i++)
+    expect(takeRateToken("unit-limits", 100000 + i * 3000).ok).toBe(true);
+  expect(takeRateToken("unit-limits", 124000).ok).toBe(false);
+  expect(takeRateToken("unit-limits", 800000).ok).toBe(true);
+  expect(takeRateToken("unit-limits", 800001).ok).toBe(false);
+});
+test("untrusted forwarded addresses do not bypass local limits", () => {
+  expect(clientAddress(req(undefined, { "x-forwarded-for": "1.2.3.4" }))).toBe(
+    "shared",
+  );
+  process.env.VERCEL = "1";
+  expect(clientAddress(req(undefined, { "x-forwarded-for": "1.2.3.4" }))).toBe(
+    "1.2.3.4",
+  );
+  expect(clientAddress(req(undefined, { "x-forwarded-for": "spoof" }))).toBe(
+    "shared",
+  );
+});
+test("rejects cross-site browser requests before any provider call", async () => {
+  let calls = 0;
   globalThis.fetch = async () => {
-    throw new Error("Unexpected external call");
+    calls++;
+    return gemini();
   };
-  expect((await POST(request({ prompt: "" }, "empty"))).status).toBe(400);
   expect(
-    (
-      await POST(
-        request({ prompt: "a question" }, "content-type", "text/plain"),
-      )
-    ).status,
+    (await POST(req(undefined, { origin: "https://evil.test" }))).status,
+  ).toBe(403);
+  expect(
+    (await POST(req(undefined, { "sec-fetch-site": "cross-site" }))).status,
+  ).toBe(403);
+  expect(calls).toBe(0);
+});
+test("rejects arbitrary models, tools, provider names, malformed JSON and oversized bodies", async () => {
+  for (const body of [
+    { prompt: "hi", provider: "gemini", model: "expensive-model" },
+    { prompt: "hi", provider: "gemini", tools: [] },
+    { prompt: "hi", provider: "__proto__" },
+    { prompt: 42, provider: "gemini" },
+  ])
+    expect((await POST(req(body))).status).toBe(400);
+  expect(
+    (await POST(req(undefined, { "Content-Type": "text/plain" }))).status,
   ).toBe(415);
   expect(
-    (await POST(request({ prompt: "hello ".repeat(400) }, "oversized"))).status,
+    (await POST(req(undefined, { "Content-Length": "12001" }))).status,
+  ).toBe(413);
+  expect(
+    (await POST(req({ provider: "gemini", prompt: "x".repeat(14000) }))).status,
   ).toBe(413);
 });
-test("live API returns two validated answers and keeps credentials off the response", async () => {
-  process.env.GEMINI_API_KEY = "local-test-placeholder";
-  let calls = 0;
-  globalThis.fetch = async () => mockGemini(`Answer ${++calls}`);
-  const response = await POST(
-    request({ prompt: "Explain orbital cooling" }, "success"),
-  );
-  const body = await response.json();
-  expect(response.status).toBe(200);
-  expect(calls).toBe(2);
-  expect(isChatSuccessBody(body)).toBe(true);
-  expect(body.space.text).not.toBe(body.ground.text);
-  expect(JSON.stringify(body)).not.toContain("local-test-placeholder");
+test("streamed oversized request is stopped without trusting Content-Length", async () => {
+  const body = new ReadableStream({
+    start(c) {
+      c.enqueue(new TextEncoder().encode("x".repeat(13000)));
+      c.close();
+    },
+  });
+  const request = new Request("https://example.test/api/chat", {
+    method: "POST",
+    body,
+    headers: { "Content-Type": "application/json" },
+    duplex: "half",
+  } as RequestInit);
+  expect((await POST(request)).status).toBe(413);
 });
-test("provider failures become a recoverable error without leaking the provider response", async () => {
-  process.env.GEMINI_API_KEY = "local-test-placeholder";
-  globalThis.fetch = async () =>
-    new Response("private provider details", { status: 500 });
-  const response = await POST(
-    request({ prompt: "Explain orbital cooling" }, "failure"),
-  );
-  expect(response.status).toBe(502);
-  expect(JSON.stringify(await response.json())).not.toContain(
-    "private provider details",
-  );
+test("production fails closed when persistent limits are missing or unavailable", async () => {
+  delete process.env.UPSTASH_REDIS_REST_TOKEN;
+  expect(availableProviders()).toEqual([]);
+  expect((await POST(req())).status).toBe(503);
+  process.env.UPSTASH_REDIS_REST_TOKEN = "test-redis";
+  globalThis.fetch = async () => {
+    throw new Error("Redis secret internal failure");
+  };
+  const response = await POST(req());
+  expect(response.status).toBe(503);
+  expect(await response.text()).not.toContain("secret");
 });
-test("model compatibility retries keep the same overall deadline", async () => {
-  process.env.GEMINI_API_KEY = "local-test-placeholder";
-  const signals: AbortSignal[] = [];
+test("Redis reservation is atomic, hashes the address and includes a global budget", async () => {
+  process.env.VERCEL = "1";
+  globalThis.fetch = async (url, init) => {
+    expect(String(url)).toBe("https://limiter.upstash.io/");
+    const body = JSON.parse(String(init?.body));
+    expect(body[0]).toBe("EVAL");
+    expect(body[2]).toBe(3);
+    expect(body[5]).toContain("spacedata:daily:");
+    expect(body[6]).toBe(200);
+    expect(JSON.stringify(body)).not.toContain("1.2.3.4");
+    return Response.json({ result: [1, 0] });
+  };
+  await reserveRequest(req(undefined, { "x-forwarded-for": "1.2.3.4" }));
+});
+test("Redis rate rejection never reaches Gemini and includes Retry-After", async () => {
   let calls = 0;
-  globalThis.fetch = async (_input, init) => {
-    signals.push(init!.signal!);
+  globalThis.fetch = async () => {
     calls++;
-    return calls <= 2
-      ? new Response("", { status: 400 })
-      : mockGemini("Compatible answer");
+    return Response.json({ result: [0, 127] });
   };
-  const response = await POST(
-    request({ prompt: "Explain orbital cooling" }, "retry"),
-  );
-  expect(response.status).toBe(200);
-  expect(calls).toBe(4);
-  expect(new Set(signals).size).toBe(1);
+  const r = await POST(req());
+  expect(r.status).toBe(429);
+  expect(r.headers.get("Retry-After")).toBe("127");
+  expect(calls).toBe(1);
 });
-test("invalid numeric usage is rejected by the client response contract", () => {
-  const answer = {
-    text: "Answer",
-    promptTokens: 1,
-    completionTokens: 2,
-    totalTokens: Infinity,
-    usageEstimated: false,
-  };
-  expect(
-    isChatSuccessBody({
-      provider: "gemini",
-      model: "test",
-      space: answer,
-      ground: answer,
+test("Gemini makes one capped request, keeps keys server-side and preserves all token usage", async () => {
+  let calls = 0;
+  mockProvider((url, init) => {
+    calls++;
+    expect(url).toBe(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    );
+    expect(url).not.toContain("test-secret");
+    expect(new Headers(init?.headers).get("x-goog-api-key")).toBe(
+      "test-secret",
+    );
+    const b = JSON.parse(String(init?.body));
+    expect(b.generationConfig).toEqual({
+      maxOutputTokens: 512,
+      thinkingConfig: { thinkingBudget: 0 },
+    });
+    expect(b.contents[0].parts[0].text).toBe("Why is the sky blue?");
+    expect(b.tools).toBeUndefined();
+    expect(init?.signal).toBeDefined();
+    return gemini();
+  });
+  const r = await POST(req());
+  expect(r.status).toBe(200);
+  expect(r.headers.get("Cache-Control")).toBe("no-store");
+  const body = await r.json();
+  expect(isChatSuccessBody(body)).toBe(true);
+  expect(body.answer.text).toBe("Light scatters.");
+  expect(body.answer.totalTokens).toBe(40);
+  expect(body.answer.usageEstimated).toBe(false);
+  expect(body.answer.cachedTokens).toBe(4);
+  expect(calls).toBe(1);
+  const c = compare(
+    "gemini",
+    DEFAULT_LOCATION,
+    nearestSite("gemini", DEFAULT_LOCATION),
+    body,
+  );
+  expect(c.apiCostUsd).toBeCloseTo((20 * 0.3 + 4 * 0.03 + 16 * 2.5) / 1e6, 12);
+});
+test("Gemini alias works and primary key takes precedence", () => {
+  process.env.GOOGLE_GENERATIVE_AI_API_KEY = "alias";
+  expect(providerKey("gemini")).toBe("test-secret");
+  delete process.env.GEMINI_API_KEY;
+  expect(providerKey("gemini")).toBe("alias");
+  expect(availableProviders()).toContain("gemini");
+});
+test("Gemini missing usage is explicitly estimated and never reported as measured", async () => {
+  mockProvider(() =>
+    Response.json({
+      candidates: [{ content: { parts: [{ text: "An answer" }] } }],
     }),
-  ).toBe(false);
+  );
+  const r = await runAnswer("gemini", "question");
+  expect(r.answer.usageEstimated).toBe(true);
+  expect(r.answer.totalTokens).toBeGreaterThan(0);
+});
+test("Gemini blocked or empty answer returns a safe error rather than a fake response", async () => {
+  mockProvider(() =>
+    Response.json({ promptFeedback: { blockReason: "SAFETY" } }),
+  );
+  expect((await POST(req())).status).toBe(502);
+});
+for (const status of [400, 401, 429, 500])
+  test(`Gemini ${status} errors do not leak details or trigger paid retries`, async () => {
+    let calls = 0;
+    mockProvider(() => {
+      calls++;
+      return Response.json(
+        { error: "private test-secret provider body" },
+        { status },
+      );
+    });
+    const r = await POST(req());
+    expect(r.status).toBe(502);
+    expect(await r.text()).not.toContain("test-secret");
+    expect(calls).toBe(1);
+  });
+test("abort is propagated to the provider", async () => {
+  const c = new AbortController();
+  c.abort();
+  mockProvider((_, init) => {
+    expect(init?.signal?.aborted).toBe(true);
+    throw new DOMException("aborted", "AbortError");
+  });
+  await expect(runAnswer("gemini", "hello", c.signal)).rejects.toThrow();
+});
+test("missing Gemini key cannot make a paid call", async () => {
+  delete process.env.GEMINI_API_KEY;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return gemini();
+  };
+  expect((await POST(req())).status).toBe(503);
+  expect(calls).toBe(0);
+});
+test("OpenAI, Anthropic and xAI adapters use fixed models and parse usage", async () => {
+  for (const id of PROVIDER_IDS.filter((id) => id !== "gemini")) {
+    process.env[PROVIDERS[id].key] = "adapter-key";
+    mockProvider((_, init) => {
+      const b = JSON.parse(String(init?.body));
+      expect(b.model).toBe(PROVIDERS[id].model);
+      expect(b.max_tokens ?? b.max_output_tokens).toBe(512);
+      if (id === "openai") {
+        expect(b.store).toBe(false);
+        return Response.json({
+          output: [
+            {
+              type: "message",
+              content: [{ type: "output_text", text: "OpenAI answer" }],
+            },
+          ],
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+            total_tokens: 30,
+            input_tokens_details: { cached_tokens: 2 },
+          },
+        });
+      }
+      if (id === "anthropic")
+        return Response.json({
+          content: [{ type: "text", text: "Claude answer" }],
+          usage: {
+            input_tokens: 8,
+            output_tokens: 20,
+            cache_read_input_tokens: 2,
+          },
+        });
+      return Response.json({
+        choices: [{ message: { content: "Grok answer" } }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+      });
+    });
+    const r = await runAnswer(id, "test prompt");
+    expect(isChatSuccessBody(r)).toBe(true);
+    expect(r.answer.promptTokens).toBe(10);
+    expect(r.answer.totalTokens).toBe(30);
+  }
+});
+test("response validator rejects nonfinite usage, invalid cached counts and mismatched totals", async () => {
+  mockProvider(() => gemini());
+  const valid = await runAnswer("gemini", "hello");
+  for (const change of [
+    { totalTokens: Infinity },
+    { cachedTokens: 500 },
+    { completionTokens: -1 },
+    { totalTokens: 1 },
+  ])
+    expect(
+      isChatSuccessBody({ ...valid, answer: { ...valid.answer, ...change } }),
+    ).toBe(false);
+});
+test("request schema permits only explicit provider and message fields", async () => {
+  expect(await acceptPrompt(req())).toEqual({
+    prompt: "Why is the sky blue?",
+    provider: "gemini",
+  });
+});
+
+test("all 48 ring links join visible neighbors and never pass through Earth", async () => {
+  const { orbitalNodes, laserClearsEarth, NODE_COUNT, ORBIT_PERIOD_MS } =
+    await import("../lib/starcloud/network");
+  for (const at of [0, ORBIT_PERIOD_MS * 0.25, Date.UTC(2026, 8, 25)]) {
+    const nodes = orbitalNodes(at);
+    expect(nodes).toHaveLength(NODE_COUNT);
+    for (let i = 0; i < NODE_COUNT; i++) {
+      expect(laserClearsEarth(nodes[i], nodes[(i + 1) % NODE_COUNT])).toBe(
+        true,
+      );
+      expect(distanceKm(nodes[i], nodes[(i + 1) % NODE_COUNT])).toBeCloseTo(
+        (2 * Math.PI * 6371) / NODE_COUNT,
+        5,
+      );
+    }
+  }
+});
+test("orbital routes use four contiguous laser hops and the same RTT as the comparison", async () => {
+  const { routeAt, NODE_COUNT } = await import("../lib/starcloud/network");
+  for (const origin of [
+    { lat: 40.7, lon: -74 },
+    { lat: -33.9, lon: 151.2 },
+    { lat: 89.9, lon: 179.9 },
+    { lat: 0, lon: -179.9 },
+  ]) {
+    const at = 1234567,
+      r = routeAt(origin, at);
+    expect(r.hops).toHaveLength(5);
+    expect(r.hops[0]).toBe(r.ingress);
+    expect(r.hops[4]).toBe(r.compute);
+    for (let i = 1; i < 5; i++)
+      expect(r.hops[i]).toBe((r.hops[i - 1] + 1) % NODE_COUNT);
+    expect(r.gatewayKm).toBeGreaterThanOrEqual(0);
+    expect(r.laserKm).toBeGreaterThan(0);
+    expect(
+      compare(
+        "gemini",
+        origin,
+        nearestSite("gemini", origin),
+        null,
+        256,
+        1.11,
+        at,
+      ).space.rttMs,
+    ).toBe(r.rttMs);
+  }
+});
+test("orbital motion is periodic and moves slowly between frames", async () => {
+  const { orbitalNodes, ORBIT_PERIOD_MS } =
+    await import("../lib/starcloud/network");
+  const a = orbitalNodes(1000),
+    b = orbitalNodes(1000 + ORBIT_PERIOD_MS),
+    c = orbitalNodes(1016);
+  expect(distanceKm(a[0], b[0])).toBeLessThan(0.000001);
+  expect(distanceKm(a[0], c[0])).toBeLessThan(0.2);
+  expect(distanceKm(a[0], c[0])).toBeGreaterThan(0);
 });
