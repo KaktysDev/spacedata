@@ -1,366 +1,322 @@
 "use client";
 
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { useMemo, useRef, type RefObject } from "react";
-import * as THREE from "three";
+import { memo } from "react";
+import { geoGraticule10, geoOrthographic, geoPath } from "d3-geo";
+import { feature, mesh } from "topojson-client";
+import type { GeometryCollection, Topology } from "topojson-specification";
+import atlas from "world-atlas/countries-110m.json";
+import type { RoutePhase } from "@/lib/starcloud/route-timeline";
 
-import { traceProgress, type RoutePhase } from "@/lib/starcloud/route-timeline";
-import { useRouteClock, type RouteClock } from "@/components/simulator/simulator-provider";
-
-type StageLayout = {
-  spread: number;
-  antenna: THREE.Vector3;
-  cluster: THREE.Vector3;
-  campus: THREE.Vector3;
-  uplink: THREE.QuadraticBezierCurve3;
-  toSpace: THREE.QuadraticBezierCurve3;
-  toGround: THREE.QuadraticBezierCurve3;
-  poses: Record<RoutePhase, { position: THREE.Vector3; lookAt: THREE.Vector3 }>;
+const world = atlas as unknown as Topology<{
+  countries: GeometryCollection;
+  land: GeometryCollection;
+}>;
+const projection = geoOrthographic()
+  .translate([600, 773])
+  .scale(490)
+  .rotate([104, -9, -17])
+  .precision(0.3);
+const path = geoPath(projection);
+const landPath = path(feature(world, world.objects.land)) ?? "";
+const borderPath =
+  path(mesh(world, world.objects.countries, (a, b) => a !== b)) ?? "";
+const gridPath = path(geoGraticule10()) ?? "";
+const origin = projection([-74.006, 40.7128])!;
+const ground = projection([-119.8, 39.5])!;
+const satellites = [
+  [137, 340, -43],
+  [216, 248, -33],
+  [316, 180, -24],
+  [427, 136, -13],
+  [544, 116, -3],
+  [663, 121, 8],
+  [778, 148, 20],
+  [887, 199, 30],
+  [980, 270, 40],
+  [1056, 360, 49],
+];
+const routes = {
+  uplink: `M${origin} Q${origin[0] - 40},290 427,136`,
+  relay: "M427,136 Q601,86 778,148",
+  downlink: `M778,148 Q${origin[0] + 72},320 ${origin}`,
+  ground: `M${origin} Q${(origin[0] + ground[0]) / 2},${Math.min(origin[1], ground[1]) - 65} ${ground}`,
 };
+const labels: [string, [number, number]][] = [
+  ["CANADA", [-108, 57]],
+  ["UNITED STATES", [-99, 37]],
+  ["GREENLAND", [-42, 69]],
+  ["MEXICO", [-103, 23]],
+];
 
-function buildLayout(aspect: number): StageLayout {
-  const safeAspect = Math.min(2.2, Math.max(0.72, aspect || 1));
-  const spread = Math.min(1.45, Math.max(0.92, safeAspect * 0.7));
-  const antenna = new THREE.Vector3(-spread, 0.92, 0);
-  const cluster = new THREE.Vector3(0, 1.42, 0);
-  const campus = new THREE.Vector3(spread, 0.62, 0);
-  const idleZ = safeAspect < 1.05 ? 3.35 : 2.8;
-  const chat = new THREE.Vector3(-spread * 0.15, -1.05, 0.15);
-  const uplink = new THREE.QuadraticBezierCurve3(
-    chat,
-    new THREE.Vector3(-spread * 0.7, 0.05, 0.28),
-    antenna,
-  );
-  const toSpace = new THREE.QuadraticBezierCurve3(
-    antenna,
-    new THREE.Vector3(-spread * 0.28, 1.55, 0.08),
-    cluster,
-  );
-  const toGround = new THREE.QuadraticBezierCurve3(
-    antenna,
-    new THREE.Vector3(0, 1.05, 0.18),
-    campus,
-  );
-  return {
-    spread,
-    antenna,
-    cluster,
-    campus,
-    uplink,
-    toSpace,
-    toGround,
-    poses: {
-      idle: {
-        position: new THREE.Vector3(0, 1.02, idleZ),
-        lookAt: new THREE.Vector3(0, 0.96, 0),
-      },
-      uplink: {
-        position: new THREE.Vector3(-spread * 0.55, 0.58, 1.55),
-        lookAt: antenna.clone(),
-      },
-      split: {
-        position: new THREE.Vector3(0, 1.05, 2.35),
-        lookAt: new THREE.Vector3(0, 0.92, 0),
-      },
-      pullback: {
-        position: new THREE.Vector3(0, 0.98, idleZ + 0.45),
-        lookAt: new THREE.Vector3(0, 0.88, 0),
-      },
-      compare: {
-        position: new THREE.Vector3(0, 0.98, idleZ + 0.45),
-        lookAt: new THREE.Vector3(0, 0.88, 0),
-      },
-    },
-  };
-}
-
-function useRouteLine() {
-  const geom = useMemo(() => {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.BufferAttribute(new Float32Array(49 * 3), 3),
-    );
-    geometry.setDrawRange(0, 0);
-    return geometry;
-  }, []);
-  const line = useMemo(() => {
-    const material = new THREE.LineBasicMaterial({ color: 0xffffff });
-    const object = new THREE.Line(geom, material);
-    object.frustumCulled = false;
-    return object;
-  }, [geom]);
-  return { geom, line };
-}
-
-function writeCurve(
-  geom: THREE.BufferGeometry,
-  curve: THREE.QuadraticBezierCurve3,
-  progress: number,
-) {
-  const attr = geom.getAttribute("position") as THREE.BufferAttribute;
-  const array = attr.array as Float32Array;
-  if (progress <= 0.001) {
-    geom.setDrawRange(0, 0);
-    return;
-  }
-  const steps = 48;
-  const count = Math.max(2, Math.round(Math.min(1, progress) * steps));
-  for (let i = 0; i < count; i += 1) {
-    const point = curve.getPoint((i / (count - 1)) * progress);
-    array[i * 3] = point.x;
-    array[i * 3 + 1] = point.y;
-    array[i * 3 + 2] = point.z;
-  }
-  attr.needsUpdate = true;
-  geom.setDrawRange(0, count);
-}
-
-function placePacket(
-  mesh: THREE.Mesh | null,
-  curve: THREE.QuadraticBezierCurve3,
-  progress: number,
-  visible: boolean,
-) {
-  if (!mesh) return;
-  mesh.visible = visible && progress > 0.001;
-  if (!mesh.visible) return;
-  curve.getPoint(Math.min(1, progress), mesh.position);
-}
-
-function CameraRig({
-  clockRef,
-  layout,
+export const OrbitalScene = memo(function OrbitalScene({
+  phase = "idle",
+  reducedMotion = false,
+  focus = "both",
 }: {
-  clockRef: RefObject<RouteClock>;
-  layout: StageLayout;
+  phase?: RoutePhase;
+  reducedMotion?: boolean;
+  focus?: "both" | "space" | "ground";
 }) {
-  const { camera } = useThree();
-  const look = useRef(layout.poses.idle.lookAt.clone());
-
-  useFrame((_, dt) => {
-    const clock = clockRef.current;
-    if (!clock) return;
-    const pose = layout.poses[clock.phase];
-    const k = clock.reducedMotion ? 1 : 1 - Math.exp(-dt * 2.5);
-    camera.position.lerp(pose.position, k);
-    look.current.lerp(pose.lookAt, k);
-    camera.lookAt(look.current);
-  });
-
-  return null;
-}
-
-function Routes({
-  clockRef,
-  layout,
-}: {
-  clockRef: RefObject<RouteClock>;
-  layout: StageLayout;
-}) {
-  const uplink = useRouteLine();
-  const space = useRouteLine();
-  const ground = useRouteLine();
-  const uplinkPacket = useRef<THREE.Mesh>(null);
-  const spacePacket = useRef<THREE.Mesh>(null);
-  const groundPacket = useRef<THREE.Mesh>(null);
-
-  useFrame(() => {
-    const clock = clockRef.current;
-    if (!clock) return;
-    const now = performance.now();
-    const up = traceProgress(
-      clock.phase,
-      clock.phaseStarted,
-      now,
-      clock.reducedMotion,
-      "uplink",
-    );
-    const orbital = traceProgress(
-      clock.phase,
-      clock.phaseStarted,
-      now,
-      clock.reducedMotion,
-      "space",
-    );
-    const terrestrial = traceProgress(
-      clock.phase,
-      clock.phaseStarted,
-      now,
-      clock.reducedMotion,
-      "ground",
-    );
-    writeCurve(uplink.geom, layout.uplink, up);
-    writeCurve(space.geom, layout.toSpace, orbital);
-    writeCurve(ground.geom, layout.toGround, terrestrial);
-    placePacket(uplinkPacket.current, layout.uplink, up, up > 0 && up < 1);
-    placePacket(spacePacket.current, layout.toSpace, orbital, orbital > 0);
-    placePacket(
-      groundPacket.current,
-      layout.toGround,
-      terrestrial,
-      terrestrial > 0,
-    );
-  });
-
+  const flying = phase !== "idle" && phase !== "compare";
+  const activePath =
+    phase === "uplink" ? "uplink" : phase === "split" ? "relay" : "downlink";
   return (
-    <>
-      <primitive object={uplink.line} />
-      <primitive object={space.line} />
-      <primitive object={ground.line} />
-      <mesh ref={uplinkPacket} visible={false}>
-        <octahedronGeometry args={[0.07, 0]} />
-        <meshBasicMaterial color="#ffffff" />
-      </mesh>
-      <mesh ref={spacePacket} visible={false}>
-        <octahedronGeometry args={[0.07, 0]} />
-        <meshBasicMaterial color="#ffffff" />
-      </mesh>
-      <mesh ref={groundPacket} visible={false}>
-        <octahedronGeometry args={[0.07, 0]} />
-        <meshBasicMaterial color="#ffffff" />
-      </mesh>
-    </>
-  );
-}
-
-function OrbitArc({ spread }: { spread: number }) {
-  const line = useMemo(() => {
-    const points: THREE.Vector3[] = [];
-    for (let i = 0; i <= 64; i += 1) {
-      const t = i / 64;
-      points.push(
-        new THREE.Vector3(
-          -spread * 0.95 + t * spread * 1.9,
-          1.02 + Math.sin(t * Math.PI) * 0.48,
-          -0.08,
-        ),
-      );
-    }
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    const material = new THREE.LineBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.55,
-    });
-    return new THREE.Line(geometry, material);
-  }, [spread]);
-  return <primitive object={line} />;
-}
-
-function Satellite({ position }: { position: [number, number, number] }) {
-  return (
-    <group position={position}>
-      <mesh>
-        <boxGeometry args={[0.28, 0.12, 0.12]} />
-        <meshBasicMaterial color="#ffffff" />
-      </mesh>
-      <mesh position={[-0.4, 0, 0]}>
-        <boxGeometry args={[0.52, 0.24, 0.02]} />
-        <meshBasicMaterial color="#ffffff" wireframe />
-      </mesh>
-      <mesh position={[0.4, 0, 0]}>
-        <boxGeometry args={[0.52, 0.24, 0.02]} />
-        <meshBasicMaterial color="#ffffff" wireframe />
-      </mesh>
-    </group>
-  );
-}
-
-function Constellation({
-  position,
-  spread,
-}: {
-  position: THREE.Vector3;
-  spread: number;
-}) {
-  const ref = useRef<THREE.Group>(null);
-  const gap = Math.min(0.92, spread * 0.62);
-  useFrame(({ clock }) => {
-    if (!ref.current) return;
-    ref.current.position.y =
-      position.y + Math.sin(clock.elapsedTime * 0.6) * 0.03;
-  });
-  return (
-    <group ref={ref} position={position}>
-      <Satellite position={[0, 0, 0]} />
-      <Satellite position={[-gap, 0.08, 0]} />
-      <Satellite position={[gap, -0.04, 0]} />
-    </group>
-  );
-}
-
-function Antenna({ x }: { x: number }) {
-  return (
-    <group position={[x, 0, 0]}>
-      <mesh position={[0, 0.42, 0]}>
-        <cylinderGeometry args={[0.018, 0.028, 0.84, 8]} />
-        <meshBasicMaterial color="#ffffff" />
-      </mesh>
-      <mesh position={[0, 0.92, 0]} rotation={[0.5, 0.25, 0]}>
-        <coneGeometry args={[0.32, 0.16, 16, 1, true]} />
-        <meshBasicMaterial color="#ffffff" wireframe />
-      </mesh>
-      <mesh position={[0.04, 1.02, 0.08]}>
-        <sphereGeometry args={[0.045, 10, 10]} />
-        <meshBasicMaterial color="#ffffff" />
-      </mesh>
-    </group>
-  );
-}
-
-function Campus({ x }: { x: number }) {
-  return (
-    <group position={[x, 0, 0]}>
-      <mesh position={[0, 0.46, 0]}>
-        <boxGeometry args={[0.7, 0.92, 0.52]} />
-        <meshBasicMaterial color="#ffffff" wireframe />
-      </mesh>
-      <mesh position={[0.58, 0.28, 0.06]}>
-        <boxGeometry args={[0.4, 0.56, 0.4]} />
-        <meshBasicMaterial color="#ffffff" wireframe />
-      </mesh>
-      <mesh position={[-0.5, 0.22, -0.04]}>
-        <boxGeometry args={[0.32, 0.44, 0.32]} />
-        <meshBasicMaterial color="#ffffff" wireframe />
-      </mesh>
-    </group>
-  );
-}
-
-function SceneContents({
-  clockRef,
-}: {
-  clockRef: RefObject<RouteClock>;
-}) {
-  const { size } = useThree();
-  const aspect = size.width / Math.max(size.height, 1);
-  const layout = useMemo(() => buildLayout(aspect), [aspect]);
-
-  return (
-    <>
-      <CameraRig clockRef={clockRef} layout={layout} />
-      <OrbitArc spread={layout.spread} />
-      <Constellation position={layout.cluster} spread={layout.spread} />
-      <Antenna x={layout.antenna.x} />
-      <Campus x={layout.campus.x} />
-      <Routes clockRef={clockRef} layout={layout} />
-    </>
-  );
-}
-
-export function OrbitalScene() {
-  const clockRef = useRouteClock();
-  return (
-    <Canvas
-      gl={{ alpha: true, antialias: true }}
-      dpr={[1, 1.5]}
-      camera={{ position: [0, 1.02, 2.8], fov: 34, near: 0.1, far: 30 }}
-      onCreated={({ gl }) => {
-        gl.setClearColor(0x000000, 0);
-      }}
+    <svg
+      className={`globe-scene phase-${phase} focus-${focus} ${reducedMotion ? "reduce-motion" : ""}`}
+      viewBox="0 0 1200 650"
+      role="img"
+      aria-label="Earth with Canada, the United States and Greenland. A prompt travels from New York to an arc of satellites, across an orbital link, and back to Earth. A second route connects to a Nevada datacenter."
     >
-      <SceneContents clockRef={clockRef} />
-    </Canvas>
+      <defs>
+        <radialGradient id="ocean" cx="44%" cy="5%" r="80%">
+          <stop stopColor="#172b33" />
+          <stop offset=".55" stopColor="#0d1d27" />
+          <stop offset="1" stopColor="#090f18" />
+        </radialGradient>
+        <linearGradient id="land" x2=".4" y2="1">
+          <stop stopColor="#455d55" />
+          <stop offset=".65" stopColor="#243f3d" />
+          <stop offset="1" stopColor="#132b2f" />
+        </linearGradient>
+        <radialGradient id="shade" cx="46%" cy="0%" r="84%">
+          <stop offset=".2" stopColor="#050b13" stopOpacity="0" />
+          <stop offset="1" stopColor="#050b13" stopOpacity=".88" />
+        </radialGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="5" />
+        </filter>
+        <pattern id="dots" width="6" height="6" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r=".65" fill="#adc9ad" opacity=".27" />
+        </pattern>
+        <clipPath id="earth-clip">
+          <circle cx="600" cy="773" r="490" />
+        </clipPath>
+        {Object.entries(routes).map(([id, d]) => (
+          <path key={id} id={`path-${id}`} d={d} />
+        ))}
+      </defs>
+      <g>
+        {Array.from({ length: 90 }, (_, i) => (
+          <circle
+            key={i}
+            cx={(i * 137.51 + 29) % 1200}
+            cy={(i * 81.17 + 71) % 620}
+            r={i % 6 === 0 ? 1.1 : 0.6}
+            opacity={0.1 + (i % 4) * 0.1}
+            fill="#bacfda"
+          />
+        ))}
+      </g>
+      <circle
+        cx="600"
+        cy="773"
+        r="492"
+        fill="none"
+        stroke="#8bd4c5"
+        strokeWidth="8"
+        opacity=".15"
+        filter="url(#glow)"
+      />
+      <circle
+        cx="600"
+        cy="773"
+        r="490"
+        fill="url(#ocean)"
+        stroke="#8eb7ac"
+        strokeWidth="1.3"
+      />
+      <g clipPath="url(#earth-clip)">
+        <path
+          d={landPath}
+          fill="url(#land)"
+          stroke="#91a995"
+          strokeWidth=".65"
+        />
+        <path d={landPath} fill="url(#dots)" />
+        <path
+          d={borderPath}
+          fill="none"
+          stroke="#89a193"
+          strokeWidth=".65"
+          opacity=".5"
+        />
+        <path
+          d={gridPath}
+          fill="none"
+          stroke="#9ebfbe"
+          strokeWidth=".5"
+          opacity=".12"
+        />
+        <circle cx="600" cy="773" r="490" fill="url(#shade)" />
+      </g>
+      {labels.map(([name, coordinates]) => {
+        const point = projection(coordinates)!;
+        return (
+          <text
+            key={name}
+            x={point[0]}
+            y={point[1]}
+            textAnchor="middle"
+            className="country-label"
+          >
+            {name}
+          </text>
+        );
+      })}
+      <path
+        d="M92 398 Q590 -188 1100 416"
+        fill="none"
+        stroke="#a0b5bf"
+        strokeWidth=".7"
+        strokeDasharray="3 7"
+        opacity=".22"
+      />
+      <text x="598" y="66" textAnchor="middle" className="orbit-caption">
+        THE ORBITAL COMPUTE LAYER
+      </text>
+      <g className="space-paths">
+        {(["uplink", "relay", "downlink"] as const).map((id) => (
+          <path
+            key={id}
+            d={routes[id]}
+            pathLength="1"
+            className={`route-line ${flying && activePath === id ? "route-active" : ""}`}
+          />
+        ))}
+        {phase === "split" && (
+          <circle
+            cx="778"
+            cy="148"
+            r="29"
+            className="compute-pulse"
+            fill="none"
+            stroke="#c4efb1"
+          />
+        )}
+      </g>
+      {satellites.map(([x, y, angle], i) => (
+        <g
+          key={i}
+          transform={`translate(${x} ${y}) rotate(${angle})`}
+          className={`satellite ${i === 3 || i === 6 ? "selected-satellite" : ""}`}
+        >
+          <g
+            className="satellite-body"
+            style={{ animationDelay: `${i * -0.7}s` }}
+          >
+            <rect
+              x="-27"
+              y="-10"
+              width="18"
+              height="20"
+              rx="1"
+              fill="#1e303c"
+              stroke="#6c8492"
+              strokeWidth=".9"
+            />
+            <rect
+              x="9"
+              y="-10"
+              width="18"
+              height="20"
+              rx="1"
+              fill="#1e303c"
+              stroke="#6c8492"
+              strokeWidth=".9"
+            />
+            <path
+              d="M-21 -10v20m6-20v20m30-20v20m6-20v20M-27 0h18m18 0h18"
+              stroke="#708996"
+              strokeWidth=".55"
+            />
+            <path d="M-9 0H9M0 -8v-8" stroke="#b3c5ca" strokeWidth="1.2" />
+            <rect
+              x="-5"
+              y="-8"
+              width="10"
+              height="16"
+              rx="2"
+              fill="#aebeaf"
+              stroke="#e2e9d3"
+              strokeWidth=".6"
+            />
+            <circle cy="-17" r="1.5" fill="#c7efb3" />
+          </g>
+        </g>
+      ))}
+      <g className="ground-paths">
+        <path
+          d={routes.ground}
+          className={`ground-route ${flying ? "route-active" : ""}`}
+        />
+        <g transform={`translate(${ground})`}>
+          <circle r="18" fill="#bcb1e5" opacity=".07" />
+          <rect
+            x="-7"
+            y="-9"
+            width="14"
+            height="17"
+            rx="2"
+            fill="#17232e"
+            stroke="#c0b9df"
+          />
+          <path d="M-4 -5h8m-8 5h8m-8 5h8" stroke="#b6b2e3" />
+          <text x="-19" y="28" textAnchor="end" className="map-label">
+            NEVADA
+          </text>
+          <text x="-19" y="44" textAnchor="end" className="map-sublabel">
+            GROUND DATACENTER
+          </text>
+        </g>
+      </g>
+      <g transform={`translate(${origin})`}>
+        <circle r="23" fill="#c5f4b2" opacity=".06" />
+        <circle
+          className={flying ? "origin-ring pulse" : "origin-ring"}
+          r="13"
+          fill="none"
+          stroke="#c5f4b2"
+          opacity=".4"
+        />
+        <circle r="5" fill="#c5f4b2" />
+        <circle r="2" fill="#fff" />
+        <path d="M-14 2h-10l-8 14" fill="none" stroke="#c5f4b2" opacity=".55" />
+        <text x="-38" y="29" textAnchor="end" className="map-label">
+          NEW YORK
+        </text>
+        <text x="-38" y="46" textAnchor="end" className="map-sublabel">
+          YOUR PROMPT STARTS HERE
+        </text>
+      </g>
+      {!reducedMotion && flying && (
+        <g key={phase}>
+          <circle r="4" fill="#e7ffd4" className="space-packet">
+            <animateMotion
+              dur={
+                phase === "uplink"
+                  ? "1.6s"
+                  : phase === "split"
+                    ? "2.4s"
+                    : "2.1s"
+              }
+              repeatCount="indefinite"
+            >
+              <mpath href={`#path-${activePath}`} />
+            </animateMotion>
+          </circle>
+          <circle r="3" fill="#d2c6f1" className="ground-packet">
+            <animateMotion
+              dur="2.1s"
+              repeatCount="indefinite"
+              keyPoints={phase === "pullback" ? "1;0" : "0;1"}
+              keyTimes="0;1"
+              calcMode="linear"
+            >
+              <mpath href="#path-ground" />
+            </animateMotion>
+          </circle>
+        </g>
+      )}
+    </svg>
   );
-}
+});

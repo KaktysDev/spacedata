@@ -21,9 +21,12 @@ export function isChatAnswer(value: unknown): value is ChatAnswer {
   return (
     typeof answer.text === "string" &&
     answer.text.trim().length > 0 &&
-    typeof answer.promptTokens === "number" &&
-    typeof answer.completionTokens === "number" &&
-    typeof answer.totalTokens === "number" &&
+    Number.isFinite(answer.promptTokens) &&
+    (answer.promptTokens ?? -1) >= 0 &&
+    Number.isFinite(answer.completionTokens) &&
+    (answer.completionTokens ?? -1) >= 0 &&
+    Number.isFinite(answer.totalTokens) &&
+    (answer.totalTokens ?? -1) >= 0 &&
     typeof answer.usageEstimated === "boolean"
   );
 }

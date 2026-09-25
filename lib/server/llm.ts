@@ -41,9 +41,10 @@ export async function runDualAnswers(prompt: string): Promise<{
   if (!config) {
     throw new Error("missing-provider");
   }
+  const signal = AbortSignal.timeout(45_000);
   const [space, ground] = await Promise.all([
-    complete(config, prompt),
-    complete(config, prompt),
+    complete(config, prompt, signal),
+    complete(config, prompt, signal),
   ]);
   return {
     provider: config.id,
@@ -58,6 +59,7 @@ type Attempt = "tuned" | "plain";
 async function complete(
   config: GeminiConfig,
   prompt: string,
+  signal: AbortSignal,
   attempt: Attempt = "tuned",
 ): Promise<ChatAnswer> {
   const generationConfig: Record<string, unknown> = {
@@ -85,12 +87,12 @@ async function complete(
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig,
       }),
-      signal: AbortSignal.timeout(45_000),
+      signal,
     },
   );
 
   if (response.status === 400 && attempt === "tuned") {
-    return complete(config, prompt, "plain");
+    return complete(config, prompt, signal, "plain");
   }
   if (!response.ok) {
     throw new Error("provider-status");
@@ -122,7 +124,11 @@ async function complete(
 function readText(data: unknown): string {
   if (!data || typeof data !== "object") return "";
   const candidates = (data as { candidates?: unknown }).candidates;
-  if (!Array.isArray(candidates) || !candidates[0] || typeof candidates[0] !== "object") {
+  if (
+    !Array.isArray(candidates) ||
+    !candidates[0] ||
+    typeof candidates[0] !== "object"
+  ) {
     return "";
   }
   const content = (candidates[0] as { content?: unknown }).content;
@@ -155,11 +161,15 @@ function readUsage(data: unknown): {
   const usage = (data as { usageMetadata?: unknown }).usageMetadata;
   if (!usage || typeof usage !== "object") return empty;
   return {
-    promptTokens: finite((usage as { promptTokenCount?: unknown }).promptTokenCount),
+    promptTokens: finite(
+      (usage as { promptTokenCount?: unknown }).promptTokenCount,
+    ),
     completionTokens: finite(
       (usage as { candidatesTokenCount?: unknown }).candidatesTokenCount,
     ),
-    totalTokens: finite((usage as { totalTokenCount?: unknown }).totalTokenCount),
+    totalTokens: finite(
+      (usage as { totalTokenCount?: unknown }).totalTokenCount,
+    ),
   };
 }
 

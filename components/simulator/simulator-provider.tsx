@@ -8,10 +8,12 @@ import {
   useRef,
   useState,
   type ReactNode,
-  type RefObject,
 } from "react";
 
-import { isChatSuccessBody, type ChatSuccessBody } from "@/lib/starcloud/chat-types";
+import {
+  isChatSuccessBody,
+  type ChatSuccessBody,
+} from "@/lib/starcloud/chat-types";
 import { CHAT_MAX_CHARS, SIMULATION } from "@/lib/starcloud/constants";
 import {
   createEngineState,
@@ -20,10 +22,7 @@ import {
   withUtilization,
   type VenueSnapshot,
 } from "@/lib/starcloud/engine";
-import {
-  phaseDuration,
-  type RoutePhase,
-} from "@/lib/starcloud/route-timeline";
+import { phaseDuration, type RoutePhase } from "@/lib/starcloud/route-timeline";
 
 export type RouteClock = {
   space: ReturnType<typeof createEngineState>;
@@ -49,10 +48,12 @@ type SimulatorValue = {
   reducedMotion: boolean;
   submitPrompt: (prompt: string) => Promise<boolean>;
   showBaseline: () => void;
+  mode: "simulation" | "live";
+  setMode: (mode: "simulation" | "live") => void;
+  liveAvailable: boolean;
 };
 
 const SimulatorContext = createContext<SimulatorValue | null>(null);
-const ClockContext = createContext<RefObject<RouteClock> | null>(null);
 
 function createClock(): RouteClock {
   return {
@@ -69,9 +70,11 @@ function createClock(): RouteClock {
   };
 }
 
-function publish(clock: RouteClock): Omit<
+function publish(
+  clock: RouteClock,
+): Omit<
   SimulatorValue,
-  "submitPrompt" | "showBaseline"
+  "submitPrompt" | "showBaseline" | "mode" | "setMode" | "liveAvailable"
 > {
   return {
     space: snapshot("space", clock.space),
@@ -109,10 +112,21 @@ function advance(clock: RouteClock, now: number): boolean {
   clock.phase = "compare";
   clock.phaseStarted = now;
   clock.busy = false;
+  clock.space = withUtilization(clock.space, SIMULATION.idleUtilization);
+  clock.ground = withUtilization(clock.ground, SIMULATION.idleUtilization);
   return true;
 }
 
-export function SimulatorProvider({ children }: { children: ReactNode }) {
+export function SimulatorProvider({
+  children,
+  liveAvailable = false,
+}: {
+  children: ReactNode;
+  liveAvailable?: boolean;
+}) {
+  const [mode, setModeState] = useState<"simulation" | "live">(
+    liveAvailable ? "live" : "simulation",
+  );
   const clockRef = useRef<RouteClock>(createClock());
   const abortRef = useRef<AbortController | null>(null);
   const [slice, setSlice] = useState(() => publish(createClock()));
@@ -151,104 +165,136 @@ export function SimulatorProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const submitPrompt = useCallback((raw: string) => {
-    const clock = clockRef.current;
-    if (!clock || clock.busy) return Promise.resolve(false);
-    const prompt = raw.trim();
-    if (!prompt) return Promise.resolve(false);
-    if (prompt.length > CHAT_MAX_CHARS) {
-      clock.prompt = prompt.slice(0, 180);
-      clock.result = null;
-      clock.error = `Keep the prompt under ${CHAT_MAX_CHARS} characters.`;
-      clock.phase = "compare";
-      clock.busy = false;
-      clock.fetchSettled = true;
-      setSlice(publish(clock));
-      return Promise.resolve(false);
-    }
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    clock.busy = true;
-    clock.fetchSettled = false;
-    clock.prompt = prompt;
-    clock.result = null;
-    clock.error = null;
-    clock.phase = "uplink";
-    clock.phaseStarted = performance.now();
-    clock.space = withUtilization(
-      clock.space,
-      SIMULATION.inferenceUtilization,
-    );
-    clock.ground = withUtilization(
-      clock.ground,
-      SIMULATION.inferenceUtilization,
-    );
-    setSlice(publish(clock));
-
-    return (async () => {
-      try {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt }),
-          signal: controller.signal,
-        });
-        const body: unknown = await response.json().catch(() => null);
-        if (controller.signal.aborted) return false;
-        if (!response.ok) {
-          const message =
-            body &&
-            typeof body === "object" &&
-            "error" in body &&
-            typeof (body as { error?: unknown }).error === "string"
-              ? (body as { error: string }).error
-              : "The model request failed.";
-          clock.result = null;
-          clock.error = message;
-        } else if (!isChatSuccessBody(body)) {
-          clock.result = null;
-          clock.error = "The model response was incomplete.";
-        } else {
-          clock.result = body;
-          clock.error = null;
-        }
-      } catch {
-        if (controller.signal.aborted) return false;
+  const submitPrompt = useCallback(
+    (raw: string) => {
+      const clock = clockRef.current;
+      if (!clock || clock.busy) return Promise.resolve(false);
+      const prompt = raw.trim();
+      if (!prompt) return Promise.resolve(false);
+      if (prompt.length > CHAT_MAX_CHARS) {
+        clock.prompt = prompt.slice(0, 180);
         clock.result = null;
-        clock.error = "The model request failed.";
+        clock.error = `Keep the prompt under ${CHAT_MAX_CHARS} characters.`;
+        clock.phase = "compare";
+        clock.busy = false;
+        clock.fetchSettled = true;
+        setSlice(publish(clock));
+        return Promise.resolve(false);
       }
-      if (controller.signal.aborted) return false;
-      clock.space = withUtilization(clock.space, SIMULATION.idleUtilization);
-      clock.ground = withUtilization(clock.ground, SIMULATION.idleUtilization);
-      clock.fetchSettled = true;
+
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      clock.busy = true;
+      clock.fetchSettled = false;
+      clock.prompt = prompt;
+      clock.result = null;
+      clock.error = null;
+      clock.phase = "uplink";
+      clock.phaseStarted = performance.now();
+      clock.space = withUtilization(
+        clock.space,
+        SIMULATION.inferenceUtilization,
+      );
+      clock.ground = withUtilization(
+        clock.ground,
+        SIMULATION.inferenceUtilization,
+      );
       setSlice(publish(clock));
-      return clock.result !== null;
-    })();
-  }, []);
+
+      if (mode === "simulation") {
+        clock.fetchSettled = true;
+        return Promise.resolve(true);
+      }
+
+      return (async () => {
+        try {
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt }),
+            signal: AbortSignal.any([
+              controller.signal,
+              AbortSignal.timeout(55_000),
+            ]),
+          });
+          const body: unknown = await response.json().catch(() => null);
+          if (controller.signal.aborted) return false;
+          if (!response.ok) {
+            const message =
+              body &&
+              typeof body === "object" &&
+              "error" in body &&
+              typeof (body as { error?: unknown }).error === "string"
+                ? (body as { error: string }).error
+                : "The model request failed.";
+            clock.result = null;
+            clock.error = message;
+          } else if (!isChatSuccessBody(body)) {
+            clock.result = null;
+            clock.error = "The model response was incomplete.";
+          } else {
+            clock.result = body;
+            clock.error = null;
+          }
+        } catch {
+          if (controller.signal.aborted) return false;
+          clock.result = null;
+          clock.error =
+            "The request timed out or the connection was interrupted. Your prompt is saved—please try again.";
+        }
+        if (controller.signal.aborted) return false;
+        clock.space = withUtilization(clock.space, SIMULATION.idleUtilization);
+        clock.ground = withUtilization(
+          clock.ground,
+          SIMULATION.idleUtilization,
+        );
+        clock.fetchSettled = true;
+        setSlice(publish(clock));
+        return clock.result !== null;
+      })();
+    },
+    [mode],
+  );
 
   const showBaseline = useCallback(() => {
     const clock = clockRef.current;
-    if (!clock || clock.busy) return;
+    if (!clock) return;
+    abortRef.current?.abort();
+    clock.busy = false;
+    clock.fetchSettled = true;
+    clock.prompt = null;
+    clock.result = null;
+    clock.space = withUtilization(clock.space, SIMULATION.idleUtilization);
+    clock.ground = withUtilization(clock.ground, SIMULATION.idleUtilization);
     clock.phase = "idle";
     clock.error = null;
     setSlice(publish(clock));
   }, []);
 
+  const setMode = useCallback(
+    (next: "simulation" | "live") => {
+      if (clockRef.current.busy || (next === "live" && !liveAvailable)) return;
+      showBaseline();
+      setModeState(next);
+    },
+    [liveAvailable, showBaseline],
+  );
+
   const value: SimulatorValue = {
     ...slice,
     submitPrompt,
     showBaseline,
+    mode,
+    setMode,
+    liveAvailable,
   };
 
   return (
-    <ClockContext.Provider value={clockRef}>
-      <SimulatorContext.Provider value={value}>
-        {children}
-      </SimulatorContext.Provider>
-    </ClockContext.Provider>
+    <SimulatorContext.Provider value={value}>
+      {children}
+    </SimulatorContext.Provider>
   );
 }
 
@@ -256,14 +302,6 @@ export function useSimulator(): SimulatorValue {
   const value = useContext(SimulatorContext);
   if (!value) {
     throw new Error("useSimulator must be used inside SimulatorProvider");
-  }
-  return value;
-}
-
-export function useRouteClock(): RefObject<RouteClock> {
-  const value = useContext(ClockContext);
-  if (!value) {
-    throw new Error("useRouteClock must be used inside SimulatorProvider");
   }
   return value;
 }
