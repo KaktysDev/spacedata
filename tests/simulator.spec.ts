@@ -20,6 +20,7 @@ import { POST } from "../app/api/chat/route";
 const originalFetch = globalThis.fetch;
 const envNames = [
   "GEMINI_API_KEY",
+  "Gemini_api_Key",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "OPENAI_API_KEY",
   "ANTHROPIC_API_KEY",
@@ -271,17 +272,14 @@ test("Gemini makes one capped request, keeps keys server-side and preserves all 
   mockProvider((url, init) => {
     calls++;
     expect(url).toBe(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
     );
     expect(url).not.toContain("test-secret");
     expect(new Headers(init?.headers).get("x-goog-api-key")).toBe(
       "test-secret",
     );
     const b = JSON.parse(String(init?.body));
-    expect(b.generationConfig).toEqual({
-      maxOutputTokens: 512,
-      thinkingConfig: { thinkingBudget: 0 },
-    });
+    expect(b.generationConfig).toEqual({ maxOutputTokens: 512 });
     expect(b.contents[0].parts[0].text).toBe("Why is the sky blue?");
     expect(b.tools).toBeUndefined();
     expect(init?.signal).toBeDefined();
@@ -307,8 +305,11 @@ test("Gemini makes one capped request, keeps keys server-side and preserves all 
 });
 test("Gemini alias works and primary key takes precedence", () => {
   process.env.GOOGLE_GENERATIVE_AI_API_KEY = "alias";
+  process.env.Gemini_api_Key = "cased-key";
   expect(providerKey("gemini")).toBe("test-secret");
   delete process.env.GEMINI_API_KEY;
+  expect(providerKey("gemini")).toBe("cased-key");
+  delete process.env.Gemini_api_Key;
   expect(providerKey("gemini")).toBe("alias");
   expect(availableProviders()).toContain("gemini");
 });

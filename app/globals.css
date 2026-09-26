@@ -402,15 +402,44 @@ textarea:focus-visible {
   letter-spacing: -0.02em;
   color: #d5d5d5;
 }
-.credit-arrow {
-  font-size: 11px;
-  color: #8a8a8a;
+.developer-name.is-burst {
+  opacity: 0.72;
+}
+.credit-name-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
 }
 .credit-canvas {
   position: absolute;
-  left: -36px;
-  top: -28px;
+  left: -18px;
+  top: -14px;
   pointer-events: none;
+}
+.credit-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 10px;
+  background: #121212;
+  border: 1px solid #ffffff24;
+  box-shadow: 0 8px 24px #0008;
+  z-index: 4;
+}
+.credit-pop a {
+  color: #f2f2f2;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+}
+.credit-pop a:hover,
+.credit-pop a:focus-visible {
+  background: #ffffff14;
 }
 .map-controls {
   position: absolute;

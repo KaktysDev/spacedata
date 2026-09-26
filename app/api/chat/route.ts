@@ -20,6 +20,11 @@ export async function POST(request: Request) {
       headers,
     });
   } catch (e) {
+    if (e instanceof Error && e.message === "model-not-found")
+      return Response.json(
+        { error: "Gemini could not find that model." },
+        { status: 502, headers },
+      );
     const known = e instanceof ChatRequestError;
     if (known && e.retryAfterSec)
       headers.set("Retry-After", String(e.retryAfterSec));

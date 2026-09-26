@@ -7,11 +7,13 @@ import type { ChatAnswer, ChatSuccessBody } from "@/lib/starcloud/chat-types";
 const SYSTEM =
   "Answer the user directly in under 140 words. Do not invent datacenter telemetry or environmental measurements. You have no tools or access to credentials.";
 export function providerKey(id: ProviderId) {
-  return (
-    process.env[PROVIDERS[id].key] ||
-    (id === "gemini" ? process.env.GOOGLE_GENERATIVE_AI_API_KEY : "") ||
-    ""
-  ).trim();
+  const gemini =
+    id === "gemini"
+      ? process.env.GEMINI_API_KEY ||
+        process.env.Gemini_api_Key ||
+        process.env.GOOGLE_GENERATIVE_AI_API_KEY
+      : "";
+  return (process.env[PROVIDERS[id].key] || gemini || "").trim();
 }
 export function availableProviders(): ProviderId[] {
   return PROVIDER_IDS.filter((id) => Boolean(providerKey(id)));
@@ -44,10 +46,7 @@ export async function runAnswer(
     body = {
       systemInstruction: { parts: [{ text: SYSTEM }] },
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        maxOutputTokens: 512,
-        thinkingConfig: { thinkingBudget: 0 },
-      },
+      generationConfig: { maxOutputTokens: 512 },
     };
   } else if (id === "anthropic") {
     url = "https://api.anthropic.com/v1/messages";
@@ -93,7 +92,11 @@ export async function runAnswer(
     cache: "no-store",
     redirect: "error",
   });
-  if (!response.ok) throw new Error("provider-error");
+  if (!response.ok) {
+    if (id === "gemini" && response.status === 404)
+      throw new Error("model-not-found");
+    throw new Error("provider-error");
+  }
   const data = obj(await response.json());
   const latencyMs = Math.round(performance.now() - start);
   let text = "",

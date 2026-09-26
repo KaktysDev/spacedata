@@ -2,13 +2,16 @@ import { distanceKm, type Location } from "./catalog";
 
 export const EARTH_KM = 6371,
   ALTITUDE_KM = 550;
-// Four altitude rows inside the 600–850 km filing range, 60 km apart so they
-// read as separate rings. 8,800 = 4 × 2,200. The filing count is larger; this
-// is the display set.
-export const SHELL_ALTITUDES_KM = [640, 700, 760, 820] as const;
-export const BAND_COUNT = SHELL_ALTITUDES_KM.length,
-  NODES_PER_BAND = 2200;
+// One shell in the 600–850 km family. 8,800 satellites share this altitude,
+// with only a few kilometers of scatter so the band has thickness without
+// separating into visible layers.
+export const SHELL_ALTITUDE_KM = 725;
+export const SHELL_ALTITUDES_KM = [SHELL_ALTITUDE_KM] as const;
+export const BAND_COUNT = 1,
+  NODES_PER_BAND = 8800;
 export const NODE_COUNT = BAND_COUNT * NODES_PER_BAND;
+// The ring plane is tilted about 80° from the equator, not wrapped around it.
+export const RING_INCLINATION_DEG = 80;
 const MU = 398600.4418,
   J2 = 0.00108262668;
 export const orbitalPeriodMs = (altitudeKm: number) =>
@@ -238,29 +241,33 @@ export function groundRoute(
   return { points, stops, km, rttMs: ((2 * km) / 200000) * 1000 + 10 };
 }
 
-// Four loose rings, not a polar cloud and not one shared meridian. Each row
-// keeps a modest inclination so it stays a band around Earth. Planes are
-// still rotated about the polar axis through a full 360° of RAAN before that
-// inclination is applied. Frozen Earth orientation, not a dated ephemeris.
-const PLANES_PER_BAND = 20;
-const SATS_PER_PLANE = NODES_PER_BAND / PLANES_PER_BAND;
-const RING_INCLINATION_DEG = 8;
+// One dense ring. Ascending nodes sit in a narrow fan around a single plane
+// (a few degrees, not 360°) so the band is about three or four satellites
+// thick without splitting into separate rings. Satellites still run all the
+// way around that tilted circle, so they are not piled on one meridian.
+const PLANES = 40;
+const SATS_PER_PLANE = NODE_COUNT / PLANES;
+const RAAN_FAN_DEG = 4.5;
 export function orbitalNodes(at: number): OrbitalNode[] {
   return Array.from({ length: NODE_COUNT }, (_, i) => {
-    const band = Math.floor(i / NODES_PER_BAND),
-      slot = i % NODES_PER_BAND;
-    const plane = Math.floor(slot / SATS_PER_PLANE),
-      along = slot % SATS_PER_PLANE;
-    // A few kilometers of scatter inside the row. The fractional seed keeps
-    // every altitude unique without letting rows overlap (they are 60 km apart).
+    const plane = Math.floor(i / SATS_PER_PLANE),
+      along = i % SATS_PER_PLANE;
     const altitudeKm =
-      SHELL_ALTITUDES_KM[band] +
-      (slot + orbitalSeed(i, 1) * 0.999 - NODES_PER_BAND / 2) * 0.0035;
+      SHELL_ALTITUDE_KM +
+      ((i + orbitalSeed(i, 1) * 0.999) / NODE_COUNT - 0.5) * 16;
     const inclination =
-      (RING_INCLINATION_DEG + (orbitalSeed(i, 4) - 0.5) * 5) * rad;
+      (RING_INCLINATION_DEG + (orbitalSeed(i, 4) - 0.5) * 1.6) * rad;
+    // Rotate the ring about the polar axis only enough that the default
+    // Americas camera is not inside the plane. 179° was edge-on (a bar
+    // through the middle). 132° tips the crest north over Canada near 138°W,
+    // so the near arc rises over northern Canada instead of cutting the disk
+    // in half. The 4.5° fan is thickness, not a swing toward the oceans.
     const raan =
-      ((plane + band * 0.5) / PLANES_PER_BAND) * Math.PI * 2 +
-      (orbitalSeed(band * 97 + plane, 2) - 0.5) * (3 * rad);
+      ((132 +
+        ((plane + 0.5) / PLANES - 0.5) * RAAN_FAN_DEG +
+        (orbitalSeed(plane, 2) - 0.5) * 0.35) *
+        Math.PI) /
+      180;
     const period = orbitalPeriodMs(altitudeKm);
     let turns = ((at - ORBIT_EPOCH_MS) % period) / period;
     if (turns < 0) turns += 1;
@@ -268,7 +275,7 @@ export function orbitalNodes(at: number): OrbitalNode[] {
       turns * Math.PI * 2 +
       (along / SATS_PER_PLANE) * Math.PI * 2 +
       (plane * Math.PI) / SATS_PER_PLANE +
-      (orbitalSeed(i, 3) - 0.5) * (3.2 * rad);
+      (orbitalSeed(i, 3) - 0.5) * (2.2 * rad);
     const cosO = Math.cos(raan),
       sinO = Math.sin(raan),
       cosU = Math.cos(u),
@@ -282,8 +289,8 @@ export function orbitalNodes(at: number): OrbitalNode[] {
       lat: Math.asin(Math.max(-1, Math.min(1, ez))) / rad,
       lon: Math.atan2(ey, ex) / rad,
       altitudeKm,
-      band,
-      slot,
+      band: 0,
+      slot: along,
     };
   });
 }
