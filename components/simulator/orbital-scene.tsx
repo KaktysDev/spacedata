@@ -297,7 +297,7 @@ export function OrbitalScene(props: Props) {
     scene.add(new THREE.LineSegments(ringGeometry, ringMaterial));
     const heroes = Array.from({ length: 5 }, () => {
       const craft = satellite();
-      craft.scale.setScalar(0.24);
+      craft.scale.setScalar(0.11);
       craft.visible = false;
       scene.add(craft);
       return craft;
@@ -353,7 +353,7 @@ export function OrbitalScene(props: Props) {
     let groundPath: THREE.Vector3[] = [],
       spacePath: THREE.Vector3[] = [];
     const groundDot = new THREE.Mesh(
-      new THREE.SphereGeometry(0.032, 12, 8),
+      new THREE.SphereGeometry(0.014, 12, 8),
       new THREE.MeshBasicMaterial({ color: 0x86b5d5 }),
     );
     const spaceDot = groundDot.clone();
@@ -361,13 +361,14 @@ export function OrbitalScene(props: Props) {
     scene.add(groundDot, spaceDot);
     const ingressPos = new THREE.Vector3(),
       computePos = new THREE.Vector3();
-    let cachedRoute: OrbitalRoute = routeAt(latest.current.origin, epoch);
+    let cachedRoute: OrbitalRoute = routeAt(latest.current.origin, Date.now());
     let cachedKey = "";
     const FOLLOW_START = 1800,
       FOLLOW_END = 10400,
-      CLOSER_OUT = 1.78,
-      CLOSER_SIDE = 1.02;
+      CLOSER_OUT = 2.25,
+      CLOSER_SIDE = 1.28;
     let flightSign = 1;
+    let flightClock = 0;
     let signedFor = 0;
     let pullback: { cam: THREE.Vector3; target: THREE.Vector3 } | null = null;
     // Frozen at send: a rightward yaw around the departure point onto a broadside view.
@@ -629,6 +630,7 @@ export function OrbitalScene(props: Props) {
       fillOrbit(networkTime, shellLat, shellLon, shellAlt);
       const linkPositions = ringGeometry.attributes
         .position as THREE.BufferAttribute;
+      let drawnLinks = 0;
       for (let i = 0; i < NODE_COUNT; i++) {
         const placed = position(
           { lat: shellLat[i], lon: shellLon[i] },
@@ -639,21 +641,20 @@ export function OrbitalScene(props: Props) {
         shellPositions[i * 3 + 1] = placed.y;
         shellPositions[i * 3 + 2] = placed.z;
         const plane = Math.floor(i / SATS_PER_PLANE);
+        // A few full orbits are enough to read the shell. Drawing every plane
+        // turns the same geometry into a wire cage.
+        if (plane % 6 !== 0) continue;
         const slot = i % SATS_PER_PLANE;
-        const next =
-          plane * SATS_PER_PLANE + ((slot + 1) % SATS_PER_PLANE);
-        const b = world[next];
-        linkPositions.setXYZ(i * 2, placed.x, placed.y, placed.z);
-        // The next satellite in a plane may not be written yet; fill it directly.
-        if (b.lengthSq() === 0 || next > i) {
-          const nb = position(
-            { lat: shellLat[next], lon: shellLon[next] },
-            shellRadius(shellAlt[next]),
-          );
-          world[next].copy(nb);
-          linkPositions.setXYZ(i * 2 + 1, nb.x, nb.y, nb.z);
-        } else linkPositions.setXYZ(i * 2 + 1, b.x, b.y, b.z);
+        const next = plane * SATS_PER_PLANE + ((slot + 1) % SATS_PER_PLANE);
+        const nb = position(
+          { lat: shellLat[next], lon: shellLon[next] },
+          shellRadius(shellAlt[next]),
+        );
+        linkPositions.setXYZ(drawnLinks * 2, placed.x, placed.y, placed.z);
+        linkPositions.setXYZ(drawnLinks * 2 + 1, nb.x, nb.y, nb.z);
+        drawnLinks++;
       }
+      ringGeometry.setDrawRange(0, drawnLinks * 2);
       (shellGeometry.attributes.position as THREE.BufferAttribute).needsUpdate =
         true;
       linkPositions.needsUpdate = true;
@@ -819,7 +820,7 @@ export function OrbitalScene(props: Props) {
         };
         if (elapsed < FOLLOW_END && !f.reduced) {
           pullback = null;
-          const opening = sample(0);
+          const opening = sample(0.16);
           if (tangentSmooth.lengthSq() < 1e-6) tangentSmooth.copy(opening.tangent);
           if (signedFor !== f.id) {
             signedFor = f.id;
@@ -946,7 +947,9 @@ export function OrbitalScene(props: Props) {
             offset = THREE.MathUtils.lerp(homeOffset, -0.04, t);
             tangentSmooth.copy(opening.tangent);
           } else {
-            const u = (elapsed - FOLLOW_START) / (FOLLOW_END - FOLLOW_START);
+            const u =
+              0.16 +
+              0.84 * ((elapsed - FOLLOW_START) / (FOLLOW_END - FOLLOW_START));
             const here = sample(u);
             tangentSmooth.lerp(here.tangent, 0.18).normalize();
             const pose = broadside(here.point, tangentSmooth, flightSign);
@@ -1025,7 +1028,7 @@ export function OrbitalScene(props: Props) {
       routeGroup.visible = active;
       dc.visible = true;
       gateway.visible = active;
-      ringMaterial.opacity = active ? 0.16 : 0.07;
+      ringMaterial.opacity = active ? 0.22 : 0.14;
       shellMaterial.opacity = active ? 0.55 : 0.92;
       groundDot.visible = spaceDot.visible = active;
       if (active) {
