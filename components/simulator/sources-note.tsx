@@ -127,14 +127,14 @@ export function SourcesNote({
             </figure>
           </div>
           <p className="fine-print">
-            6,000 representative satellites in six loose altitude bands, 600–850
-            km. Starcloud’s 2026 filing requests up to 88,000 satellites in
-            narrow, dawn-dusk sun-synchronous shells; it does not specify these
-            six bands or this display count. Each band uses 40 orbital planes
-            spaced around a full circle of ascending nodes, then inclined, with
-            small fixed scatter in node and phase so the shell is not one
-            meridian or a perfect grid. Inclination follows altitude and each
-            satellite moves at its own orbital period.
+            8,800 representative satellites in four altitude rings between 640
+            and 820 km. Starcloud’s 2026 filing requests up to 88,000 satellites
+            in narrow, dawn-dusk sun-synchronous shells; it does not specify
+            these four rings or this display count. Each ring uses 20 orbital
+            planes spaced around a full circle of ascending nodes, with a modest
+            inclination and small fixed scatter so the rows are loose rings, not
+            one meridian and not a perfect grid. Each satellite moves at its own
+            orbital period.
             Satellites pass over Earth; they do not stay above remote regions.
             Hardware size and altitude spacing are enlarged for visibility;
             route distances use physical kilometers. This is an illustrative

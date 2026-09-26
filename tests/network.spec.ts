@@ -36,9 +36,9 @@ test("loose orbital bands stay within the proposed altitude envelope and display
   const nodes = orbitalNodes(0);
   expect(nodes).toHaveLength(NODE_COUNT);
   expect(NODE_COUNT).toBeLessThanOrEqual(40000);
-  expect(NODE_COUNT).toBe(6000);
-  expect(Math.max(...nodes.map((p) => p.lat))).toBeGreaterThan(80);
-  expect(Math.min(...nodes.map((p) => p.lat))).toBeLessThan(-80);
+  expect(NODE_COUNT).toBe(8800);
+  expect(Math.max(...nodes.map((p) => Math.abs(p.lat)))).toBeLessThan(16);
+  expect(Math.max(...nodes.map((p) => p.lat))).toBeGreaterThan(2);
   expect(Math.min(...nodes.map((p) => p.altitudeKm))).toBeGreaterThanOrEqual(
     600,
   );

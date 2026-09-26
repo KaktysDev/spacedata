@@ -24,6 +24,7 @@ import { type Flight } from "./orbital-scene";
 import { InferenceComparison } from "./inference-comparison";
 import { SourcesNote } from "./sources-note";
 import { Modal } from "./modal";
+import { DeveloperCredit } from "./developer-credit";
 import { ProviderPicker } from "./provider-picker";
 const OrbitalScene = dynamic(
   () => import("./orbital-scene").then((m) => m.OrbitalScene),
@@ -305,18 +306,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         <span className="constellation-count">
           {NODE_COUNT.toLocaleString()} satellites
         </span>
-        <a
-          className="developer-credit"
-          href="https://www.linkedin.com/in/oleh-lahoda-0847a3393/"
-          target="_blank"
-          rel="noreferrer"
-        >
-          <span className="credit-kicker">Developed by</span>{" "}
-          <span className="developer-name">Oleh Lahoda</span>
-          <span aria-hidden="true" className="credit-arrow">
-            ↗
-          </span>
-        </a>
+        <DeveloperCredit />
       </footer>
       {locations && (
         <LocationPicker
