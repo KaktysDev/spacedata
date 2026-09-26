@@ -574,10 +574,10 @@ export function OrbitalScene(props: Props) {
         } else {
           nodes = orbitalNodes(networkTime);
         }
-        // Spread altitude bands across a broad annulus with a close inner edge.
-        // This is display magnification only; routing always uses physical km.
+        // Display radius only. Routing still uses each node's altitude in km.
+        // The base is farther out than the previous shell so the ring clears Earth.
         vectors = nodes.map((n) =>
-          position(n, 4.05 + ((n.altitudeKm - 600) / 250) * 1.7),
+          position(n, 5.35 + ((n.altitudeKm - 725) / 80) * 0.22),
         );
         lastNodeTime = now;
         lastDetailTime = -Infinity;

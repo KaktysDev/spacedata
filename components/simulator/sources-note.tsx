@@ -127,14 +127,13 @@ export function SourcesNote({
             </figure>
           </div>
           <p className="fine-print">
-            8,800 representative satellites in four altitude rings between 640
-            and 820 km. Starcloud’s 2026 filing requests up to 88,000 satellites
-            in narrow, dawn-dusk sun-synchronous shells; it does not specify
-            these four rings or this display count. Each ring uses 20 orbital
-            planes spaced around a full circle of ascending nodes, with a modest
-            inclination and small fixed scatter so the rows are loose rings, not
-            one meridian and not a perfect grid. Each satellite moves at its own
-            orbital period.
+            8,800 representative satellites in one ring at about 725 km, tilted
+            about 80° from the equator. Starcloud’s 2026 filing requests up to
+            88,000 satellites in narrow, dawn-dusk sun-synchronous shells; it
+            does not specify this ring or this display count. Satellites run
+            around that single tilted circle, with a few kilometers of altitude
+            scatter and a few degrees of node scatter so the band has thickness
+            without splitting into separate rings or stacking on one meridian.
             Satellites pass over Earth; they do not stay above remote regions.
             Hardware size and altitude spacing are enlarged for visibility;
             route distances use physical kilometers. This is an illustrative

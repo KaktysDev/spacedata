@@ -29,20 +29,24 @@ test("satellites occupy every longitude bin instead of one meridian", () => {
     bins[Math.min(11, Math.floor(lon / 30))]++;
   }
   expect(bins.filter((count) => count > 0)).toHaveLength(12);
-  expect(Math.max(...bins)).toBeLessThan(NODE_COUNT * 0.2);
-  expect(Math.min(...bins)).toBeGreaterThan(NODE_COUNT * 0.04);
+  // A steep ring spends a little more time in some longitude bins than a
+  // uniform shell. One meridian would put nearly every satellite in one bin.
+  expect(Math.max(...bins)).toBeLessThan(NODE_COUNT * 0.3);
+  expect(Math.min(...bins)).toBeGreaterThan(100);
 });
 test("loose orbital bands stay within the proposed altitude envelope and display cap", () => {
   const nodes = orbitalNodes(0);
   expect(nodes).toHaveLength(NODE_COUNT);
   expect(NODE_COUNT).toBeLessThanOrEqual(40000);
   expect(NODE_COUNT).toBe(8800);
-  expect(Math.max(...nodes.map((p) => Math.abs(p.lat)))).toBeLessThan(16);
-  expect(Math.max(...nodes.map((p) => p.lat))).toBeGreaterThan(2);
-  expect(Math.min(...nodes.map((p) => p.altitudeKm))).toBeGreaterThanOrEqual(
-    600,
-  );
-  expect(Math.max(...nodes.map((p) => p.altitudeKm))).toBeLessThanOrEqual(850);
+  const lats = nodes.map((p) => p.lat);
+  const alts = nodes.map((p) => p.altitudeKm);
+  expect(Math.max(...lats)).toBeGreaterThan(72);
+  expect(Math.min(...lats)).toBeLessThan(-72);
+  expect(Math.max(...lats.map(Math.abs))).toBeLessThan(84);
+  expect(Math.max(...alts) - Math.min(...alts)).toBeLessThan(20);
+  expect(Math.min(...alts)).toBeGreaterThan(710);
+  expect(Math.max(...alts)).toBeLessThan(740);
   expect(new Set(nodes.map((p) => p.altitudeKm)).size).toBe(NODE_COUNT);
   for (const p of nodes) {
     expect(sunSyncInclination(p.altitudeKm)).toBeGreaterThan(97);
