@@ -128,7 +128,11 @@ export function SourcesNote({
           </div>
           <p className="fine-print">
             8,800 representative satellites in one ring at about 725 km, tilted
-            about 80° from the equator. Starcloud’s 2026 filing requests up to
+            about 67° from the equator. The northern pass runs across Canada,
+            just north of the United States, then through northern Europe and
+            into western Asia, so the band sits a little above the regions that
+            send the most requests. The opposite side of the same circle is
+            over the southern Pacific. Starcloud’s 2026 filing requests up to
             88,000 satellites in narrow, dawn-dusk sun-synchronous shells; it
             does not specify this ring or this display count. Satellites run
             around that single tilted circle, with a few kilometers of altitude

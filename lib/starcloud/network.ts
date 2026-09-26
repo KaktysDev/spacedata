@@ -10,8 +10,14 @@ export const SHELL_ALTITUDES_KM = [SHELL_ALTITUDE_KM] as const;
 export const BAND_COUNT = 1,
   NODES_PER_BAND = 8800;
 export const NODE_COUNT = BAND_COUNT * NODES_PER_BAND;
-// The ring plane is tilted about 80° from the equator, not wrapped around it.
-export const RING_INCLINATION_DEG = 80;
+// One inclined ring, not a band wrapped around the equator. 67° puts the
+// northern pass across Canada (just north of the United States), through
+// northern Europe, and down into western Asia. A single plane cannot also
+// hold East Asia on that same pass.
+export const RING_INCLINATION_DEG = 67;
+// Ascending node. With the inclination above, the crest sits near 30°W,
+// between Canada and Europe, instead of over the Canadian Arctic.
+export const RING_RAAN_DEG = -120;
 const MU = 398600.4418,
   J2 = 0.00108262668;
 export const orbitalPeriodMs = (altitudeKm: number) =>
@@ -257,13 +263,11 @@ export function orbitalNodes(at: number): OrbitalNode[] {
       ((i + orbitalSeed(i, 1) * 0.999) / NODE_COUNT - 0.5) * 16;
     const inclination =
       (RING_INCLINATION_DEG + (orbitalSeed(i, 4) - 0.5) * 1.6) * rad;
-    // Rotate the ring about the polar axis only enough that the default
-    // Americas camera is not inside the plane. 179° was edge-on (a bar
-    // through the middle). 132° tips the crest north over Canada near 138°W,
-    // so the near arc rises over northern Canada instead of cutting the disk
-    // in half. The 4.5° fan is thickness, not a swing toward the oceans.
+    // The 4.5° fan is thickness around one plane, not a second ring.
+    // RING_RAAN_DEG aims that plane so the northern arc crosses Canada,
+    // Europe, and western Asia instead of cresting over the Arctic.
     const raan =
-      ((132 +
+      ((RING_RAAN_DEG +
         ((plane + 0.5) / PLANES - 0.5) * RAAN_FAN_DEG +
         (orbitalSeed(plane, 2) - 0.5) * 0.35) *
         Math.PI) /

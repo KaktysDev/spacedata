@@ -523,68 +523,99 @@ textarea:focus-visible {
   white-space: nowrap;
   user-select: none;
 }
+.site-leader {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  visibility: hidden;
+}
+.site-leader line {
+  stroke: #fff;
+  stroke-opacity: 0.55;
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+.site-leader .leader-site {
+  fill: none;
+  stroke: #fff;
+  stroke-opacity: 0.85;
+  stroke-width: 1;
+}
+.site-leader .leader-core {
+  fill: #fff;
+}
+.site-leader .leader-joint {
+  fill: #121212;
+  stroke: #fff;
+  stroke-opacity: 0.75;
+  stroke-width: 1;
+}
 .label-card {
   position: relative;
   display: block;
-  padding: 14px 16px;
-  border: 1px solid #ffffff25;
-  border-radius: 18px;
-  background: linear-gradient(135deg, #ffffff15, #1d1d1dbe 60%);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  padding: 12px 14px 11px;
+  border: 1px solid #ffffff2b;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #292929f2, #151515f5);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
   text-align: left;
   box-shadow:
-    0 10px 40px #0005,
-    inset 0 1px 0 #ffffff0e;
-  min-width: 185px;
+    0 20px 60px #0009,
+    inset 0 1px 0 #ffffff18;
+  min-width: 196px;
   animation: card-in 0.35s ease;
 }
 .datacenter-brand {
   display: flex;
   align-items: center;
-  gap: 9px;
-  margin-bottom: 13px;
-  font-size: 11px;
-  color: #ddd;
+  gap: 10px;
+  font-size: 12px;
+  color: #eee;
 }
-.datacenter-brand .provider-logo {
-  width: 18px;
-  height: 18px;
+.datacenter-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid #ffffff1c;
+  background: #ffffff0c;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 1px 0 #ffffff14;
+}
+.datacenter-mark .provider-logo {
+  width: 16px;
+  height: 16px;
+}
+.datacenter-id {
+  line-height: 1.25;
 }
 .datacenter-brand small {
   display: block;
-  font-size: 8px;
-  color: #888;
+  font-size: 10px;
+  color: #999;
   margin-top: 3px;
 }
-.datacenter-brand i {
-  width: 4px;
-  height: 4px;
-  background: #ddd;
-  border-radius: 50%;
-  margin-left: auto;
-}
 .label-card strong {
-  font-size: 13px;
-  font-weight: 450;
-  letter-spacing: -0.15px;
+  display: block;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #ffffff12;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
 }
 .label-caption {
   display: block;
   font-size: 8px;
-  color: #888;
-  margin-top: 5px;
-}
-.label-card:after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 100%;
-  width: var(--leader-length, 35px);
-  height: 1px;
-  background: #ffffff40;
-  transform: rotate(var(--leader-angle, 0rad));
-  transform-origin: left center;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #999;
+  margin-top: 7px;
 }
 .route-label {
   border: 1px solid #ffffff22;
@@ -1421,22 +1452,34 @@ textarea:focus-visible {
     height: 30px;
   }
   .label-card {
-    min-width: 154px;
-    padding: 12px;
-    border-radius: 15px;
+    min-width: 168px;
+    padding: 10px 11px 9px;
+    border-radius: 16px;
   }
   .label-card strong {
-    font-size: 11px;
+    font-size: 12px;
+    margin-top: 8px;
+    padding-top: 8px;
   }
   .datacenter-brand {
-    font-size: 10px;
-    margin-bottom: 10px;
+    font-size: 11px;
+    gap: 8px;
+  }
+  .datacenter-mark {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+  }
+  .datacenter-mark .provider-logo {
+    width: 14px;
+    height: 14px;
   }
   .datacenter-brand small {
-    font-size: 7px;
+    font-size: 8px;
   }
   .label-caption {
     font-size: 7px;
+    margin-top: 6px;
   }
   .journey-status {
     bottom: 70px;

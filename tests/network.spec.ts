@@ -18,6 +18,8 @@ import {
   orbitalPeriodMs,
   ORBIT_EPOCH_MS,
   opticalDistanceKm,
+  RING_INCLINATION_DEG,
+  RING_RAAN_DEG,
   sunSyncInclination,
 } from "../lib/starcloud/network";
 
@@ -41,14 +43,20 @@ test("loose orbital bands stay within the proposed altitude envelope and display
   expect(NODE_COUNT).toBe(8800);
   const lats = nodes.map((p) => p.lat);
   const alts = nodes.map((p) => p.altitudeKm);
-  expect(Math.max(...lats)).toBeGreaterThan(72);
-  expect(Math.min(...lats)).toBeLessThan(-72);
-  expect(Math.max(...lats.map(Math.abs))).toBeLessThan(84);
-  const crest = [...nodes].sort((a, b) => b.lat - a.lat).slice(0, 400);
-  const overCanada = crest.filter(
-    (n) => n.lon <= -55 && n.lon >= -140,
-  ).length;
-  expect(overCanada / crest.length).toBeGreaterThan(0.5);
+  expect(RING_INCLINATION_DEG).toBe(67);
+  expect(RING_RAAN_DEG).toBe(-120);
+  expect(Math.max(...lats)).toBeGreaterThan(64);
+  expect(Math.max(...lats)).toBeLessThan(72);
+  expect(Math.min(...lats)).toBeLessThan(-64);
+  expect(Math.min(...lats)).toBeGreaterThan(-72);
+  const north = nodes.filter((n) => n.lat > 40);
+  const band = (lon0: number, lon1: number, lat0: number) =>
+    north.filter((n) => n.lat >= lat0 && n.lon >= lon0 && n.lon <= lon1)
+      .length;
+  // Northern pass: across Canada, through Europe, into western Asia.
+  expect(band(-115, -60, 45)).toBeGreaterThan(120);
+  expect(band(-12, 32, 50)).toBeGreaterThan(80);
+  expect(band(28, 55, 32)).toBeGreaterThan(40);
   expect(Math.max(...alts) - Math.min(...alts)).toBeLessThan(20);
   expect(Math.min(...alts)).toBeGreaterThan(710);
   expect(Math.max(...alts)).toBeLessThan(740);

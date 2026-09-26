@@ -13,6 +13,8 @@ import {
   orbitalNodes,
   routeAt,
   NODE_COUNT,
+  RING_INCLINATION_DEG,
+  RING_RAAN_DEG,
   sunSyncInclination,
   type OrbitalNode,
   interpolateLocation,
@@ -114,10 +116,52 @@ const smooth = (t: number) => {
   t = THREE.MathUtils.clamp(t, 0, 1);
   return t * t * (3 - 2 * t);
 };
+// Where the connector meets the card. (x, y) is the card's bottom center.
+function cardAnchor(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  x0: number,
+  y0: number,
+) {
+  const left = x - w / 2,
+    right = x + w / 2,
+    top = y - h,
+    bottom = y,
+    cx = x,
+    cy = (top + bottom) / 2,
+    dx = x0 - cx,
+    dy = y0 - cy;
+  const candidates: number[] = [];
+  if (dx !== 0) candidates.push((left - cx) / dx, (right - cx) / dx);
+  if (dy !== 0) candidates.push((top - cy) / dy, (bottom - cy) / dy);
+  let best = Infinity,
+    ax = cx,
+    ay = bottom;
+  for (const t of candidates) {
+    if (t <= 0) continue;
+    const px = cx + dx * t,
+      py = cy + dy * t;
+    if (px < left - 1 || px > right + 1 || py < top - 1 || py > bottom + 1)
+      continue;
+    if (t < best) {
+      best = t;
+      ax = px;
+      ay = py;
+    }
+  }
+  return { x: ax, y: ay };
+}
 export function OrbitalScene(props: Props) {
   const host = useRef<HTMLDivElement>(null),
     pin = useRef<HTMLButtonElement>(null),
     groundLabel = useRef<HTMLDivElement>(null),
+    leaderSvg = useRef<SVGSVGElement>(null),
+    leaderLine = useRef<SVGLineElement>(null),
+    leaderSite = useRef<SVGCircleElement>(null),
+    leaderCore = useRef<SVGCircleElement>(null),
+    leaderJoint = useRef<SVGCircleElement>(null),
     spaceLabel = useRef<HTMLDivElement>(null),
     relayLabel = useRef<HTMLDivElement>(null),
     gatewayLabel = useRef<HTMLDivElement>(null),
@@ -159,12 +203,19 @@ export function OrbitalScene(props: Props) {
     // look down a single meridian.
     const inclination = sunSyncInclination(725);
     const overview = position({ lat: 180 - inclination, lon: -91 }, 1);
+    const ringTilt = (RING_INCLINATION_DEG * Math.PI) / 180,
+      ringNode = (RING_RAAN_DEG * Math.PI) / 180;
+    const ringNormal = new THREE.Vector3(
+      -Math.cos(ringNode) * Math.sin(ringTilt),
+      Math.cos(ringTilt),
+      Math.sin(ringNode) * Math.sin(ringTilt),
+    ).normalize();
     const fitDistance = (direction: THREE.Vector3, w: number, h: number) => {
       const forward = direction.clone().normalize();
       const viewUp = UP.clone()
         .addScaledVector(forward, -UP.dot(forward))
         .normalize();
-      const normal = position({ lat: 90 - inclination, lon: -91 }, 1);
+      const normal = ringNormal;
       // Fit the projected orbital band and globe independently.
       const verticalExtent = Math.max(
         R + 0.2,
@@ -320,10 +371,11 @@ export function OrbitalScene(props: Props) {
       new THREE.MeshBasicMaterial({ color: 0xffffff }),
     );
     scene.add(originMarker);
-    const dc = datacenter();
+    let dc = new THREE.Group();
     scene.add(dc);
     const providerGroup = new THREE.Group();
     scene.add(providerGroup);
+    let campuses: { site: Site; object: THREE.Object3D }[] = [];
     const routes = new THREE.Group();
     scene.add(routes);
     const fiberGroup = new THREE.Group(),
@@ -527,11 +579,21 @@ export function OrbitalScene(props: Props) {
       node.style.visibility = visible ? "visible" : "hidden";
       node.style.transform = `translate(${x}px,${y}px) translate(-50%,-100%)`;
       if (visible && !isPin) occupied.push(b);
-      if (node === groundLabel.current) {
-        const lx = x0 - x,
-          ly = y0 - y;
-        node.style.setProperty("--leader-length", `${Math.hypot(lx, ly)}px`);
-        node.style.setProperty("--leader-angle", `${Math.atan2(ly, lx)}rad`);
+      if (node === groundLabel.current && leaderSvg.current) {
+        leaderSvg.current.style.visibility = visible ? "visible" : "hidden";
+        if (visible && w > 0 && h > 0) {
+          const anchor = cardAnchor(x, y, w, h, x0, y0);
+          leaderLine.current?.setAttribute("x1", `${anchor.x}`);
+          leaderLine.current?.setAttribute("y1", `${anchor.y}`);
+          leaderLine.current?.setAttribute("x2", `${x0}`);
+          leaderLine.current?.setAttribute("y2", `${y0}`);
+          for (const dot of [leaderSite.current, leaderCore.current]) {
+            dot?.setAttribute("cx", `${x0}`);
+            dot?.setAttribute("cy", `${y0}`);
+          }
+          leaderJoint.current?.setAttribute("cx", `${anchor.x}`);
+          leaderJoint.current?.setAttribute("cy", `${anchor.y}`);
+        }
       }
     }
     function orient(
@@ -565,7 +627,7 @@ export function OrbitalScene(props: Props) {
       hardwareMat.color.setScalar(active ? 0.28 : 1);
       const networkTime =
         p.flight?.id ?? (motion.matches ? epoch : epoch + now - clockStart);
-      const nextRoute = `${p.origin.lat},${p.origin.lon},${p.site.name},${p.flight?.id ?? 0}`;
+      const nextRoute = `${p.provider},${p.origin.lat},${p.origin.lon},${p.site.name},${p.flight?.id ?? 0}`;
       const changed = nextRoute !== routeKey;
       if (changed || (!active && now - lastNodeTime > 250)) {
         if (active) {
@@ -586,8 +648,13 @@ export function OrbitalScene(props: Props) {
         providerKey = p.provider;
         disposeTree(providerGroup);
         providerGroup.clear();
+        scene.remove(dc);
+        disposeTree(dc);
+        dc = datacenter(p.provider);
+        scene.add(dc);
+        campuses = [];
         for (const site of SITES[p.provider]) {
-          const campus = datacenter();
+          const campus = datacenter(p.provider);
           campus.scale.setScalar(0.42);
           campus.position.copy(position(site, R + 0.012));
           campus.quaternion.setFromUnitVectors(
@@ -595,6 +662,7 @@ export function OrbitalScene(props: Props) {
             campus.position.clone().normalize(),
           );
           providerGroup.add(campus);
+          campuses.push({ site, object: campus });
           const marker = new THREE.Mesh(
             new THREE.RingGeometry(0.024, 0.031, 24),
             new THREE.MeshBasicMaterial({
@@ -618,6 +686,12 @@ export function OrbitalScene(props: Props) {
         dc.position.copy(position(p.site, R + 0.014));
         dc.quaternion.setFromUnitVectors(UP, dc.position.clone().normalize());
         dc.scale.setScalar(0.7);
+        for (const campus of campuses)
+          campus.object.visible = !(
+            campus.site.name === p.site.name &&
+            campus.site.lat === p.site.lat &&
+            campus.site.lon === p.site.lon
+          );
         if (network && active) {
           disposeTree(fiberGroup);
           fiberGroup.clear();
@@ -910,19 +984,32 @@ export function OrbitalScene(props: Props) {
         <span className="pin-caption">YOU</span>
       </button>
       <div ref={groundLabel} className="scene-label ground-label">
-        <span className="label-card" key={props.provider}>
-          <span className="datacenter-brand">
-            <ProviderLogo provider={props.provider} />
-            <span>
+        <div className="label-card" key={props.provider}>
+          <div className="datacenter-brand">
+            <span className="datacenter-mark">
+              <ProviderLogo provider={props.provider} />
+            </span>
+            <span className="datacenter-id">
               {PROVIDERS[props.provider].company}
               <small>{props.site.kind}</small>
             </span>
-            <i />
-          </span>
+          </div>
           <strong>{props.site.name}</strong>
           <span className="label-caption">Reference location</span>
-        </span>
+        </div>
       </div>
+      <svg ref={leaderSvg} className="site-leader" aria-hidden="true">
+        <line ref={leaderLine} x1="0" y1="0" x2="0" y2="0" />
+        <circle ref={leaderSite} className="leader-site" cx="0" cy="0" r="5" />
+        <circle ref={leaderCore} className="leader-core" cx="0" cy="0" r="1.5" />
+        <circle
+          ref={leaderJoint}
+          className="leader-joint"
+          cx="0"
+          cy="0"
+          r="2.25"
+        />
+      </svg>
       <div ref={spaceLabel} className="scene-label route-label">
         Orbital compute<small>MODELED</small>
       </div>
