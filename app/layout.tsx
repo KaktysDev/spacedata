@@ -4,13 +4,13 @@ import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Spacedata — Earth, or orbit?",
+  title: "Spacedata — A thought. Two paths.",
   description:
     "Follow your AI prompt around Earth and into orbit. Compare measured AI usage with transparent infrastructure scenarios.",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#090e14",
+  themeColor: "#030303",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
