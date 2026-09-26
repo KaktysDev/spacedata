@@ -14,12 +14,18 @@ type Props = {
   onReady: () => void;
 };
 import {
-  orbitalNodes,
+  fillOrbit,
   routeAt,
   NODE_COUNT,
+  SATS_PER_PLANE,
+  EARTH_KM,
   JOURNEY_MS,
+  type OrbitalRoute,
 } from "@/lib/starcloud/network";
 const R = 3.5;
+// Shell altitude is drawn 3.4× true so a 550 km orbit clears the globe.
+// Distances, elevation and latency stay in physical kilometers.
+const VISUAL_ALT_EXAG = 3.4;
 function position(p: Location, r = R) {
   const lat = (p.lat * Math.PI) / 180,
     lon = (p.lon * Math.PI) / 180;
@@ -28,6 +34,9 @@ function position(p: Location, r = R) {
     Math.sin(lat),
     Math.cos(lat) * Math.cos(lon),
   ).multiplyScalar(r);
+}
+function shellRadius(altKm: number) {
+  return R * (1 + (altKm / EARTH_KM) * VISUAL_ALT_EXAG);
 }
 function location(v: THREE.Vector3): Location {
   const n = v.clone().normalize();
@@ -240,19 +249,41 @@ export function OrbitalScene(props: Props) {
           latest.current.onReady();
         }
       });
-    // Connected optical ring. Every straight link joins immediate neighbors and clears Earth.
-    const front = position({ lat: 8, lon: -91 }, 1),
-      right = new THREE.Vector3()
-        .crossVectors(new THREE.Vector3(0, 1, 0), front)
-        .normalize();
-    const ring = new THREE.Group();
-    scene.add(ring);
-    const satellites = Array.from({ length: NODE_COUNT }, () => {
-      const node = satellite();
-      node.scale.setScalar(0.78);
-      ring.add(node);
-      return node;
+    // In-plane optical rings across the shell. Crosslinks stay off until a route uses them,
+    // so the idle view reads as orbits rather than a wire lattice.
+    const shellLat = new Float64Array(NODE_COUNT),
+      shellLon = new Float64Array(NODE_COUNT),
+      shellAlt = new Float64Array(NODE_COUNT);
+    const world: THREE.Vector3[] = Array.from(
+      { length: NODE_COUNT },
+      () => new THREE.Vector3(),
+    );
+    const shellPositions = new Float32Array(NODE_COUNT * 3);
+    const shellColors = new Float32Array(NODE_COUNT * 3);
+    for (let i = 0; i < NODE_COUNT; i++) {
+      const brightness = 0.72 + ((i * 47) % 19) / 18 * 0.28;
+      shellColors[i * 3] = brightness;
+      shellColors[i * 3 + 1] = brightness;
+      shellColors[i * 3 + 2] = brightness;
+    }
+    const shellGeometry = new THREE.BufferGeometry();
+    shellGeometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(shellPositions, 3),
+    );
+    shellGeometry.setAttribute(
+      "color",
+      new THREE.BufferAttribute(shellColors, 3),
+    );
+    const shellMaterial = new THREE.PointsMaterial({
+      size: 0.05,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.92,
+      sizeAttenuation: true,
+      depthWrite: false,
     });
+    scene.add(new THREE.Points(shellGeometry, shellMaterial));
     const ringGeometry = new THREE.BufferGeometry();
     ringGeometry.setAttribute(
       "position",
@@ -261,9 +292,16 @@ export function OrbitalScene(props: Props) {
     const ringMaterial = new THREE.LineBasicMaterial({
       color: 0x9bacba,
       transparent: true,
-      opacity: 0.19,
+      opacity: 0.07,
     });
-    ring.add(new THREE.LineSegments(ringGeometry, ringMaterial));
+    scene.add(new THREE.LineSegments(ringGeometry, ringMaterial));
+    const heroes = Array.from({ length: 5 }, () => {
+      const craft = satellite();
+      craft.scale.setScalar(0.24);
+      craft.visible = false;
+      scene.add(craft);
+      return craft;
+    });
     const starPositions: number[] = [],
       starColors: number[] = [];
     let seed = 917;
@@ -321,8 +359,65 @@ export function OrbitalScene(props: Props) {
     const spaceDot = groundDot.clone();
     spaceDot.material = new THREE.MeshBasicMaterial({ color: 0xffffff });
     scene.add(groundDot, spaceDot);
-    let compute = satellites[0],
-      relay = satellites[1];
+    const ingressPos = new THREE.Vector3(),
+      computePos = new THREE.Vector3();
+    let cachedRoute: OrbitalRoute = routeAt(latest.current.origin, epoch);
+    let cachedKey = "";
+    const FOLLOW_START = 1800,
+      FOLLOW_END = 10400,
+      CLOSER_OUT = 1.78,
+      CLOSER_SIDE = 1.02;
+    let flightSign = 1;
+    let signedFor = 0;
+    let pullback: { cam: THREE.Vector3; target: THREE.Vector3 } | null = null;
+    // Frozen at send: a rightward yaw around the departure point onto a broadside view.
+    let introYaw: {
+      look: THREE.Vector3;
+      radial: THREE.Vector3;
+      tangent: THREE.Vector3;
+      side: THREE.Vector3;
+      startAngle: number;
+      endAngle: number;
+      startOut: number;
+      startTan: number;
+      local: boolean;
+      endPose: THREE.Vector3;
+    } | null = null;
+    const tangentSmooth = new THREE.Vector3();
+    const broadside = (
+      look: THREE.Vector3,
+      tangent: THREE.Vector3,
+      sign: number,
+    ) => {
+      const radial = look.clone().normalize();
+      const axis = new THREE.Vector3().crossVectors(radial, tangent);
+      if (axis.lengthSq() < 1e-8)
+        axis.crossVectors(radial, new THREE.Vector3(0, 1, 0));
+      axis.normalize();
+      let side = CLOSER_SIDE * sign;
+      const cam = new THREE.Vector3();
+      for (let i = 0; i < 4; i++) {
+        cam.copy(look).addScaledVector(radial, CLOSER_OUT).addScaledVector(axis, side);
+        if (cam.length() < 5.05) cam.setLength(5.05);
+        const inward = look.clone().sub(cam).normalize().dot(radial.clone().negate());
+        if (inward > 0.62) break;
+        side *= 0.55;
+      }
+      return cam;
+    };
+    const placeCamera = (desired: THREE.Vector3, aim: THREE.Vector3, blend: number) => {
+      const from = camera.position.clone();
+      const q = new THREE.Quaternion().setFromUnitVectors(
+        from.clone().normalize(),
+        desired.clone().normalize(),
+      );
+      camera.position
+        .copy(from)
+        .normalize()
+        .applyQuaternion(new THREE.Quaternion().slerp(q, blend))
+        .multiplyScalar(THREE.MathUtils.lerp(from.length(), desired.length(), blend));
+      controls.target.lerp(aim, blend);
+    };
     const gateway = new THREE.Mesh(
       new THREE.ConeGeometry(0.055, 0.085, 16, 1, true),
       new THREE.MeshStandardMaterial({
@@ -531,31 +626,64 @@ export function OrbitalScene(props: Props) {
       const networkTime = motionPreference.matches
         ? epoch
         : epoch + now - startClock;
-      const orbital = orbitalNodes(networkTime);
-      const lockedRoute = p.flight ? routeAt(p.origin, p.flight.id) : null;
-      const network = lockedRoute ?? routeAt(p.origin, networkTime);
+      fillOrbit(networkTime, shellLat, shellLon, shellAlt);
       const linkPositions = ringGeometry.attributes
         .position as THREE.BufferAttribute;
       for (let i = 0; i < NODE_COUNT; i++) {
-        const a = position(orbital[i], 4.55),
-          b = position(orbital[(i + 1) % NODE_COUNT], 4.55);
-        satellites[i].position.copy(a);
-        satellites[i].lookAt(a.clone().add(front));
-        satellites[i].rotateZ(Math.sin(networkTime / 1000000 + i) * 0.12);
-        linkPositions.setXYZ(i * 2, a.x, a.y, a.z);
-        linkPositions.setXYZ(i * 2 + 1, b.x, b.y, b.z);
+        const placed = position(
+          { lat: shellLat[i], lon: shellLon[i] },
+          shellRadius(shellAlt[i]),
+        );
+        world[i].copy(placed);
+        shellPositions[i * 3] = placed.x;
+        shellPositions[i * 3 + 1] = placed.y;
+        shellPositions[i * 3 + 2] = placed.z;
+        const plane = Math.floor(i / SATS_PER_PLANE);
+        const slot = i % SATS_PER_PLANE;
+        const next =
+          plane * SATS_PER_PLANE + ((slot + 1) % SATS_PER_PLANE);
+        const b = world[next];
+        linkPositions.setXYZ(i * 2, placed.x, placed.y, placed.z);
+        // The next satellite in a plane may not be written yet; fill it directly.
+        if (b.lengthSq() === 0 || next > i) {
+          const nb = position(
+            { lat: shellLat[next], lon: shellLon[next] },
+            shellRadius(shellAlt[next]),
+          );
+          world[next].copy(nb);
+          linkPositions.setXYZ(i * 2 + 1, nb.x, nb.y, nb.z);
+        } else linkPositions.setXYZ(i * 2 + 1, b.x, b.y, b.z);
       }
+      (shellGeometry.attributes.position as THREE.BufferAttribute).needsUpdate =
+        true;
       linkPositions.needsUpdate = true;
-      compute = satellites[network.compute];
-      relay = satellites[network.ingress];
-      const gatewayLocation = orbital[network.ingress];
-      gateway.position.copy(position(gatewayLocation, R + 0.035));
+      const routeStamp = p.flight
+        ? `f${p.flight.id}:${p.origin.lat.toFixed(4)}:${p.origin.lon.toFixed(4)}:${p.site.name}`
+        : `${p.origin.lat.toFixed(4)},${p.origin.lon.toFixed(4)},${p.site.name},${Math.floor(networkTime / 200)}`;
+      if (routeStamp !== cachedKey) {
+        cachedKey = routeStamp;
+        cachedRoute = routeAt(
+          p.origin,
+          p.flight ? p.flight.id : networkTime,
+        );
+      }
+      const network = cachedRoute;
+      ingressPos.copy(world[network.ingress]);
+      computePos.copy(world[network.compute]);
+      gateway.position.copy(
+        position(
+          { lat: shellLat[network.ingress], lon: shellLon[network.ingress] },
+          R + 0.035,
+        ),
+      );
       gateway.quaternion.setFromUnitVectors(
         new THREE.Vector3(0, 1, 0),
         gateway.position.clone().normalize(),
       );
       // Update moving endpoints at 5 Hz, plus immediately on pin/provider changes.
-      const routeKey = `${p.origin.lat.toFixed(4)},${p.origin.lon.toFixed(4)},${p.site.name},${Math.floor(networkTime / 200)}`;
+      const routeKey = p.flight
+        ? `f${p.flight.id}:${p.origin.lat.toFixed(4)}:${p.site.name}:${Math.floor(networkTime / 80)}`
+        : `${p.origin.lat.toFixed(4)},${p.origin.lon.toFixed(4)},${p.site.name},${Math.floor(networkTime / 200)}`;
       if (routeKey !== lastRoute) {
         lastRoute = routeKey;
         const origin = position(p.origin, R + 0.035),
@@ -589,21 +717,34 @@ export function OrbitalScene(props: Props) {
         groundPath = surface(origin, destination);
         const gatewayPath = surface(origin, gateway.position);
         spacePath = [...gatewayPath];
-        const ingress = relay.position.clone();
+        const ingress = ingressPos.clone();
         for (let i = 1; i <= 48; i++)
           spacePath.push(gateway.position.clone().lerp(ingress, i / 48));
         routeGroup.add(
           line(groundPath, 0x73a9d2, 0.85, true),
           line(gatewayPath, 0xbecdd9, 0.72, true),
-          line([gateway.position, ingress], 0xf0f5f8, 0.95),
+          line([gateway.position.clone(), ingress], 0xf0f5f8, 0.95),
         );
         for (let i = 1; i < network.hops.length; i++) {
-          const a = satellites[network.hops[i - 1]].position,
-            b = satellites[network.hops[i]].position;
+          const a = world[network.hops[i - 1]].clone(),
+            b = world[network.hops[i]].clone();
           routeGroup.add(line([a, b], 0xf3f7fa, 0.95));
           for (let j = 1; j <= 32; j++)
             spacePath.push(a.clone().lerp(b, j / 32));
         }
+      }
+      for (let h = 0; h < heroes.length; h++) {
+        const craft = heroes[h];
+        const hop = network.hops[Math.min(h, network.hops.length - 1)];
+        craft.visible = Boolean(p.flight);
+        if (!p.flight) continue;
+        craft.position.copy(world[hop]);
+        const after = network.hops[Math.min(h + 1, network.hops.length - 1)];
+        const before = network.hops[Math.max(h - 1, 0)];
+        const dir = (
+          h === network.hops.length - 1 ? world[hop].clone().sub(world[before]) : world[after].clone().sub(world[hop])
+        );
+        if (dir.lengthSq() > 1e-8) craft.lookAt(craft.position.clone().add(dir));
       }
       if (p.focusId !== lastFocus) {
         lastFocus = p.focusId;
@@ -639,64 +780,205 @@ export function OrbitalScene(props: Props) {
           lastFlight = f.id;
           idleCamera.copy(camera.position);
           idleTarget.copy(controls.target);
+          tangentSmooth.set(0, 0, 0);
+          pullback = null;
+          signedFor = 0;
+          introYaw = null;
         }
         const elapsed = f.reduced ? JOURNEY_MS : now - f.started;
-        const origin = position(p.origin, R + 0.03),
-          orbital = compute.position,
-          destination = position(p.site, R + 0.04);
-        const originCam = origin
-          .clone()
-          .normalize()
-          .multiplyScalar(5.1)
-          .add(right.clone().multiplyScalar(0.7));
-        const spaceTarget = orbital.clone().lerp(relay.position, 0.5);
-        const spaceCam = spaceTarget
-          .clone()
-          .normalize()
-          .multiplyScalar(8.6)
-          .add(right.clone().multiplyScalar(1.0));
-        const groundCam = destination
-          .clone()
-          .normalize()
-          .multiplyScalar(5.15)
-          .add(right.clone().multiplyScalar(0.65));
-        const gatewayCam = gateway.position
-          .clone()
-          .normalize()
-          .multiplyScalar(6)
-          .add(right.clone().multiplyScalar(0.65));
-        const relayCam = relay.position
-          .clone()
-          .normalize()
-          .multiplyScalar(8)
-          .add(right.clone().multiplyScalar(0.7));
-        const stages = [
-          { t: 0, c: idleCamera, v: idleTarget, o: homeOffset },
-          { t: 1600, c: originCam, v: origin, o: -0.18 },
-          { t: 3500, c: gatewayCam, v: gateway.position, o: -0.18 },
-          { t: 5400, c: relayCam, v: relay.position, o: -0.18 },
-          { t: 7800, c: spaceCam, v: spaceTarget, o: -0.18 },
-          { t: 10100, c: groundCam, v: destination, o: -0.18 },
-          { t: JOURNEY_MS - 200, c: idleCamera, v: idleTarget, o: homeOffset },
+        const routePts = [
+          position(p.origin, R + 0.035),
+          gateway.position.clone(),
+          ...network.hops.map((hop) => world[hop].clone()),
         ];
-        const idx = Math.max(0, stages.findIndex((s) => s.t > elapsed) - 1);
-        const from = elapsed >= JOURNEY_MS - 200 ? stages[6] : stages[idx],
-          to = elapsed >= JOURNEY_MS - 200 ? from : stages[idx + 1];
-        const t =
-          from === to ? 1 : smooth((elapsed - from.t) / (to.t - from.t));
-        const camRotation = new THREE.Quaternion().setFromUnitVectors(
-          from.c.clone().normalize(),
-          to.c.clone().normalize(),
-        );
-        camera.position
-          .copy(from.c)
-          .normalize()
-          .applyQuaternion(new THREE.Quaternion().slerp(camRotation, t))
-          .multiplyScalar(
-            THREE.MathUtils.lerp(from.c.length(), to.c.length(), t),
+        const lengths: number[] = [];
+        let total = 0;
+        for (let i = 1; i < routePts.length; i++) {
+          const span = Math.max(routePts[i].distanceTo(routePts[i - 1]), 1e-4);
+          lengths.push(span);
+          total += span;
+        }
+        const sample = (u: number) => {
+          let dist = Math.min(1, Math.max(0, u)) * total;
+          for (let i = 0; i < lengths.length; i++) {
+            if (dist <= lengths[i] || i === lengths.length - 1) {
+              const span = dist / lengths[i];
+              return {
+                point: routePts[i]
+                  .clone()
+                  .lerp(routePts[i + 1], Math.min(1, Math.max(0, span))),
+                tangent: routePts[i + 1].clone().sub(routePts[i]).normalize(),
+              };
+            }
+            dist -= lengths[i];
+          }
+          return {
+            point: routePts[routePts.length - 1].clone(),
+            tangent: new THREE.Vector3(0, 1, 0),
+          };
+        };
+        if (elapsed < FOLLOW_END && !f.reduced) {
+          pullback = null;
+          const opening = sample(0);
+          if (tangentSmooth.lengthSq() < 1e-6) tangentSmooth.copy(opening.tangent);
+          if (signedFor !== f.id) {
+            signedFor = f.id;
+            camera.updateMatrixWorld();
+            const screenRight = new THREE.Vector3(1, 0, 0).applyQuaternion(
+              camera.quaternion,
+            );
+            const look = opening.point.clone();
+            const radial = look.clone().normalize();
+            const tangent = opening.tangent.clone().projectOnPlane(radial);
+            if (tangent.lengthSq() < 1e-8)
+              tangent.crossVectors(radial, new THREE.Vector3(0, 1, 0));
+            tangent.normalize();
+            const side = new THREE.Vector3()
+              .crossVectors(radial, tangent)
+              .normalize();
+            const offset0 = idleCamera.clone().sub(look);
+            const startOut = offset0.dot(radial);
+            const tangential = offset0
+              .clone()
+              .addScaledVector(radial, -startOut);
+            const startTan = tangential.length();
+            const startAngle = Math.atan2(
+              tangential.dot(side),
+              tangential.dot(tangent),
+            );
+            const probe = new THREE.Quaternion().setFromAxisAngle(radial, 0.25);
+            const rightSign =
+              tangential
+                .clone()
+                .applyQuaternion(probe)
+                .sub(tangential)
+                .dot(screenRight) >= 0
+                ? 1
+                : -1;
+            const sweepTo = (target: number) => {
+              let d = target - startAngle;
+              if (rightSign > 0)
+                d = ((d % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+              else {
+                d = ((-d % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+                d = -d;
+              }
+              return d;
+            };
+            // Land broadside (90° off the path) by the rightward sweep closest to a quarter turn.
+            let best = Infinity;
+            let endAngle = startAngle + rightSign * (Math.PI / 2);
+            for (const target of [Math.PI / 2, -Math.PI / 2]) {
+              const swept = sweepTo(target);
+              const score = Math.abs(Math.abs(swept) - Math.PI / 2);
+              if (score < best) {
+                best = score;
+                endAngle = startAngle + swept;
+              }
+            }
+            const poseAt = (angle: number, out: number, tan: number) => {
+              const horiz = tangent
+                .clone()
+                .multiplyScalar(Math.cos(angle))
+                .add(side.clone().multiplyScalar(Math.sin(angle)));
+              return look
+                .clone()
+                .addScaledVector(radial, out)
+                .addScaledVector(horiz, tan);
+            };
+            let minRadius = Infinity;
+            for (let i = 0; i <= 8; i++) {
+              const u = i / 8;
+              minRadius = Math.min(
+                minRadius,
+                poseAt(
+                  THREE.MathUtils.lerp(startAngle, endAngle, u),
+                  THREE.MathUtils.lerp(startOut, CLOSER_OUT, u),
+                  THREE.MathUtils.lerp(startTan, CLOSER_SIDE, u),
+                ).length(),
+              );
+            }
+            flightSign = Math.sin(endAngle) >= 0 ? 1 : -1;
+            introYaw = {
+              look,
+              radial,
+              tangent,
+              side,
+              startAngle,
+              endAngle,
+              startOut,
+              startTan,
+              // A local yaw stays outside the globe only when the camera already
+              // sits outward of the pin. Otherwise swing around Earth to the same pose.
+              local: minRadius >= 5.2 && startOut > 0.8,
+              endPose: poseAt(endAngle, CLOSER_OUT, CLOSER_SIDE),
+            };
+          }
+          if (elapsed < FOLLOW_START && introYaw) {
+            const t = smooth(elapsed / FOLLOW_START);
+            const yaw = introYaw;
+            if (yaw.local) {
+              const angle = THREE.MathUtils.lerp(yaw.startAngle, yaw.endAngle, t);
+              const out = THREE.MathUtils.lerp(yaw.startOut, CLOSER_OUT, t);
+              const tan = THREE.MathUtils.lerp(yaw.startTan, CLOSER_SIDE, t);
+              const horiz = yaw.tangent
+                .clone()
+                .multiplyScalar(Math.cos(angle))
+                .add(yaw.side.clone().multiplyScalar(Math.sin(angle)));
+              camera.position
+                .copy(yaw.look)
+                .addScaledVector(yaw.radial, out)
+                .addScaledVector(horiz, tan);
+            } else {
+              const q = new THREE.Quaternion().setFromUnitVectors(
+                idleCamera.clone().normalize(),
+                yaw.endPose.clone().normalize(),
+              );
+              camera.position
+                .copy(idleCamera)
+                .normalize()
+                .applyQuaternion(new THREE.Quaternion().slerp(q, t))
+                .multiplyScalar(
+                  THREE.MathUtils.lerp(idleCamera.length(), yaw.endPose.length(), t),
+                );
+            }
+            controls.target.lerpVectors(idleTarget, yaw.look, t);
+            offset = THREE.MathUtils.lerp(homeOffset, -0.04, t);
+            tangentSmooth.copy(opening.tangent);
+          } else {
+            const u = (elapsed - FOLLOW_START) / (FOLLOW_END - FOLLOW_START);
+            const here = sample(u);
+            tangentSmooth.lerp(here.tangent, 0.18).normalize();
+            const pose = broadside(here.point, tangentSmooth, flightSign);
+            const dt = Math.min(0.05, Math.max(0.001, (now - flightClock) / 1000));
+            const blend = 1 - Math.exp(-dt / 0.28);
+            placeCamera(pose, here.point, blend);
+            offset = -0.04;
+          }
+        } else {
+          if (!pullback)
+            pullback = {
+              cam: camera.position.clone(),
+              target: controls.target.clone(),
+            };
+          const t = f.reduced
+            ? 1
+            : smooth((elapsed - FOLLOW_END) / (JOURNEY_MS - 200 - FOLLOW_END));
+          const q = new THREE.Quaternion().setFromUnitVectors(
+            pullback.cam.clone().normalize(),
+            idleCamera.clone().normalize(),
           );
-        controls.target.lerpVectors(from.v, to.v, t);
-        offset = THREE.MathUtils.lerp(from.o, to.o, t);
+          camera.position
+            .copy(pullback.cam)
+            .normalize()
+            .applyQuaternion(new THREE.Quaternion().slerp(q, t))
+            .multiplyScalar(
+              THREE.MathUtils.lerp(pullback.cam.length(), idleCamera.length(), t),
+            );
+          controls.target.lerpVectors(pullback.target, idleTarget, t);
+          offset = THREE.MathUtils.lerp(-0.04, homeOffset, t);
+        }
+        flightClock = now;
       } else {
         if (lastFlight !== 0) {
           lastFlight = 0;
@@ -743,7 +1025,8 @@ export function OrbitalScene(props: Props) {
       routeGroup.visible = active;
       dc.visible = true;
       gateway.visible = active;
-      ringMaterial.opacity = active ? 0.3 : 0.13;
+      ringMaterial.opacity = active ? 0.16 : 0.07;
+      shellMaterial.opacity = active ? 0.55 : 0.92;
       groundDot.visible = spaceDot.visible = active;
       if (active) {
         const cycle = ((now - p.flight!.started) / 5000) % 2,
@@ -761,8 +1044,8 @@ export function OrbitalScene(props: Props) {
       labelBoxes.length = 0;
       project(pin.current, originMarker.position, !active);
       project(groundLabel.current, dc.position, true);
-      project(spaceLabel.current, compute.position, active);
-      project(relayLabel.current, relay.position, active);
+      project(spaceLabel.current, computePos, active);
+      project(relayLabel.current, ingressPos, active);
       project(gatewayLabel.current, gateway.position, active);
       renderer.render(scene, camera);
     }

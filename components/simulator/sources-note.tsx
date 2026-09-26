@@ -68,19 +68,22 @@ export function SourcesNote({
           regions are different kinds of references. Calling their direct API
           does not guarantee that region will serve your request. Ground RTT
           assumes 1.3× great-circle distance, 200,000 km/s fiber and 10 ms
-          overhead. Orbit uses an illustrative 48-node, 550 km, 98° ring with a
-          95.5-minute period. A modeled ground gateway beneath the nearest ring
-          node receives terrestrial fiber traffic, then uplinks to the ring.
-          Four neighboring, straight, line-of-sight laser links carry the
-          request to a remote compute node; the return follows the reverse path.
-          The estimate includes gateway fiber distance, the vertical uplink,
-          laser chord lengths and 12 ms overhead. The full ring is connected,
-          but a single request uses only its selected hops. These node counts,
-          orbit and allocation are visualization assumptions, not Starcloud
-          deployment specifications. The gateway is conceptual and may be
-          offshore; actual gateway availability, weather, handover, congestion
-          and bandwidth are not modeled. Positions and link heights are
-          exaggerated for visibility; animation duration is not network latency.
+          overhead. Orbit uses a Starlink Gen-1 Shell 1 geometry: 1,584
+          satellites, 72 planes of 22, 550 km, 53° inclination, and a
+          95.5-minute period. Planes are spaced in right ascension with a
+          Walker-delta phase and a few degrees of fixed scatter so the shell is
+          not a perfect grid. The uplink is the nearest satellite at least 25°
+          above the horizon; above the shell’s coverage the highest satellite
+          is used. A modeled gateway at that satellite’s nadir takes the
+          terrestrial fiber haul, then a vertical uplink. Four line-of-sight
+          laser hops — in-plane, then one adjacent-plane crosslink — reach a
+          remote compute node. The return follows the reverse path. The
+          estimate uses fiber at 200,000 km/s, the speed of light for the
+          uplink and laser chords, and 12 ms overhead. In-plane rings are drawn;
+          a request highlights only its hops. This is a transport model, not a
+          Starcloud deployment specification. Weather, handover, congestion and
+          bandwidth are not modeled. Altitude is exaggerated on screen;
+          animation duration is not network latency.
         </p>
         <h3>Technology maturity</h3>
         <p>

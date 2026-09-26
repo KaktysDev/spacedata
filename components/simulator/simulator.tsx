@@ -146,16 +146,16 @@ export function Simulator({ available }: { available: ProviderId[] }) {
   }
   const progress = flight?.reduced
     ? "Comparing the two paths"
-    : elapsed < 1600
-      ? "Leaving your location"
-      : elapsed < 3500
-        ? "Reaching the uplink gateway"
-        : elapsed < 5400
-          ? "Uplink to the orbital ring"
-          : elapsed < 7800
-            ? "Four laser hops to compute"
-            : elapsed < 10100
-              ? "Following the ground route"
+    : elapsed < 1800
+      ? "Turning beside the route"
+      : elapsed < 4000
+        ? "Leaving your location"
+        : elapsed < 6200
+          ? "Climbing the uplink"
+          : elapsed < 9000
+            ? "Laser hops across the shell"
+            : elapsed < 10400
+              ? "Following the path over Earth"
               : elapsed < JOURNEY_MS
                 ? "Bringing both paths together"
                 : answerReady
