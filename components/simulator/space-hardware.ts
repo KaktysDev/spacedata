@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import type { ProviderId } from "@/lib/starcloud/catalog";
 
 // Conceptual modular hardware, informed by Starcloud's solar / radiator / compute architecture.
 // One merged mesh keeps detailed instancing inexpensive; all colors are neutral.
@@ -187,21 +188,38 @@ export function hardwareMaterial() {
     side: THREE.DoubleSide,
   });
 }
-export function datacenter() {
+type CampusMat = "silver" | "dark" | "white" | "steel" | "trim";
+// One grayscale campus per company. Value contrast carries the silhouette;
+// the globe stays neutral, so these are forms rather than brand colors.
+export function datacenter(provider: ProviderId) {
   const g = new THREE.Group();
-  const silver = new THREE.MeshStandardMaterial({
-    color: 0xaaaaaa,
-    metalness: 0.25,
-    roughness: 0.7,
-  });
-  const dark = new THREE.MeshStandardMaterial({
-    color: 0x272727,
-    roughness: 0.8,
-  });
-  const white = new THREE.MeshStandardMaterial({
-    color: 0xd8d8d8,
-    roughness: 0.6,
-  });
+  const materials: Record<CampusMat, THREE.MeshStandardMaterial> = {
+    silver: new THREE.MeshStandardMaterial({
+      color: 0xb7b7b7,
+      metalness: 0.34,
+      roughness: 0.52,
+    }),
+    dark: new THREE.MeshStandardMaterial({
+      color: 0x161616,
+      roughness: 0.74,
+      metalness: 0.12,
+    }),
+    white: new THREE.MeshStandardMaterial({
+      color: 0xe7e7e7,
+      roughness: 0.42,
+      metalness: 0.08,
+    }),
+    steel: new THREE.MeshStandardMaterial({
+      color: 0x8d8d8d,
+      metalness: 0.62,
+      roughness: 0.32,
+    }),
+    trim: new THREE.MeshStandardMaterial({
+      color: 0x2c2c2c,
+      roughness: 0.58,
+      metalness: 0.22,
+    }),
+  };
   const box = (
     w: number,
     h: number,
@@ -209,30 +227,120 @@ export function datacenter() {
     x: number,
     y: number,
     z: number,
-    m: THREE.Material,
+    mat: CampusMat,
   ) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), materials[mat]);
     mesh.position.set(x, y, z);
     g.add(mesh);
   };
-  box(0.24, 0.008, 0.18, 0, 0, 0, dark);
-  for (const x of [-0.065, 0.065]) {
-    box(0.095, 0.055, 0.14, x, 0.032, 0, silver);
-    box(0.1, 0.006, 0.145, x, 0.063, 0, white);
-    for (let j = 0; j < 4; j++) {
-      box(0.085, 0.003, 0.003, x, 0.017 + j * 0.01, 0.071, dark);
-      box(
-        0.024,
-        0.012,
-        0.021,
-        x - 0.024 + (j % 2) * 0.048,
-        0.072,
-        -0.042 + Math.floor(j / 2) * 0.08,
-        dark,
-      );
-    }
-    for (let j = 0; j < 6; j++)
-      box(0.002, 0.05, 0.003, x - 0.04 + j * 0.016, 0.032, 0.073, white);
-  }
+  const cyl = (
+    radiusTop: number,
+    radiusBottom: number,
+    height: number,
+    x: number,
+    y: number,
+    z: number,
+    mat: CampusMat,
+    rotZ = 0,
+  ) => {
+    const mesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(radiusTop, radiusBottom, height, 10),
+      materials[mat],
+    );
+    mesh.rotation.z = rotZ;
+    mesh.position.set(x, y, z);
+    g.add(mesh);
+  };
+  if (provider === "gemini") googleCampus(box, cyl);
+  else if (provider === "openai") azureCampus(box);
+  else if (provider === "anthropic") awsCampus(box);
+  else xaiCampus(box, cyl);
   return g;
+}
+type Box = (
+  w: number,
+  h: number,
+  d: number,
+  x: number,
+  y: number,
+  z: number,
+  mat: CampusMat,
+) => void;
+type Cyl = (
+  radiusTop: number,
+  radiusBottom: number,
+  height: number,
+  x: number,
+  y: number,
+  z: number,
+  mat: CampusMat,
+  rotZ?: number,
+) => void;
+// Google: two long halls and the exterior pipe gallery.
+function googleCampus(box: Box, cyl: Cyl) {
+  box(0.3, 0.008, 0.2, 0, 0.004, 0, "dark");
+  for (const x of [-0.074, 0.074]) {
+    box(0.118, 0.046, 0.15, x, 0.031, 0, "silver");
+    box(0.122, 0.007, 0.154, x, 0.057, 0, "white");
+    for (let i = 0; i < 5; i++)
+      box(0.018, 0.012, 0.022, x, 0.066, -0.048 + i * 0.024, "trim");
+    box(0.03, 0.028, 0.004, x, 0.024, 0.077, "dark");
+  }
+  cyl(0.007, 0.007, 0.27, 0, 0.03, 0.1, "steel", Math.PI / 2);
+  for (const x of [-0.11, -0.04, 0.04, 0.11]) {
+    cyl(0.005, 0.005, 0.034, x, 0.02, 0.1, "steel");
+    box(0.012, 0.01, 0.028, x > 0 ? 0.1 : -0.1, 0.048, 0.086, "steel");
+  }
+  box(0.27, 0.03, 0.028, 0, 0.023, -0.096, "white");
+  box(0.05, 0.016, 0.006, 0, 0.02, -0.082, "dark");
+}
+// Azure: one louvered hall, a generator yard, and a taller network block.
+function azureCampus(box: Box) {
+  box(0.26, 0.008, 0.24, 0, 0.004, 0, "dark");
+  box(0.16, 0.07, 0.15, -0.01, 0.043, -0.01, "trim");
+  box(0.166, 0.008, 0.156, -0.01, 0.082, -0.01, "steel");
+  for (let i = 0; i < 8; i++)
+    box(0.008, 0.058, 0.012, -0.062 + i * 0.016, 0.042, 0.072, "white");
+  for (let i = 0; i < 4; i++)
+    box(0.03, 0.02, 0.022, -0.115, 0.018, -0.04 + i * 0.032, "dark");
+  box(0.052, 0.098, 0.052, 0.095, 0.057, -0.075, "silver");
+  box(0.056, 0.007, 0.056, 0.095, 0.109, -0.075, "white");
+  box(0.028, 0.04, 0.006, 0.122, 0.05, -0.075, "dark");
+}
+// AWS: three repeated modules and a transformer line.
+function awsCampus(box: Box) {
+  box(0.36, 0.008, 0.16, 0, 0.004, 0, "dark");
+  for (const x of [-0.12, 0, 0.12]) {
+    box(0.088, 0.048, 0.1, x, 0.032, 0, "silver");
+    box(0.092, 0.007, 0.104, x, 0.059, 0, "white");
+    box(0.04, 0.016, 0.038, x, 0.07, 0, "trim");
+    box(0.022, 0.008, 0.02, x, 0.082, 0, "dark");
+    box(0.02, 0.024, 0.004, x, 0.024, 0.052, "dark");
+  }
+  for (let i = 0; i < 6; i++)
+    box(0.016, 0.016, 0.016, -0.1 + i * 0.04, 0.016, 0.078, "steel");
+}
+// xAI: one dense hall, cooling towers, and a packed substation yard.
+function xaiCampus(box: Box, cyl: Cyl) {
+  box(0.3, 0.008, 0.26, 0, 0.004, 0, "dark");
+  box(0.18, 0.086, 0.14, -0.02, 0.051, -0.02, "trim");
+  box(0.186, 0.008, 0.146, -0.02, 0.098, -0.02, "steel");
+  box(0.05, 0.022, 0.06, -0.05, 0.113, -0.02, "dark");
+  box(0.04, 0.018, 0.04, 0.02, 0.111, 0.01, "dark");
+  for (const z of [-0.045, 0.03]) {
+    cyl(0.02, 0.022, 0.078, 0.12, 0.047, z, "white");
+    cyl(0.026, 0.026, 0.008, 0.12, 0.088, z, "steel");
+  }
+  box(0.012, 0.012, 0.05, 0.09, 0.028, 0.04, "steel");
+  for (let i = 0; i < 3; i++)
+    for (let j = 0; j < 3; j++)
+      box(
+        0.016,
+        0.022,
+        0.016,
+        -0.13 + i * 0.024,
+        0.019,
+        0.07 + j * 0.026,
+        i === 1 ? "trim" : "steel",
+      );
 }
