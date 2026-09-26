@@ -155,8 +155,8 @@ export function OrbitalScene(props: Props) {
     el.prepend(renderer.domElement);
     const scene = new THREE.Scene(),
       camera = new THREE.PerspectiveCamera(43, 1, 0.03, 100);
-    // View almost exactly along the mean orbital plane: the broad annulus
-    // extends sideways/in depth, with only a narrow strip crossing Earth.
+    // Opening view. Planes are distributed in RAAN, so this is not an edge-on
+    // look down a single meridian.
     const inclination = sunSyncInclination(725);
     const overview = position({ lat: 180 - inclination, lon: -91 }, 1);
     const fitDistance = (direction: THREE.Vector3, w: number, h: number) => {

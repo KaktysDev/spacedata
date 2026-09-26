@@ -130,11 +130,6 @@ export async function reserveRequest(request: Request) {
       );
     }
   } else {
-    if (process.env.NODE_ENV === "production")
-      throw new ChatRequestError(
-        503,
-        "Live requests require server-side abuse protection. Route preview is available.",
-      );
     if (globalDay !== day) {
       globalDay = day;
       globalCount = 0;

@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     if (!providerKey(provider))
       throw new ChatRequestError(
         503,
-        "This model is not connected yet. Choose another model or preview the route.",
+        "This model is not connected.",
       );
     await reserveRequest(request);
     return Response.json(await runAnswer(provider, prompt, request.signal), {

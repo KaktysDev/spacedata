@@ -226,10 +226,13 @@ test("streamed oversized request is stopped without trusting Content-Length", as
   } as RequestInit);
   expect((await POST(request)).status).toBe(413);
 });
-test("production fails closed when persistent limits are missing or unavailable", async () => {
+test("a configured Gemini key answers without Redis, and a Redis outage still fails closed", async () => {
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
-  expect(availableProviders()).toEqual([]);
-  expect((await POST(req())).status).toBe(503);
+  expect(availableProviders()).toContain("gemini");
+  mockProvider(() => gemini());
+  const ok = await POST(req());
+  expect(ok.status).toBe(200);
+  expect((await ok.json()).answer.text).toBe("Light scatters.");
   process.env.UPSTASH_REDIS_REST_TOKEN = "test-redis";
   globalThis.fetch = async () => {
     throw new Error("Redis secret internal failure");
