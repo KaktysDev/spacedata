@@ -4,7 +4,6 @@ import {
   type ProviderId,
 } from "@/lib/starcloud/catalog";
 import type { ChatAnswer, ChatSuccessBody } from "@/lib/starcloud/chat-types";
-import { durableProtectionConfigured } from "./chat-guard";
 const SYSTEM =
   "Answer the user directly in under 140 words. Do not invent datacenter telemetry or environmental measurements. You have no tools or access to credentials.";
 export function providerKey(id: ProviderId) {
@@ -15,9 +14,7 @@ export function providerKey(id: ProviderId) {
   ).trim();
 }
 export function availableProviders(): ProviderId[] {
-  return process.env.NODE_ENV === "production" && !durableProtectionConfigured()
-    ? []
-    : PROVIDER_IDS.filter((id) => Boolean(providerKey(id)));
+  return PROVIDER_IDS.filter((id) => Boolean(providerKey(id)));
 }
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json =>

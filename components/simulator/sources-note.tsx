@@ -24,9 +24,8 @@ export function SourcesNote({
           Today’s networks. Tomorrow’s infrastructure.
         </p>
         <p>
-          A connected model returns one real answer. We compare that workload on
-          Earth and in a hypothetical orbital datacenter. Preview mode makes no
-          AI call.
+          A connected model returns one real answer. The same workload is compared
+          on Earth and in orbit.
         </p>
         <figure className="paper-hero">
           <Image

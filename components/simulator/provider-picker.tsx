@@ -19,11 +19,9 @@ export function ProviderLogo({ provider }: { provider: ProviderId }) {
 }
 export function ProviderPicker({
   value,
-  available,
   onChange,
 }: {
   value: ProviderId;
-  available: ProviderId[];
   onChange: (id: ProviderId) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -72,9 +70,6 @@ export function ProviderPicker({
       >
         <ProviderLogo provider={value} />
         <span>{PROVIDERS[value].name}</span>
-        {!available.includes(value) && (
-          <span className="preview-badge">Preview</span>
-        )}
         <svg
           className={open ? "chevron open" : "chevron"}
           width="12"
@@ -134,15 +129,11 @@ export function ProviderPicker({
                 {PROVIDERS[id].name}
                 <small>{PROVIDERS[id].company}</small>
               </span>
-              <span className="provider-availability">
-                {available.includes(id) ? "Connected" : "Preview"}
-              </span>
               <span className="provider-check" aria-hidden="true">
                 {id === value ? "✓" : ""}
               </span>
             </button>
           ))}
-          <p>Choose a model. Follow its network.</p>
         </div>
       )}
     </div>

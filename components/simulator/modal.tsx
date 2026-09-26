@@ -5,11 +5,13 @@ export function Modal({
   onClose,
   children,
   wide = false,
+  quiet = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  quiet?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -20,7 +22,7 @@ export function Modal({
   return (
     <dialog
       ref={ref}
-      className={`glass-dialog ${wide ? "wide" : ""}`}
+      className={`glass-dialog ${wide ? "wide" : ""} ${quiet ? "quiet" : ""}`}
       aria-label={title}
       onCancel={onClose}
       onClick={(e) => {

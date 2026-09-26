@@ -38,7 +38,6 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     [zoom, setZoom] = useState(0),
     [ready, setReady] = useState(false),
     [prompt, setPrompt] = useState(""),
-    [submitted, setSubmitted] = useState(""),
     [flight, setFlight] = useState<Flight | null>(null),
     [elapsed, setElapsed] = useState(0),
     [answerReady, setAnswerReady] = useState(false),
@@ -47,13 +46,11 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     [sources, setSources] = useState(false),
     [locations, setLocations] = useState(false),
     [error, setError] = useState(""),
-    [joules, setJoules] = useState(1.11),
-    [snapshotAt, setSnapshotAt] = useState(0);
+    [joules, setJoules] = useState(1.11);
   const request = useRef<AbortController | null>(null),
     active = useRef(false),
     textarea = useRef<HTMLTextAreaElement>(null);
-  const site = nearestSite(provider, origin),
-    live = available.includes(provider);
+  const site = nearestSite(provider, origin);
   const onReady = useCallback(() => setReady(true), []);
   useEffect(() => () => request.current?.abort(), []);
   useEffect(() => {
@@ -69,11 +66,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     request.current = null;
     active.current = false;
     setFlight(null);
-    setError(
-      live
-        ? "Request canceled. A provider may still bill work already started."
-        : "Route preview canceled.",
-    );
+    setError("Request canceled. A provider may still bill work already started.");
   }
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -83,35 +76,30 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     request.current = controller;
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const started = performance.now();
-    setSubmitted(prompt.trim());
     setError("");
     setResult(null);
     setElapsed(0);
     setAnswerReady(false);
     const at = Date.now();
-    setSnapshotAt(at);
     setFlight({ id: at, started, reduced });
     try {
-      let answer: ChatSuccessBody | null = null;
-      if (live) {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: prompt.trim(), provider }),
-          signal: AbortSignal.any([
-            controller.signal,
-            AbortSignal.timeout(55000),
-          ]),
-        });
-        const body = await response.json();
-        if (!response.ok)
-          throw new Error(
-            typeof body.error === "string" ? body.error : "Request failed.",
-          );
-        if (!isChatSuccessBody(body) || body.provider !== provider)
-          throw new Error("The provider returned an invalid result.");
-        answer = body;
-      }
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: prompt.trim(), provider }),
+        signal: AbortSignal.any([
+          controller.signal,
+          AbortSignal.timeout(55000),
+        ]),
+      });
+      const body = await response.json();
+      if (!response.ok)
+        throw new Error(
+          typeof body.error === "string" ? body.error : "Request failed.",
+        );
+      if (!isChatSuccessBody(body) || body.provider !== provider)
+        throw new Error("The provider returned an invalid result.");
+      const answer: ChatSuccessBody = body;
       if (controller.signal.aborted) return;
       setAnswerReady(true);
       await new Promise<void>((resolve, reject) => {
@@ -159,7 +147,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       : STAGES[stage].label;
   return (
     <main
-      className={`simulator ${flight ? "in-flight" : ""} ${results || sources || locations ? "modal-open" : ""}`}
+      className={`simulator ${flight ? "in-flight" : ""} ${sources || locations ? "modal-open" : ""} ${results ? "answer-open" : ""}`}
     >
       <OrbitalScene
         key={NODE_COUNT}
@@ -195,16 +183,13 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         <section className="journey-status" aria-label="Request journey">
           <div className="journey-step">
             <span className="live-dot" />
-            {live ? "LIVE REQUEST" : "ROUTE PREVIEW"}
             <span className="elapsed">{(elapsed / 1000).toFixed(1)} s</span>
           </div>
           <h1 aria-live="polite">{progress}</h1>
           <p>
-            {live
-              ? answerReady
-                ? "AI response received · finishing the visual journey"
-                : `${PROVIDERS[provider].name} is processing your message`
-              : "Illustrative travel · no AI request or charge"}
+            {answerReady
+              ? "Answer received"
+              : `${PROVIDERS[provider].name} is writing`}
           </p>
           <div className="journey-stages" aria-label="Route stages">
             {STAGES.map((s, i) => (
@@ -258,11 +243,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
               }}
             />
             <div className="composer-toolbar">
-              <ProviderPicker
-                value={provider}
-                available={available}
-                onChange={setProvider}
-              />
+              <ProviderPicker value={provider} onChange={setProvider} />
               <button
                 type="button"
                 className="location-button"
@@ -281,17 +262,12 @@ export function Simulator({ available }: { available: ProviderId[] }) {
                 type="submit"
                 className="send-button"
                 disabled={!prompt.trim()}
-                aria-label={live ? "Send message" : "Preview route"}
+                aria-label="Send message"
               >
                 ↑
               </button>
             </div>
           </form>
-          <p className="composer-hint">
-            {live
-              ? "One response · two modeled paths"
-              : "Preview · no AI request"}{" "}
-          </p>
           {error && (
             <p className="request-error" role="alert">
               {error}
@@ -327,7 +303,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       </div>
       <footer className="site-footer">
         <span className="constellation-count">
-          {NODE_COUNT.toLocaleString()} satellites <span>· concept</span>
+          {NODE_COUNT.toLocaleString()} satellites
         </span>
         <a
           className="developer-credit"
@@ -335,41 +311,8 @@ export function Simulator({ available }: { available: ProviderId[] }) {
           target="_blank"
           rel="noreferrer"
         >
-          Developed by{" "}
-          <span className="developer-name" aria-label="Oleh Lahoda">
-            <span className="name-letters" aria-hidden="true">
-              Oleh Lahoda
-            </span>
-            <svg className="name-dots" aria-hidden="true" viewBox="0 0 100 16">
-              <defs>
-                <pattern
-                  id="name-dot-pattern"
-                  width="2.6"
-                  height="2.6"
-                  patternUnits="userSpaceOnUse"
-                >
-                  <circle cx="1.2" cy="1.2" r=".7" fill="white" />
-                </pattern>
-                <mask id="name-dot-mask">
-                  <text
-                    fill="white"
-                    x="0"
-                    y="12"
-                    fontSize="14"
-                    fontFamily="Arial"
-                  >
-                    Oleh Lahoda
-                  </text>
-                </mask>
-              </defs>
-              <rect
-                width="100"
-                height="16"
-                fill="url(#name-dot-pattern)"
-                mask="url(#name-dot-mask)"
-              />
-            </svg>
-          </span>
+          <span className="credit-kicker">Developed by</span>{" "}
+          <span className="developer-name">Oleh Lahoda</span>
           <span aria-hidden="true" className="credit-arrow">
             ↗
           </span>
@@ -389,17 +332,10 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       {results && (
         <InferenceComparison
           result={result}
-          provider={provider}
-          origin={origin}
-          site={site}
-          prompt={submitted}
-          snapshotAt={snapshotAt}
-          joules={joules}
           onClose={() => {
             setResults(false);
             setTimeout(() => textarea.current?.focus(), 0);
           }}
-          onSources={() => setSources(true)}
         />
       )}
       {sources && (

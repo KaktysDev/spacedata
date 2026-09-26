@@ -377,55 +377,52 @@ textarea:focus-visible {
 .developer-credit {
   pointer-events: auto;
   display: flex;
-  align-items: center;
-  gap: 5px;
+  align-items: baseline;
+  gap: 8px;
   text-decoration: none;
-  color: #8f8f8f;
-  font-size: 10px;
+  color: #bdbdbd;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+.credit-kicker {
+  font-size: 15px;
+  color: #9a9a9a;
 }
 .developer-name {
-  position: relative;
-  color: #ccc;
-  display: inline-block;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  background: linear-gradient(
+    105deg,
+    #8d8d8d 0%,
+    #8d8d8d 35%,
+    #ffffff 50%,
+    #8d8d8d 65%,
+    #8d8d8d 100%
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: credit-sweep 8s ease-in-out infinite;
 }
-.name-letters {
-  display: block;
-  transition:
-    opacity 0.4s,
-    filter 0.4s,
-    letter-spacing 0.4s;
-}
-.name-dots {
-  position: absolute;
-  inset: -1px -2px;
-  width: calc(100% + 4px);
-  height: calc(100% + 2px);
-  opacity: 0;
-  transform: scale(0.85);
-  transition:
-    opacity 0.45s,
-    transform 0.65s;
-  overflow: visible;
-}
-.developer-credit:hover .name-letters,
-.developer-credit:focus-visible .name-letters {
-  opacity: 0;
-  filter: blur(2px);
-}
-.developer-credit:hover .name-dots,
-.developer-credit:focus-visible .name-dots {
-  opacity: 1;
-  transform: scale(1.16);
+.developer-credit:hover .developer-name,
+.developer-credit:focus-visible .developer-name {
+  animation-duration: 4.5s;
 }
 .credit-arrow {
-  margin-left: 4px;
-  opacity: 0;
-  transform: translate(-4px, 4px);
-  transition: 0.25s;
+  font-size: 14px;
+  color: #aaa;
 }
-.developer-credit:hover .credit-arrow {
-  opacity: 1;
-  transform: none;
+@keyframes credit-sweep {
+  0%,
+  18% {
+    background-position: 130% 0;
+  }
+  55%,
+  100% {
+    background-position: -30% 0;
+  }
 }
 .map-controls {
   position: absolute;
@@ -729,6 +726,34 @@ textarea:focus-visible {
 }
 .glass-dialog.wide {
   width: min(840px, calc(100% - 32px));
+}
+.glass-dialog.quiet {
+  width: min(440px, calc(100% - 48px));
+  margin: auto 7vw 128px auto;
+  padding: 28px 32px 26px;
+}
+.glass-dialog.quiet::backdrop {
+  background: #0004;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.simulator.answer-open > :not(dialog) {
+  filter: none;
+  pointer-events: none;
+}
+.answer-body {
+  margin: 8px 0 18px;
+  font-size: 22px;
+  line-height: 1.45;
+  letter-spacing: -0.03em;
+  font-weight: 400;
+  color: #f3f3f3;
+}
+.answer-meta {
+  margin: 0;
+  font-size: 13px;
+  color: #8d8d8d;
+  font-variant-numeric: tabular-nums;
 }
 .glass-dialog::backdrop {
   background: #0008;
@@ -1520,7 +1545,11 @@ textarea:focus-visible {
     display: none;
   }
   .developer-credit {
-    gap: 2px;
+    gap: 6px;
+    font-size: 13px;
+  }
+  .developer-name {
+    font-size: 16px;
   }
   .city-grid button {
     padding: 13px;

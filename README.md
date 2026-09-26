@@ -26,7 +26,7 @@ The production build uses webpack. The globe uses Three.js and locally bundled N
 
 Keep your existing **GEMINI_API_KEY** in Vercel, enabled for the deployment environment you use. `GOOGLE_GENERATIVE_AI_API_KEY` is supported as an alias. Neither is exposed to the browser. Model IDs are fixed in `lib/starcloud/catalog.ts`; arbitrary client-supplied models are rejected. The Gemini adapter uses `gemini-2.5-flash`, a 512-token output cap and disabled thinking. It reads provider token counts (including additional billed tokens in the total), excludes thought parts, and labels missing usage as estimated.
 
-For public production chat, add **UPSTASH_REDIS_REST_URL** and **UPSTASH_REDIS_REST_TOKEN** from one shared Upstash Redis database. Redeploy after changing environment variables. Production deliberately stays in route-preview mode without persistent abuse protection; it does not silently fall back to an easily bypassed per-instance limiter. Local development uses an in-memory limiter.
+For public production chat, add **UPSTASH_REDIS_REST_URL** and **UPSTASH_REDIS_REST_TOKEN** from one shared Upstash Redis database. Redeploy after changing environment variables. Without Redis, the server still calls a configured model and applies an in-memory limit on that instance. If Redis is configured and unreachable, live requests fail closed.
 
 Optional provider keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`. You do not need these for Gemini. Each unconfigured provider remains available as a clearly labeled route preview. The app makes **one** provider request per submission, not two separately billed answers. Cancellation propagates to the server/provider where supported, but already-started work can still be billed.
 
