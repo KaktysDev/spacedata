@@ -379,18 +379,11 @@ textarea:focus-visible {
   position: relative;
   display: inline-flex;
   align-items: baseline;
-  text-decoration: none;
+  gap: 5px;
+  white-space: nowrap;
   color: #a3a3a3;
   font-size: 12px;
   letter-spacing: 0.01em;
-}
-.credit-label {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-}
-.credit-label.is-burst {
-  opacity: 0;
 }
 .credit-kicker {
   font-size: 12px;
@@ -402,40 +395,36 @@ textarea:focus-visible {
   letter-spacing: -0.02em;
   color: #d5d5d5;
 }
-.developer-name.is-burst {
-  opacity: 0.72;
-}
 .credit-name-wrap {
   position: relative;
   display: inline-flex;
   align-items: baseline;
 }
-.credit-canvas {
-  position: absolute;
-  left: -18px;
-  top: -14px;
-  pointer-events: none;
-}
 .credit-pop {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% - 1px);
   display: flex;
-  gap: 4px;
-  padding: 5px;
-  border-radius: 10px;
-  background: #121212;
-  border: 1px solid #ffffff24;
-  box-shadow: 0 8px 24px #0008;
+  padding: 3px;
+  border-radius: 7px;
+  background: #141414;
+  border: 1px solid #ffffff2e;
   z-index: 4;
+  opacity: 0;
+  pointer-events: none;
+}
+.credit-name-wrap:hover .credit-pop,
+.credit-name-wrap:focus-within .credit-pop {
+  opacity: 1;
+  pointer-events: auto;
 }
 .credit-pop a {
-  color: #f2f2f2;
-  width: 28px;
-  height: 28px;
+  color: #f4f4f4;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
+  border-radius: 5px;
 }
 .credit-pop a:hover,
 .credit-pop a:focus-visible {
