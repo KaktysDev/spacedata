@@ -376,53 +376,41 @@ textarea:focus-visible {
 }
 .developer-credit {
   pointer-events: auto;
-  display: flex;
+  position: relative;
+  display: inline-flex;
   align-items: baseline;
-  gap: 8px;
   text-decoration: none;
-  color: #bdbdbd;
-  font-size: 15px;
+  color: #a3a3a3;
+  font-size: 12px;
   letter-spacing: 0.01em;
 }
+.credit-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.credit-label.is-burst {
+  opacity: 0;
+}
 .credit-kicker {
-  font-size: 15px;
-  color: #9a9a9a;
+  font-size: 12px;
+  color: #8d8d8d;
 }
 .developer-name {
-  font-size: 22px;
+  font-size: 13px;
   font-weight: 500;
-  letter-spacing: -0.03em;
-  background: linear-gradient(
-    105deg,
-    #8d8d8d 0%,
-    #8d8d8d 35%,
-    #ffffff 50%,
-    #8d8d8d 65%,
-    #8d8d8d 100%
-  );
-  background-size: 220% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  animation: credit-sweep 8s ease-in-out infinite;
-}
-.developer-credit:hover .developer-name,
-.developer-credit:focus-visible .developer-name {
-  animation-duration: 4.5s;
+  letter-spacing: -0.02em;
+  color: #d5d5d5;
 }
 .credit-arrow {
-  font-size: 14px;
-  color: #aaa;
+  font-size: 11px;
+  color: #8a8a8a;
 }
-@keyframes credit-sweep {
-  0%,
-  18% {
-    background-position: 130% 0;
-  }
-  55%,
-  100% {
-    background-position: -30% 0;
-  }
+.credit-canvas {
+  position: absolute;
+  left: -36px;
+  top: -28px;
+  pointer-events: none;
 }
 .map-controls {
   position: absolute;
@@ -1545,11 +1533,11 @@ textarea:focus-visible {
     display: none;
   }
   .developer-credit {
-    gap: 6px;
-    font-size: 13px;
+    font-size: 11px;
   }
-  .developer-name {
-    font-size: 16px;
+  .developer-name,
+  .credit-kicker {
+    font-size: 11px;
   }
   .city-grid button {
     padding: 13px;

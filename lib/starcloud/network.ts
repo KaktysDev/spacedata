@@ -2,11 +2,12 @@ import { distanceKm, type Location } from "./catalog";
 
 export const EARTH_KM = 6371,
   ALTITUDE_KM = 550;
-// Representative shell centers within the requested 600–850 km range. The
-// filing does not specify six shells or these node counts; those are display choices.
-export const SHELL_ALTITUDES_KM = [620, 662, 704, 746, 788, 830] as const;
+// Four altitude rows inside the 600–850 km filing range, 60 km apart so they
+// read as separate rings. 8,800 = 4 × 2,200. The filing count is larger; this
+// is the display set.
+export const SHELL_ALTITUDES_KM = [640, 700, 760, 820] as const;
 export const BAND_COUNT = SHELL_ALTITUDES_KM.length,
-  NODES_PER_BAND = 1000;
+  NODES_PER_BAND = 2200;
 export const NODE_COUNT = BAND_COUNT * NODES_PER_BAND;
 const MU = 398600.4418,
   J2 = 0.00108262668;
@@ -237,28 +238,29 @@ export function groundRoute(
   return { points, stops, km, rttMs: ((2 * km) / 200000) * 1000 + 10 };
 }
 
-// Sun-synchronous shells in the 600–850 km filing band. Planes are spaced
-// evenly in RAAN around Earth's axis, then inclined. A single shared node
-// (the previous ±1° cluster at 91°W) is one ring: a halo face-on and a
-// meridian edge-on. This is a frozen Earth orientation, not a dated ephemeris.
-const PLANES_PER_BAND = 40;
+// Four loose rings, not a polar cloud and not one shared meridian. Each row
+// keeps a modest inclination so it stays a band around Earth. Planes are
+// still rotated about the polar axis through a full 360° of RAAN before that
+// inclination is applied. Frozen Earth orientation, not a dated ephemeris.
+const PLANES_PER_BAND = 20;
 const SATS_PER_PLANE = NODES_PER_BAND / PLANES_PER_BAND;
+const RING_INCLINATION_DEG = 8;
 export function orbitalNodes(at: number): OrbitalNode[] {
   return Array.from({ length: NODE_COUNT }, (_, i) => {
     const band = Math.floor(i / NODES_PER_BAND),
       slot = i % NODES_PER_BAND;
     const plane = Math.floor(slot / SATS_PER_PLANE),
       along = slot % SATS_PER_PLANE;
-    // Unique altitudes inside each 42 km shell gap, still within 600–850 km.
+    // A few kilometers of scatter inside the row. The fractional seed keeps
+    // every altitude unique without letting rows overlap (they are 60 km apart).
     const altitudeKm =
       SHELL_ALTITUDES_KM[band] +
-      ((slot + 0.5) / NODES_PER_BAND - 0.5) * 24;
-    const inclination = sunSyncInclination(altitudeKm) * rad;
-    // RAAN about Earth's polar axis, before inclination. Bands are staggered
-    // by half a plane so six shells do not draw the same 40 meridians.
+      (slot + orbitalSeed(i, 1) * 0.999 - NODES_PER_BAND / 2) * 0.0035;
+    const inclination =
+      (RING_INCLINATION_DEG + (orbitalSeed(i, 4) - 0.5) * 5) * rad;
     const raan =
       ((plane + band * 0.5) / PLANES_PER_BAND) * Math.PI * 2 +
-      (orbitalSeed(band * 97 + plane, 2) - 0.5) * (0.8 * rad);
+      (orbitalSeed(band * 97 + plane, 2) - 0.5) * (3 * rad);
     const period = orbitalPeriodMs(altitudeKm);
     let turns = ((at - ORBIT_EPOCH_MS) % period) / period;
     if (turns < 0) turns += 1;
@@ -266,14 +268,13 @@ export function orbitalNodes(at: number): OrbitalNode[] {
       turns * Math.PI * 2 +
       (along / SATS_PER_PLANE) * Math.PI * 2 +
       (plane * Math.PI) / SATS_PER_PLANE +
-      (orbitalSeed(i, 3) - 0.5) * (2.4 * rad);
+      (orbitalSeed(i, 3) - 0.5) * (3.2 * rad);
     const cosO = Math.cos(raan),
       sinO = Math.sin(raan),
       cosU = Math.cos(u),
       sinU = Math.sin(u),
       cosI = Math.cos(inclination),
       sinI = Math.sin(inclination);
-    // Standard circular elements: Z is north, X is lon 0. The globe uses the same lat/lon.
     const ex = cosO * cosU - sinO * sinU * cosI;
     const ey = sinO * cosU + cosO * sinU * cosI;
     const ez = sinU * sinI;
