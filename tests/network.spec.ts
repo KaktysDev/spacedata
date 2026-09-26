@@ -31,7 +31,7 @@ test("satellites occupy every longitude bin instead of one meridian", () => {
   expect(bins.filter((count) => count > 0)).toHaveLength(12);
   // A steep ring spends a little more time in some longitude bins than a
   // uniform shell. One meridian would put nearly every satellite in one bin.
-  expect(Math.max(...bins)).toBeLessThan(NODE_COUNT * 0.3);
+  expect(Math.max(...bins)).toBeLessThan(NODE_COUNT * 0.36);
   expect(Math.min(...bins)).toBeGreaterThan(100);
 });
 test("loose orbital bands stay within the proposed altitude envelope and display cap", () => {
@@ -44,6 +44,11 @@ test("loose orbital bands stay within the proposed altitude envelope and display
   expect(Math.max(...lats)).toBeGreaterThan(72);
   expect(Math.min(...lats)).toBeLessThan(-72);
   expect(Math.max(...lats.map(Math.abs))).toBeLessThan(84);
+  const crest = [...nodes].sort((a, b) => b.lat - a.lat).slice(0, 400);
+  const overCanada = crest.filter(
+    (n) => n.lon <= -55 && n.lon >= -140,
+  ).length;
+  expect(overCanada / crest.length).toBeGreaterThan(0.5);
   expect(Math.max(...alts) - Math.min(...alts)).toBeLessThan(20);
   expect(Math.min(...alts)).toBeGreaterThan(710);
   expect(Math.max(...alts)).toBeLessThan(740);

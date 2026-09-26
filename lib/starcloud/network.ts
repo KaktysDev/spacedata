@@ -257,8 +257,13 @@ export function orbitalNodes(at: number): OrbitalNode[] {
       ((i + orbitalSeed(i, 1) * 0.999) / NODE_COUNT - 0.5) * 16;
     const inclination =
       (RING_INCLINATION_DEG + (orbitalSeed(i, 4) - 0.5) * 1.6) * rad;
+    // Rotate the ring about the polar axis only enough that the default
+    // Americas camera is not inside the plane. 179° was edge-on (a bar
+    // through the middle). 132° tips the crest north over Canada near 138°W,
+    // so the near arc rises over northern Canada instead of cutting the disk
+    // in half. The 4.5° fan is thickness, not a swing toward the oceans.
     const raan =
-      ((179 +
+      ((132 +
         ((plane + 0.5) / PLANES - 0.5) * RAAN_FAN_DEG +
         (orbitalSeed(plane, 2) - 0.5) * 0.35) *
         Math.PI) /
