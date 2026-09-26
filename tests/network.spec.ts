@@ -21,6 +21,17 @@ import {
   sunSyncInclination,
 } from "../lib/starcloud/network";
 
+test("satellites occupy every longitude bin instead of one meridian", () => {
+  const nodes = orbitalNodes(ORBIT_EPOCH_MS);
+  const bins = Array.from({ length: 12 }, () => 0);
+  for (const node of nodes) {
+    const lon = ((node.lon % 360) + 360) % 360;
+    bins[Math.min(11, Math.floor(lon / 30))]++;
+  }
+  expect(bins.filter((count) => count > 0)).toHaveLength(12);
+  expect(Math.max(...bins)).toBeLessThan(NODE_COUNT * 0.2);
+  expect(Math.min(...bins)).toBeGreaterThan(NODE_COUNT * 0.04);
+});
 test("loose orbital bands stay within the proposed altitude envelope and display cap", () => {
   const nodes = orbitalNodes(0);
   expect(nodes).toHaveLength(NODE_COUNT);

@@ -237,41 +237,49 @@ export function groundRoute(
   return { points, stops, km, rttMs: ((2 * km) / 200000) * 1000 + 10 };
 }
 
-// Near-aligned dawn-dusk bands, slightly offset in node longitude and phase.
-// This is a frozen Earth orientation for a short illustration, not a dated ephemeris.
-// Different shell periods give natural relative motion; satellites do not hover over cities.
+// Sun-synchronous shells in the 600–850 km filing band. Planes are spaced
+// evenly in RAAN around Earth's axis, then inclined. A single shared node
+// (the previous ±1° cluster at 91°W) is one ring: a halo face-on and a
+// meridian edge-on. This is a frozen Earth orientation, not a dated ephemeris.
+const PLANES_PER_BAND = 40;
+const SATS_PER_PLANE = NODES_PER_BAND / PLANES_PER_BAND;
 export function orbitalNodes(at: number): OrbitalNode[] {
   return Array.from({ length: NODE_COUNT }, (_, i) => {
     const band = Math.floor(i / NODES_PER_BAND),
       slot = i % NODES_PER_BAND;
+    const plane = Math.floor(slot / SATS_PER_PLANE),
+      along = slot % SATS_PER_PLANE;
+    // Unique altitudes inside each 42 km shell gap, still within 600–850 km.
     const altitudeKm =
-        SHELL_ALTITUDES_KM[band] + (orbitalSeed(i, 1) - 0.5) * 40,
-      inclination = sunSyncInclination(altitudeKm);
-    const normalLat = (90 - inclination) * rad,
-      normalLon = (-91 + (orbitalSeed(i, 2) - 0.5) * 2) * rad;
-    const normal = {
-      x: Math.cos(normalLat) * Math.sin(normalLon),
-      y: Math.sin(normalLat),
-      z: Math.cos(normalLat) * Math.cos(normalLon),
-    };
-    const length = Math.hypot(normal.x, normal.z),
-      right = { x: normal.z / length, y: 0, z: -normal.x / length };
-    const up = {
-      x: normal.y * right.z,
-      y: normal.z * right.x - normal.x * right.z,
-      z: -normal.y * right.x,
-    };
+      SHELL_ALTITUDES_KM[band] +
+      ((slot + 0.5) / NODES_PER_BAND - 0.5) * 24;
+    const inclination = sunSyncInclination(altitudeKm) * rad;
+    // RAAN about Earth's polar axis, before inclination. Bands are staggered
+    // by half a plane so six shells do not draw the same 40 meridians.
+    const raan =
+      ((plane + band * 0.5) / PLANES_PER_BAND) * Math.PI * 2 +
+      (orbitalSeed(band * 97 + plane, 2) - 0.5) * (0.8 * rad);
     const period = orbitalPeriodMs(altitudeKm);
-    const phase =
-      (((at - ORBIT_EPOCH_MS) % period) / period) * Math.PI * 2 +
-      ((band * 0.618 + (orbitalSeed(i, 3) - 0.5) * 0.85) * Math.PI * 2) /
-        NODES_PER_BAND;
-    const angle = (slot / NODES_PER_BAND) * Math.PI * 2 + phase,
-      c = Math.cos(angle),
-      sn = Math.sin(angle);
+    let turns = ((at - ORBIT_EPOCH_MS) % period) / period;
+    if (turns < 0) turns += 1;
+    const u =
+      turns * Math.PI * 2 +
+      (along / SATS_PER_PLANE) * Math.PI * 2 +
+      (plane * Math.PI) / SATS_PER_PLANE +
+      (orbitalSeed(i, 3) - 0.5) * (2.4 * rad);
+    const cosO = Math.cos(raan),
+      sinO = Math.sin(raan),
+      cosU = Math.cos(u),
+      sinU = Math.sin(u),
+      cosI = Math.cos(inclination),
+      sinI = Math.sin(inclination);
+    // Standard circular elements: Z is north, X is lon 0. The globe uses the same lat/lon.
+    const ex = cosO * cosU - sinO * sinU * cosI;
+    const ey = sinO * cosU + cosO * sinU * cosI;
+    const ez = sinU * sinI;
     return {
-      lat: Math.asin(up.y * sn) / rad,
-      lon: Math.atan2(right.x * c + up.x * sn, right.z * c + up.z * sn) / rad,
+      lat: Math.asin(Math.max(-1, Math.min(1, ez))) / rad,
+      lon: Math.atan2(ey, ex) / rad,
       altitudeKm,
       band,
       slot,

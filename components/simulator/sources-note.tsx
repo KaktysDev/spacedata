@@ -131,9 +131,11 @@ export function SourcesNote({
             6,000 representative satellites in six loose altitude bands, 600–850
             km. Starcloud’s 2026 filing requests up to 88,000 satellites in
             narrow, dawn-dusk sun-synchronous shells; it does not specify these
-            six bands or this display count. Fixed variations in altitude,
-            orbital phase and node longitude avoid stacked rows. Inclination
-            follows altitude and each satellite moves at its own orbital period.
+            six bands or this display count. Each band uses 40 orbital planes
+            spaced around a full circle of ascending nodes, then inclined, with
+            small fixed scatter in node and phase so the shell is not one
+            meridian or a perfect grid. Inclination follows altitude and each
+            satellite moves at its own orbital period.
             Satellites pass over Earth; they do not stay above remote regions.
             Hardware size and altitude spacing are enlarged for visibility;
             route distances use physical kilometers. This is an illustrative

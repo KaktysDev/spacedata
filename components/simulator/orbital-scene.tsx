@@ -155,8 +155,8 @@ export function OrbitalScene(props: Props) {
     el.prepend(renderer.domElement);
     const scene = new THREE.Scene(),
       camera = new THREE.PerspectiveCamera(43, 1, 0.03, 100);
-    // View almost exactly along the mean orbital plane: the broad annulus
-    // extends sideways/in depth, with only a narrow strip crossing Earth.
+    // Opening view. Planes are distributed in RAAN, so this is not an edge-on
+    // look down a single meridian.
     const inclination = sunSyncInclination(725);
     const overview = position({ lat: 180 - inclination, lon: -91 }, 1);
     const fitDistance = (direction: THREE.Vector3, w: number, h: number) => {
@@ -744,19 +744,6 @@ export function OrbitalScene(props: Props) {
         detailed.instanceMatrix.needsUpdate = true;
         distant.instanceMatrix.needsUpdate = true;
         lastDetailTime = now;
-      }
-      for (let h = 0; h < heroes.length; h++) {
-        const craft = heroes[h];
-        const hop = network.hops[Math.min(h, network.hops.length - 1)];
-        craft.visible = Boolean(p.flight);
-        if (!p.flight) continue;
-        craft.position.copy(world[hop]);
-        const after = network.hops[Math.min(h + 1, network.hops.length - 1)];
-        const before = network.hops[Math.max(h - 1, 0)];
-        const dir = (
-          h === network.hops.length - 1 ? world[hop].clone().sub(world[before]) : world[after].clone().sub(world[hop])
-        );
-        if (dir.lengthSq() > 1e-8) craft.lookAt(craft.position.clone().add(dir));
       }
       if (p.focusId !== lastFocus) {
         lastFocus = p.focusId;
