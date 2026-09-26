@@ -1,159 +1,267 @@
-"use client";
+import Image from "next/image";
 import {
   PROVIDERS,
   SITE_SOURCES,
   type ProviderId,
 } from "@/lib/starcloud/catalog";
 import { Modal } from "./modal";
+const paper = "https://starcloudinc.github.io/wp.pdf";
 export function SourcesNote({
-  onClose,
   provider,
   joules,
   onJoules,
+  onClose,
 }: {
-  onClose: () => void;
   provider: ProviderId;
   joules: number;
-  onJoules: (n: number) => void;
+  onJoules: (v: number) => void;
+  onClose: () => void;
 }) {
   return (
-    <Modal title="Behind the comparison" onClose={onClose}>
+    <Modal title="One request. Two possibilities." wide onClose={onClose}>
       <div className="methodology">
-        <p>
-          Measured values come from one real request to the selected AI
-          provider. The same workload is passed through a ground model and an
-          orbital model. No production AI provider in this app is running your
-          request in space.
+        <p className="method-lead">
+          Today’s networks. Tomorrow’s infrastructure.
         </p>
-        <h3>Energy is a scenario, not telemetry</h3>
         <p>
-          Providers do not publish per-request joules. We multiply total tokens
-          by a shared IT-energy assumption, then add facility overhead: PUE 1.04
-          in orbit (assumed), 1.09 for Google (2025 fleet average), or 1.10 for
-          other ground providers (assumed). The range is 0.5–2× the selected
-          energy, a sensitivity interval, not a statistical confidence interval.
+          A connected model returns one real answer. We compare that workload on
+          Earth and in a hypothetical orbital datacenter. Preview mode makes no
+          AI call.
         </p>
-        <label className="assumption-control">
-          IT energy per token <strong>{joules.toFixed(2)} J</strong>
-          <input
-            aria-label="IT joules per token"
-            type="range"
-            min="0.1"
-            max="5"
-            step="0.01"
-            value={joules}
-            onChange={(e) => onJoules(Number(e.target.value))}
+        <figure className="paper-hero">
+          <Image
+            src="/research/solar-radiator.webp"
+            alt="Starcloud concept rendering of a large solar array and radiators above Earth"
+            width={1047}
+            height={583}
+            sizes="(max-width: 700px) 90vw, 800px"
           />
-        </label>
-        <p>
-          The default 1.11 J/token is an illustrative setting, not a measurement
-          of the chosen model. Google’s published Gemini Apps median of 0.24 Wh
-          per prompt is a separate fleet benchmark; it cannot calibrate every
-          API request.
-        </p>
-        <h3>Water & price</h3>
-        <p>
-          Ground on-site water intensity spans an assumed 0.2–2.0 L/kWh,
-          combined with the energy range. Orbit assumes closed-loop radiator
-          cooling with no routine evaporative loss. Neither includes water used
-          to generate electricity, manufacturing, or launch. Electricity prices
-          use the paper’s projected $0.002/kWh in orbit and historical
-          $0.045/kWh US ground reference. These are not current regional
-          electricity tariffs or end-user API prices.
-        </p>
-        <h3>Routes & timing</h3>
-        <p>
-          The pin picks the nearest entry in a curated public reference catalog.
-          Google sites, AWS Bedrock regions, Azure AI regions and xAI endpoint
-          regions are different kinds of references. Calling their direct API
-          does not guarantee that region will serve your request. Ground RTT
-          assumes 1.3× great-circle distance, 200,000 km/s fiber and 10 ms
-          overhead. Orbit uses an illustrative 48-node, 550 km, 98° ring with a
-          95.5-minute period. A modeled ground gateway beneath the nearest ring
-          node receives terrestrial fiber traffic, then uplinks to the ring.
-          Four neighboring, straight, line-of-sight laser links carry the
-          request to a remote compute node; the return follows the reverse path.
-          The estimate includes gateway fiber distance, the vertical uplink,
-          laser chord lengths and 12 ms overhead. The full ring is connected,
-          but a single request uses only its selected hops. These node counts,
-          orbit and allocation are visualization assumptions, not Starcloud
-          deployment specifications. The gateway is conceptual and may be
-          offshore; actual gateway availability, weather, handover, congestion
-          and bandwidth are not modeled. Positions and link heights are
-          exaggerated for visibility; animation duration is not network latency.
-        </p>
-        <h3>Technology maturity</h3>
-        <p>
-          Starcloud-1 launched an H100 demonstration in 2025. The paper’s 40 MW
-          design is a future architecture, not an operational fleet or a
-          verified inference-speed advantage. Solar and radiator modules in the
-          scene are conceptual. There is no public live Starcloud datacenter
-          telemetry feed. The whitepaper describes RF/optical access,
-          inter-satellite optical networking and close formation of compute
-          modules. This ring illustrates communication between separate
-          facilities and relays; it does not pretend that widely separated nodes
-          form a low-latency training cluster.
-        </p>
-        <h3>Sources · checked September 24, 2026</h3>
-        <ul className="source-list">
-          <li>
-            <a
-              href="https://starcloudinc.github.io/wp.pdf"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Starcloud whitepaper · v1.03, September 2024 ↗
+          <figcaption>
+            Solar power. Radiative cooling.{" "}
+            <a href={`${paper}#page=8`} target="_blank" rel="noreferrer">
+              Starcloud concept · p. 8 ↗
             </a>
-          </li>
-          <li>
-            <a
-              href="https://www.starcloud.com/starcloud-1"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Starcloud-1 hardware demonstration ↗
-            </a>
-          </li>
-          <li>
-            <a
-              href="https://www.datacenters.google/efficiency/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Google facility efficiency ↗
-            </a>
-          </li>
-          <li>
-            <a
-              href="https://cloud.google.com/blog/products/infrastructure/measuring-the-environmental-impact-of-ai-inference"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Google’s measured inference footprint ↗
-            </a>
-          </li>
-          <li>
-            <a href={SITE_SOURCES[provider]} target="_blank" rel="noreferrer">
-              {PROVIDERS[provider].company} infrastructure references ↗
-            </a>
-          </li>
-          <li>
-            <a
-              href={PROVIDERS[provider].source}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {PROVIDERS[provider].name} model & API pricing ↗
-            </a>
-          </li>
-        </ul>
-        <p>
-          API pricing is a dated standard-rate estimate, including reported
-          cached input discounts, not your invoice. Measured response time
-          covers the server’s provider call; it does not include the visual
-          journey. Requests are sent to the selected provider under its data
-          policy. The app retains only short-lived hashed rate-limit counters.
-        </p>
+          </figcaption>
+        </figure>
+        <section className="method-section">
+          <span className="section-number">01 / THE JOURNEY</span>
+          <h3>Follow the connections.</h3>
+          <div className="route-diagrams">
+            <div>
+              <strong>On Earth</strong>
+              <ol>
+                <li>You</li>
+                <li>ISP & peering</li>
+                <li>Provider</li>
+                <li>You</li>
+              </ol>
+              <p>
+                Packets follow terrestrial and subsea fiber through routers. The
+                return is shown along the same path.
+              </p>
+            </div>
+            <div>
+              <strong>In orbit</strong>
+              <ol>
+                <li>You</li>
+                <li>Provider</li>
+                <li>Gateway</li>
+                <li>Relay</li>
+                <li>Compute</li>
+                <li>You</li>
+              </ol>
+              <p>
+                Fiber reaches a land gateway, then an RF uplink reaches a
+                communications relay. Optical links connect the relay to
+                Starcloud and carry the workload to compute. The reply retraces
+                each segment.
+              </p>
+            </div>
+          </div>
+          <p className="fine-print">
+            Both are modeled routes, not a traceroute. City connections
+            approximate fiber corridors; real ISP policies and return paths
+            vary. Provider markers are public infrastructure references, not a
+            promise about where an API call runs. Gateway coverage, weather,
+            carrier capacity and available laser terminals are not simulated.
+          </p>
+        </section>
+        <section className="method-section">
+          <span className="section-number">02 / THE ARCHITECTURE</span>
+          <h3>Built around power, cooling, and compute.</h3>
+          <p>
+            Starcloud’s paper describes modular compute containers, solar
+            arrays, radiators and optical connectivity. Within a facility,
+            closely grouped modules share a network spine. Our inter-satellite
+            journey represents a separate relay network.
+          </p>
+          <figure className="paper-diagram">
+            <Image
+              src="/research/network-architecture.webp"
+              alt="Starcloud network architecture diagram showing RF and optical terminals connected to a spine with solar power, radiators, network switches and compute containers"
+              width={1284}
+              height={849}
+              sizes="(max-width: 700px) 90vw, 760px"
+            />
+            <figcaption>Network architecture · whitepaper p. 7</figcaption>
+          </figure>
+          <div className="paper-pair">
+            <figure>
+              <Image
+                src="/research/compute-container.webp"
+                alt="Starcloud compute container schematic with internal racks"
+                width={1146}
+                height={617}
+                sizes="(max-width: 700px) 85vw, 370px"
+              />
+              <figcaption>Compute container · p. 6</figcaption>
+            </figure>
+            <figure>
+              <Image
+                src="/research/modular-design.webp"
+                alt="Starcloud modular stem and leaf architecture concept"
+                width={702}
+                height={606}
+                sizes="(max-width: 700px) 85vw, 370px"
+              />
+              <figcaption>Modular assembly · p. 12</figcaption>
+            </figure>
+          </div>
+          <p className="fine-print">
+            6,000 representative satellites in six loose altitude bands, 600–850
+            km. Starcloud’s 2026 filing requests up to 88,000 satellites in
+            narrow, dawn-dusk sun-synchronous shells; it does not specify these
+            six bands or this display count. Fixed variations in altitude,
+            orbital phase and node longitude avoid stacked rows. Inclination
+            follows altitude and each satellite moves at its own orbital period.
+            Satellites pass over Earth; they do not stay above remote regions.
+            Hardware size and altitude spacing are enlarged for visibility;
+            route distances use physical kilometers. This is an illustrative
+            snapshot, not live tracking.
+          </p>
+        </section>
+        <section className="method-section">
+          <span className="section-number">03 / THE NUMBERS</span>
+          <h3>Adjust the assumption.</h3>
+          <p>
+            Tokens and provider response time come from the API when available.
+            Energy and water are estimates; providers do not expose per-request
+            telemetry.
+          </p>
+          <label className="assumption-control">
+            <span>IT energy / token</span>
+            <strong>{joules.toFixed(2)} J</strong>
+            <input
+              aria-label="IT energy per token"
+              type="range"
+              min="0.1"
+              max="5"
+              step="0.01"
+              value={joules}
+              onChange={(e) => onJoules(Number(e.target.value))}
+            />
+          </label>
+          <details className="method-details">
+            <summary>
+              Energy, water & cost <span>+</span>
+            </summary>
+            <p>
+              Energy = total tokens × selected J/token ÷ 3,600 × PUE. PUE is
+              1.04 in orbit (assumed), 1.09 for Google (2025 fleet average), and
+              1.10 otherwise (assumed). The 0.5–2× range is sensitivity, not
+              confidence. The default 1.11 J/token is illustrative.
+            </p>
+            <p>
+              Ground cooling uses an assumed 0.2–2.0 L/kWh, combined with the
+              energy range. Orbit assumes no routine evaporative cooling loss.
+              Power costs use the paper’s projected $0.002/kWh in orbit and
+              historical $0.045/kWh ground reference. These exclude
+              electricity-generation water, manufacturing, launch, hardware and
+              API fees.
+            </p>
+          </details>
+          <details className="method-details">
+            <summary>
+              Distance, timing & limitations <span>+</span>
+            </summary>
+            <p>
+              Fiber distance follows the city graph plus a 1.15× allowance for
+              local cable routing, at 200,000 km/s. Orbital timing includes that
+              ground entry, fiber to a land gateway, an assumed 550 km carrier
+              relay uplink, an optical handoff and four laser hops at 299,792
+              km/s. Laser distances use each satellite’s modeled altitude and
+              line of sight. Round trips add 10 ms overhead on Earth or 12 ms in
+              orbit. Processing, congestion and handovers are excluded.
+              Animation time is unrelated to network latency; positions freeze
+              during each journey. Carrier relays and gateways are conceptual,
+              not a live Starlink map. Earth orientation stays fixed during this
+              short illustration; long-term precession, collision avoidance and
+              actual deployment schedules are not simulated.
+            </p>
+            <p>
+              No production AI request from this app runs in space.
+              Starcloud-1’s H100 demonstration is a milestone, not evidence that
+              this modeled fleet operates today. API cost uses stored standard
+              rates and reported cache discounts; it is not an invoice. Prompts
+              go to the selected provider under its data policy. This app
+              retains only short-lived hashed rate-limit counters.
+            </p>
+          </details>
+        </section>
+        <footer className="source-credits">
+          <h3>Sources & image credits</h3>
+          <p>
+            Figures and concept renderings © Lumen Orbit / Starcloud,{" "}
+            <em>Why we should train AI in Space</em>, v1.03, September 2024, pp.
+            6–8 & 12. Extracted from the original PDF; these are design
+            illustrations, not spacecraft photographs. Independent project; no
+            affiliation.
+          </p>
+          <ul className="source-list">
+            {[
+              ["Starcloud whitepaper", paper],
+              [
+                "Starcloud orbital proposal · FCC, February 2026",
+                "https://api-prod.fcc.gov/icfs-attachment/exp/api/v1/5c6840321b3e365068b6a64ce54bcb49",
+              ],
+              [
+                "Starcloud optical connectivity · May 2026",
+                "https://www.businesswire.com/news/home/20260526670395/en/Starcloud-to-Integrate-SpaceXs-Starlink-Mini-Lasers-Into-Its-Orbital-Data-Center-Constellation",
+              ],
+              [
+                "Starcloud-1 hardware demonstration",
+                "https://www.starcloud.com/starcloud-1",
+              ],
+              [
+                "Internet routing · Cloudflare",
+                "https://www.cloudflare.com/learning/network-layer/what-is-routing/",
+              ],
+              [
+                "Google facility efficiency",
+                "https://www.datacenters.google/efficiency/",
+              ],
+              [
+                `${PROVIDERS[provider].company} infrastructure references`,
+                SITE_SOURCES[provider],
+              ],
+              [
+                `${PROVIDERS[provider].name} API pricing`,
+                PROVIDERS[provider].source,
+              ],
+            ].map(([name, url]) => (
+              <li key={name}>
+                <a href={url} target="_blank" rel="noreferrer">
+                  {name}
+                  <span>↗</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+          <p className="fine-print">
+            Provider marks via Lobe Icons (MIT). Marks belong to their
+            respective owners. Research reviewed September 25, 2026.
+          </p>
+        </footer>
       </div>
     </Modal>
   );

@@ -7,7 +7,6 @@ import {
   nearestSite,
   PRESETS,
   PROVIDERS,
-  PROVIDER_IDS,
   type ProviderId,
   type Location,
 } from "@/lib/starcloud/catalog";
@@ -15,11 +14,17 @@ import {
   isChatSuccessBody,
   type ChatSuccessBody,
 } from "@/lib/starcloud/chat-types";
-import { JOURNEY_MS } from "@/lib/starcloud/network";
+import {
+  JOURNEY_MS,
+  NODE_COUNT,
+  STAGES,
+  journeyStage,
+} from "@/lib/starcloud/network";
 import { type Flight } from "./orbital-scene";
 import { InferenceComparison } from "./inference-comparison";
 import { SourcesNote } from "./sources-note";
 import { Modal } from "./modal";
+import { ProviderPicker } from "./provider-picker";
 const OrbitalScene = dynamic(
   () => import("./orbital-scene").then((m) => m.OrbitalScene),
   { ssr: false },
@@ -144,29 +149,22 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       }
     }
   }
+  const stage = journeyStage(elapsed);
   const progress = flight?.reduced
     ? "Comparing the two paths"
-    : elapsed < 1600
-      ? "Leaving your location"
-      : elapsed < 3500
-        ? "Reaching the uplink gateway"
-        : elapsed < 5400
-          ? "Uplink to the orbital ring"
-          : elapsed < 7800
-            ? "Four laser hops to compute"
-            : elapsed < 10100
-              ? "Following the ground route"
-              : elapsed < JOURNEY_MS
-                ? "Bringing both paths together"
-                : answerReady
-                  ? "Your comparison is ready"
-                  : "Waiting for the AI response";
+    : elapsed >= JOURNEY_MS
+      ? answerReady
+        ? "Your comparison is ready"
+        : "Waiting for the AI response"
+      : STAGES[stage].label;
   return (
     <main
       className={`simulator ${flight ? "in-flight" : ""} ${results || sources || locations ? "modal-open" : ""}`}
     >
       <OrbitalScene
+        key={NODE_COUNT}
         origin={origin}
+        provider={provider}
         site={site}
         flight={flight}
         onLocation={setOrigin}
@@ -184,13 +182,13 @@ export function Simulator({ available }: { available: ProviderId[] }) {
           onClick={() => setSources(true)}
           disabled={Boolean(flight)}
         >
-          About the experiment <span>↗</span>
+          How it works <span>↗</span>
         </button>
       </header>
       {!ready && (
         <div className="loading-scene" role="status">
           <span />
-          Preparing your world
+          Loading Earth
         </div>
       )}
       {flight ? (
@@ -208,6 +206,18 @@ export function Simulator({ available }: { available: ProviderId[] }) {
                 : `${PROVIDERS[provider].name} is processing your message`
               : "Illustrative travel · no AI request or charge"}
           </p>
+          <div className="journey-stages" aria-label="Route stages">
+            {STAGES.map((s, i) => (
+              <span
+                key={s.short}
+                className={
+                  i === stage ? "current" : i < stage ? "complete" : ""
+                }
+              >
+                {s.short}
+              </span>
+            ))}
+          </div>
           <div className="journey-track">
             <span
               style={{
@@ -222,17 +232,13 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       ) : (
         <section className="composer" aria-label="Send a prompt">
           <div className="composer-heading">
-            <span className="eyebrow">EARTH, OR ORBIT?</span>
-            <h1>
-              Give your next thought
-              <br className="mobile-break" /> a different path.
-            </h1>
+            <h1>A thought. Two paths.</h1>
           </div>
           <form onSubmit={submit} className="prompt-glass">
             <textarea
               ref={textarea}
               aria-label="Your message"
-              placeholder="Ask anything. Watch where it goes."
+              placeholder="Ask anything…"
               value={prompt}
               maxLength={2000}
               rows={2}
@@ -252,22 +258,11 @@ export function Simulator({ available }: { available: ProviderId[] }) {
               }}
             />
             <div className="composer-toolbar">
-              <div className="model-select">
-                <span className={`connection-dot ${live ? "connected" : ""}`} />
-                <select
-                  aria-label="AI provider"
-                  value={provider}
-                  onChange={(e) => setProvider(e.target.value as ProviderId)}
-                >
-                  {PROVIDER_IDS.map((id) => (
-                    <option key={id} value={id}>
-                      {PROVIDERS[id].name}
-                      {available.includes(id) ? "" : " · preview"}
-                    </option>
-                  ))}
-                </select>
-                <span className="select-chevron">⌄</span>
-              </div>
+              <ProviderPicker
+                value={provider}
+                available={available}
+                onChange={setProvider}
+              />
               <button
                 type="button"
                 className="location-button"
@@ -294,9 +289,8 @@ export function Simulator({ available }: { available: ProviderId[] }) {
           </form>
           <p className="composer-hint">
             {live
-              ? "A real AI response. Two modeled paths."
-              : "Route preview · this model is not connected."}{" "}
-            <button onClick={() => setSources(true)}>How it works</button>
+              ? "One response · two modeled paths"
+              : "Preview · no AI request"}{" "}
           </p>
           {error && (
             <p className="request-error" role="alert">
@@ -325,17 +319,61 @@ export function Simulator({ available }: { available: ProviderId[] }) {
           <button
             onClick={() => setFocusId((v) => v + 1)}
             disabled={Boolean(flight)}
-            aria-label="Center on your location"
+            aria-label="Reset globe view"
           >
             ⌖
           </button>
         </div>
       </div>
       <footer className="site-footer">
-        <span>AN ORBITAL COMPUTE EXPERIMENT</span>
-        <span>
-          made by <strong>Oleh Lahoda</strong>
+        <span className="constellation-count">
+          {NODE_COUNT.toLocaleString()} satellites <span>· concept</span>
         </span>
+        <a
+          className="developer-credit"
+          href="https://www.linkedin.com/in/oleh-lahoda-0847a3393/"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Developed by{" "}
+          <span className="developer-name" aria-label="Oleh Lahoda">
+            <span className="name-letters" aria-hidden="true">
+              Oleh Lahoda
+            </span>
+            <svg className="name-dots" aria-hidden="true" viewBox="0 0 100 16">
+              <defs>
+                <pattern
+                  id="name-dot-pattern"
+                  width="2.6"
+                  height="2.6"
+                  patternUnits="userSpaceOnUse"
+                >
+                  <circle cx="1.2" cy="1.2" r=".7" fill="white" />
+                </pattern>
+                <mask id="name-dot-mask">
+                  <text
+                    fill="white"
+                    x="0"
+                    y="12"
+                    fontSize="14"
+                    fontFamily="Arial"
+                  >
+                    Oleh Lahoda
+                  </text>
+                </mask>
+              </defs>
+              <rect
+                width="100"
+                height="16"
+                fill="url(#name-dot-pattern)"
+                mask="url(#name-dot-mask)"
+              />
+            </svg>
+          </span>
+          <span aria-hidden="true" className="credit-arrow">
+            ↗
+          </span>
+        </a>
       </footer>
       {locations && (
         <LocationPicker
@@ -387,15 +425,20 @@ function LocationPicker({
   const [lat, setLat] = useState(origin.lat.toFixed(3)),
     [lon, setLon] = useState(origin.lon.toFixed(3));
   return (
-    <Modal title="Where does your thought begin?" onClose={onClose}>
+    <Modal title="Your location" onClose={onClose}>
       <p className="result-intro">
-        Hold the pin and drag it across the globe, double-click the map, or
-        enter any coordinates.
+        Choose a city, enter coordinates, or drag the pin.
       </p>
       <div className="city-grid">
         {PRESETS.map((p) => (
           <button key={p.name} onClick={() => onChoose(p)}>
-            {p.name}
+            <span>
+              {p.name}
+              <small>
+                {Math.abs(p.lat).toFixed(1)}°{p.lat >= 0 ? "N" : "S"} ·{" "}
+                {Math.abs(p.lon).toFixed(1)}°{p.lon >= 0 ? "E" : "W"}
+              </small>
+            </span>
             <span>↗</span>
           </button>
         ))}
@@ -439,7 +482,7 @@ function LocationPicker({
           </label>
         </div>
         <button className="primary-button" type="submit">
-          Place pin ↗
+          Set location ↗
         </button>
       </form>
     </Modal>

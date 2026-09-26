@@ -43,7 +43,7 @@ export function compare(
     throw new Error("Invalid workload");
   const km = distanceKm(origin, site),
     pue = provider === "gemini" ? 1.09 : 1.1;
-  const network = routeAt(origin, snapshotAt);
+  const network = routeAt(origin, snapshotAt, site);
   const itWh = (tokens * joulesPerToken) / 3600;
   const scenario = (
     p: number,
@@ -61,7 +61,7 @@ export function compare(
   const pricing = PROVIDERS[provider],
     a = result?.answer;
   return {
-    ground: scenario(pue, true, 0.045, ((2 * km * 1.3) / 200000) * 1000 + 10),
+    ground: scenario(pue, true, 0.045, network.ground.rttMs),
     space: scenario(1.04, false, 0.002, network.rttMs),
     apiCostUsd: a
       ? ((a.promptTokens - a.cachedTokens) * pricing.input +
