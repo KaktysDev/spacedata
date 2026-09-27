@@ -2,7 +2,7 @@ import {
   enforceChatQuota,
   ChatRequestError,
 } from "@/lib/server/chat-guard";
-import { providerKey, runAnswer } from "@/lib/server/llm";
+import { ProviderCallError, providerKey, runAnswer } from "@/lib/server/llm";
 export const maxDuration = 60;
 export const runtime = "nodejs";
 export async function POST(request: Request) {
@@ -23,11 +23,40 @@ export async function POST(request: Request) {
       { headers },
     );
   } catch (e) {
-    if (e instanceof Error && e.message === "model-not-found")
+    if (e instanceof ProviderCallError) {
+      console.warn("Chat provider failure", {
+        provider: e.provider,
+        deployment: e.deployment,
+        kind: e.kind,
+        upstreamStatus: e.upstreamStatus,
+      });
+      const messages = {
+        "model-unavailable":
+          "The selected AI model is unavailable to this connection.",
+        connection: "The selected AI connection is unavailable.",
+        capacity: "The AI provider is busy. Please try again shortly.",
+        "request-rejected":
+          "The AI provider rejected the app's request. Please try another model.",
+        timeout: "The AI provider took too long to respond. Please try again.",
+        network: "Could not connect to the AI provider. Please try again.",
+        blocked: "The AI provider declined this prompt.",
+        "empty-answer": "The AI provider returned no answer. Please try again.",
+        "invalid-response":
+          "The AI provider returned an invalid response. Please try again.",
+      } as const;
+      const status =
+        e.kind === "timeout"
+          ? 504
+          : e.kind === "capacity" || e.kind === "connection"
+            ? 503
+            : e.kind === "blocked"
+              ? 422
+              : 502;
       return Response.json(
-        { error: "Gemini could not find that model." },
-        { status: 502, headers },
+        { error: messages[e.kind], code: e.kind },
+        { status, headers },
       );
+    }
     const known = e instanceof ChatRequestError;
     if (known && e.retryAfterSec)
       headers.set("Retry-After", String(e.retryAfterSec));

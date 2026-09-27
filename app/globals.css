@@ -351,10 +351,22 @@ textarea:focus-visible {
   flex: 1 1 auto;
   max-width: 180px;
 }
-.location-search-input {
+.location-button:focus-visible,
+.location-search-input:focus,
+.location-search-input:focus-visible,
+.location-suggestion:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.location-search-input,
+.location-search-input:focus,
+.location-search-input:focus-visible {
   width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
   background: transparent;
   border: 0;
+  box-shadow: none;
   color: #eee;
   font-size: 11px;
   padding: 7px 2px;
@@ -372,7 +384,7 @@ textarea:focus-visible {
   padding: 6px;
   list-style: none;
   background: #121212f2;
-  border: 1px solid #ffffff18;
+  border: 0;
   border-radius: 12px;
   box-shadow: 0 16px 40px #000a;
   backdrop-filter: blur(18px);

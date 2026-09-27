@@ -494,7 +494,7 @@ test("Gemini makes two capped requests (ground + space), keeps keys server-side 
     );
     const b = JSON.parse(String(init?.body));
     maxTokens.push(b.generationConfig.maxOutputTokens);
-    expect(b.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0 });
+    expect(b.generationConfig.thinkingConfig).toEqual({ thinkingLevel: "low" });
     expect(b.contents[0].parts[0].text).toBe("Why is the sky blue?");
     expect(b.tools).toBeUndefined();
     expect(init?.signal).toBeDefined();
@@ -548,9 +548,15 @@ test("Gemini blocked or empty answer returns a safe error rather than a fake res
   mockProvider(() =>
     Response.json({ promptFeedback: { blockReason: "SAFETY" } }),
   );
-  expect((await POST(req())).status).toBe(502);
+  expect((await POST(req())).status).toBe(422);
+  expect(await (await POST(req())).text()).not.toContain("SAFETY");
 });
-for (const status of [400, 401, 429, 500])
+for (const [status, expected] of [
+  [400, 502],
+  [401, 503],
+  [429, 503],
+  [500, 503],
+] as const)
   test(`Gemini ${status} errors do not leak details or trigger paid retries`, async () => {
     let calls = 0;
     mockProvider(() => {
@@ -561,7 +567,7 @@ for (const status of [400, 401, 429, 500])
       );
     });
     const r = await POST(req());
-    expect(r.status).toBe(502);
+    expect(r.status).toBe(expected);
     expect(await r.text()).not.toContain("test-secret");
     expect(calls).toBe(2);
   });
