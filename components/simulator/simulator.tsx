@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   DEFAULT_LOCATION,
   nearestSite,
-  PRESETS,
   PROVIDERS,
   type ProviderId,
   type Location,
@@ -23,18 +22,21 @@ import {
 import { type Flight } from "./orbital-scene";
 import { InferenceComparison } from "./inference-comparison";
 import { SourcesNote } from "./sources-note";
-import { Modal } from "./modal";
 import { DeveloperCredit } from "./developer-credit";
 import { ProviderPicker } from "./provider-picker";
 const OrbitalScene = dynamic(
   () => import("./orbital-scene").then((m) => m.OrbitalScene),
   { ssr: false },
 );
+
+type Place = Location & { name: string };
+
 export function Simulator({ available }: { available: ProviderId[] }) {
   const [provider, setProvider] = useState<ProviderId>(
       available[0] ?? "gemini",
     ),
     [origin, setOrigin] = useState<Location>(DEFAULT_LOCATION),
+    [placeName, setPlaceName] = useState("Location"),
     [focusId, setFocusId] = useState(0),
     [zoom, setZoom] = useState(0),
     [ready, setReady] = useState(false),
@@ -45,14 +47,27 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     [result, setResult] = useState<ChatSuccessBody | null>(null),
     [results, setResults] = useState(false),
     [sources, setSources] = useState(false),
-    [locations, setLocations] = useState(false),
     [error, setError] = useState(""),
-    [joules, setJoules] = useState(1.11);
+    [joules, setJoules] = useState(1.11),
+    [submitted, setSubmitted] = useState(""),
+    [snapshotAt, setSnapshotAt] = useState(0);
   const request = useRef<AbortController | null>(null),
     active = useRef(false),
     textarea = useRef<HTMLTextAreaElement>(null);
   const site = nearestSite(provider, origin);
   const onReady = useCallback(() => setReady(true), []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    root.classList.add("app-lock");
+    body.classList.add("app-lock");
+    return () => {
+      root.classList.remove("app-lock");
+      body.classList.remove("app-lock");
+    };
+  }, []);
+
   useEffect(() => () => request.current?.abort(), []);
   useEffect(() => {
     if (!flight) return;
@@ -62,6 +77,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     );
     return () => clearInterval(id);
   }, [flight]);
+
   function cancel() {
     request.current?.abort();
     request.current = null;
@@ -77,11 +93,13 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     request.current = controller;
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const started = performance.now();
+    setSubmitted(prompt.trim());
     setError("");
     setResult(null);
     setElapsed(0);
     setAnswerReady(false);
     const at = Date.now();
+    setSnapshotAt(at);
     setFlight({ id: at, started, reduced });
     try {
       const response = await fetch("/api/chat", {
@@ -148,7 +166,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       : STAGES[stage].label;
   return (
     <main
-      className={`simulator ${flight ? "in-flight" : ""} ${sources || locations ? "modal-open" : ""} ${results ? "answer-open" : ""}`}
+      className={`simulator ${flight ? "in-flight" : ""} ${sources ? "modal-open" : ""} ${results ? "answer-open" : ""}`}
     >
       <OrbitalScene
         key={NODE_COUNT}
@@ -156,7 +174,12 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         provider={provider}
         site={site}
         flight={flight}
-        onLocation={setOrigin}
+        onLocation={(p) => {
+          setOrigin(p);
+          setPlaceName(
+            `${Math.abs(p.lat).toFixed(1)}°${p.lat >= 0 ? "N" : "S"}`,
+          );
+        }}
         focusId={focusId}
         zoom={zoom}
         onReady={onReady}
@@ -189,7 +212,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
           <h1 aria-live="polite">{progress}</h1>
           <p>
             {answerReady
-              ? "Answer received"
+              ? "AI responses received · finishing the visual journey"
               : `${PROVIDERS[provider].name} is writing`}
           </p>
           <div className="journey-stages" aria-label="Route stages">
@@ -245,20 +268,15 @@ export function Simulator({ available }: { available: ProviderId[] }) {
             />
             <div className="composer-toolbar">
               <ProviderPicker value={provider} onChange={setProvider} />
-              <button
-                type="button"
-                className="location-button"
-                onClick={() => setLocations(true)}
-                aria-label="Choose your location"
-              >
-                <span>⌖</span>
-                <span>
-                  {Math.abs(origin.lat).toFixed(1)}°
-                  {origin.lat >= 0 ? "N" : "S"} ·{" "}
-                  {Math.abs(origin.lon).toFixed(1)}°
-                  {origin.lon >= 0 ? "E" : "W"}
-                </span>
-              </button>
+              <LocationChip
+                label={placeName}
+                disabled={Boolean(flight)}
+                onSelect={(place) => {
+                  setOrigin(place);
+                  setPlaceName(place.name);
+                  setFocusId((v) => v + 1);
+                }}
+              />
               <button
                 type="submit"
                 className="send-button"
@@ -269,6 +287,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
               </button>
             </div>
           </form>
+          <p className="composer-hint">Two responses · space vs ground</p>
           {error && (
             <p className="request-error" role="alert">
               {error}
@@ -308,20 +327,15 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         </span>
         <DeveloperCredit />
       </footer>
-      {locations && (
-        <LocationPicker
-          origin={origin}
-          onClose={() => setLocations(false)}
-          onChoose={(p) => {
-            setOrigin(p);
-            setFocusId((v) => v + 1);
-            setLocations(false);
-          }}
-        />
-      )}
       {results && (
         <InferenceComparison
           result={result}
+          provider={provider}
+          origin={origin}
+          site={site}
+          prompt={submitted}
+          joules={joules}
+          snapshotAt={snapshotAt}
           onClose={() => {
             setResults(false);
             setTimeout(() => textarea.current?.focus(), 0);
@@ -339,78 +353,141 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     </main>
   );
 }
-function LocationPicker({
-  origin,
-  onChoose,
-  onClose,
+
+function LocationChip({
+  label,
+  onSelect,
+  disabled,
 }: {
-  origin: Location;
-  onChoose: (p: Location) => void;
-  onClose: () => void;
+  label: string;
+  onSelect: (p: Place) => void;
+  disabled?: boolean;
 }) {
-  const [lat, setLat] = useState(origin.lat.toFixed(3)),
-    [lon, setLon] = useState(origin.lon.toFixed(3));
-  return (
-    <Modal title="Your location" onClose={onClose}>
-      <p className="result-intro">
-        Choose a city, enter coordinates, or drag the pin.
-      </p>
-      <div className="city-grid">
-        {PRESETS.map((p) => (
-          <button key={p.name} onClick={() => onChoose(p)}>
-            <span>
-              {p.name}
-              <small>
-                {Math.abs(p.lat).toFixed(1)}°{p.lat >= 0 ? "N" : "S"} ·{" "}
-                {Math.abs(p.lon).toFixed(1)}°{p.lon >= 0 ? "E" : "W"}
-              </small>
-            </span>
-            <span>↗</span>
-          </button>
-        ))}
-      </div>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (
-            lat.trim() &&
-            lon.trim() &&
-            Number.isFinite(Number(lat)) &&
-            Number.isFinite(Number(lon))
-          )
-            onChoose({ lat: Number(lat), lon: Number(lon) });
-        }}
+  const [open, setOpen] = useState(false),
+    [query, setQuery] = useState(""),
+    [hits, setHits] = useState<Place[]>([]),
+    [loading, setLoading] = useState(false);
+  const input = useRef<HTMLInputElement>(null),
+    wrap = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrap.current?.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+        setHits([]);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const q = query.trim();
+    if (q.length < 2) return;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/geocode?q=${encodeURIComponent(q)}`,
+          { signal: controller.signal },
+        );
+        const body = await res.json();
+        const list = Array.isArray(body.results) ? body.results : [];
+        setHits(
+          list.filter(
+            (p: Place) =>
+              typeof p?.name === "string" &&
+              Number.isFinite(p.lat) &&
+              Number.isFinite(p.lon),
+          ),
+        );
+      } catch {
+        if (!controller.signal.aborted) setHits([]);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, 220);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, open]);
+
+  useEffect(() => {
+    if (open) input.current?.focus();
+  }, [open]);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="location-button"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+        aria-label="Choose location"
       >
-        <div className="coordinate-fields">
-          <label>
-            Latitude
-            <input
-              type="number"
-              min="-90"
-              max="90"
-              step="any"
-              required
-              value={lat}
-              onChange={(e) => setLat(e.target.value)}
-            />
-          </label>
-          <label>
-            Longitude
-            <input
-              type="number"
-              min="-180"
-              max="180"
-              step="any"
-              required
-              value={lon}
-              onChange={(e) => setLon(e.target.value)}
-            />
-          </label>
-        </div>
-        <button className="primary-button" type="submit">
-          Set location ↗
-        </button>
-      </form>
-    </Modal>
+        <span>⌖</span>
+        <span>{label || "Location"}</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="location-search" ref={wrap}>
+      <input
+        ref={input}
+        type="search"
+        className="location-search-input"
+        placeholder="City, state, country"
+        value={query}
+        aria-label="Search location"
+        autoComplete="off"
+        onChange={(e) => {
+          const next = e.target.value;
+          setQuery(next);
+          if (next.trim().length < 2) {
+            setHits([]);
+            setLoading(false);
+          } else {
+            setLoading(true);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            setOpen(false);
+            setQuery("");
+            setHits([]);
+          }
+        }}
+      />
+      {(loading || hits.length > 0 || query.trim().length >= 2) && (
+        <ul className="location-suggestions" role="listbox">
+          {loading && <li className="location-suggestion muted">Searching…</li>}
+          {!loading &&
+            hits.map((hit) => (
+              <li key={`${hit.name}-${hit.lat}-${hit.lon}`}>
+                <button
+                  type="button"
+                  className="location-suggestion"
+                  onClick={() => {
+                    onSelect(hit);
+                    setOpen(false);
+                    setQuery("");
+                    setHits([]);
+                  }}
+                >
+                  {hit.name}
+                </button>
+              </li>
+            ))}
+          {!loading && query.trim().length >= 2 && hits.length === 0 && (
+            <li className="location-suggestion muted">No matches</li>
+          )}
+        </ul>
+      )}
+    </div>
   );
 }

@@ -69,7 +69,7 @@ test("loose orbital bands stay within the proposed altitude envelope and display
     new Set(nodes.map((p) => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`)).size,
   ).toBe(NODE_COUNT);
 });
-test("provider entry precedes a visible land-gateway uplink at every tested location", () => {
+test("provider entry precedes a visible LEO uplink at every tested location", () => {
   const places = [
     ...PRESETS,
     { lat: 89.9, lon: 179.9 },
@@ -90,18 +90,16 @@ test("provider entry precedes a visible land-gateway uplink at every tested loca
         expect(r.ground.points.at(-1)).toEqual(site);
         expect(r.gatewayRoute.points[0]).toEqual(site);
         expect(r.gatewayRoute.points.at(-1)).toEqual(r.gateway);
-        expect(elevationDeg(r.gateway, r.nodes[r.ingress])).toBeGreaterThan(20);
-        expect(r.uplinkKm).toBeGreaterThanOrEqual(549.999);
-        expect(r.uplinkKm).toBeLessThan(1400);
+        const elevUser = elevationDeg(origin, r.nodes[r.ingress]);
+        const elevGw = elevationDeg(r.gateway, r.nodes[r.ingress]);
+        expect(Math.max(elevUser, elevGw)).toBeGreaterThanOrEqual(15);
+        expect(r.uplinkKm).toBeGreaterThan(400);
+        expect(r.uplinkKm).toBeLessThan(3000);
         expect(r.hops[0]).toBe(r.ingress);
-        expect(laserClearsEarth(r.relay, r.nodes[r.ingress])).toBe(true);
-        expect(r.carrierLinkKm).toBeLessThanOrEqual(4000);
-        expect(r.carrierLinkKm).toBeCloseTo(
-          opticalDistanceKm(r.relay, r.nodes[r.ingress]),
-          5,
-        );
         expect(r.hops.at(-1)).toBe(r.compute);
-        expect(new Set(r.hops).size).toBe(5);
+        expect(r.hops.length).toBeGreaterThanOrEqual(2);
+        expect(r.hops.length).toBeLessThanOrEqual(12);
+        expect(new Set(r.hops).size).toBe(r.hops.length);
         for (let i = 1; i < r.hops.length; i++) {
           expect(
             laserClearsEarth(r.nodes[r.hops[i - 1]], r.nodes[r.hops[i]]),

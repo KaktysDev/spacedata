@@ -1,24 +1,27 @@
 import {
-  acceptPrompt,
+  enforceChatQuota,
   ChatRequestError,
-  reserveRequest,
 } from "@/lib/server/chat-guard";
 import { providerKey, runAnswer } from "@/lib/server/llm";
 export const maxDuration = 60;
 export const runtime = "nodejs";
 export async function POST(request: Request) {
   const headers = new Headers({ "Cache-Control": "no-store" });
+  let release: (() => void) | undefined;
   try {
-    const { prompt, provider } = await acceptPrompt(request);
-    if (!providerKey(provider))
+    const grant = await enforceChatQuota(request);
+    release = grant.release;
+    if (!providerKey(grant.provider))
       throw new ChatRequestError(
         503,
         "This model is not connected.",
       );
-    await reserveRequest(request);
-    return Response.json(await runAnswer(provider, prompt, request.signal), {
-      headers,
-    });
+    // Space + ground = 2 provider calls; daily budget counts calls not turns.
+    await grant.commit(2);
+    return Response.json(
+      await runAnswer(grant.provider, grant.prompt, request.signal),
+      { headers },
+    );
   } catch (e) {
     if (e instanceof Error && e.message === "model-not-found")
       return Response.json(
@@ -36,5 +39,7 @@ export async function POST(request: Request) {
       },
       { status: known ? e.status : 502, headers },
     );
+  } finally {
+    release?.();
   }
 }

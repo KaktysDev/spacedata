@@ -44,14 +44,17 @@ export type OrbitalNode = Location & {
   slot: number;
 };
 export const JOURNEY_MS = 14800;
+export const MIN_ELEVATION_DEG = 25;
+export const MAX_LASER_KM = 4000;
+const C_KM_PER_MS = 299.792458;
+const PROC_MS_PER_HOP = 1.5;
 export const STAGES = [
   { at: 0, label: "Through your local network", short: "Fiber" },
   { at: 3400, label: "At the provider’s ground entry", short: "Provider" },
-  { at: 4400, label: "Fiber to the ground gateway", short: "Gateway" },
-  { at: 5900, label: "Uplink to a communications relay", short: "Uplink" },
-  { at: 7600, label: "Laser links to orbital compute", short: "Lasers" },
-  { at: 10000, label: "Processing in the orbital scenario", short: "Compute" },
-  { at: 11400, label: "Returning through the same network", short: "Return" },
+  { at: 4400, label: "Uplink to a visible LEO satellite", short: "Uplink" },
+  { at: 6200, label: "Laser links to orbital compute", short: "Lasers" },
+  { at: 9000, label: "Processing in the orbital scenario", short: "Compute" },
+  { at: 10400, label: "Returning through the same network", short: "Return" },
 ] as const;
 export function journeyStage(elapsed: number) {
   return STAGES.reduce((best, s, i) => (elapsed >= s.at ? i : best), 0);
@@ -341,86 +344,178 @@ export type OrbitalRoute = {
   laserKm: number;
   rttMs: number;
 };
+/** Up to `limit` optical ISL neighbors within range, using a lat/lon window. */
+function nearestLaserLinks(
+  nodes: OrbitalNode[],
+  from: number,
+  limit = 14,
+  maxKm = MAX_LASER_KM,
+) {
+  const a = nodes[from];
+  const candidates: { i: number; km: number }[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    if (i === from) continue;
+    const dlat = Math.abs(a.lat - nodes[i].lat);
+    let dlon = Math.abs(a.lon - nodes[i].lon);
+    if (dlon > 180) dlon = 360 - dlon;
+    if (dlat > 32 || dlon > 38) continue;
+    const km = opticalDistanceKm(a, nodes[i]);
+    if (km > 40 && km <= maxKm && laserClearsEarth(a, nodes[i]))
+      candidates.push({ i, km });
+  }
+  return candidates.sort((x, y) => x.km - y.km).slice(0, limit);
+}
+
+/**
+ * Dijkstra on the local ISL neighborhood. Cost = light time + switching delay.
+ * Explores only the nearest laser links per node (Starlink-like mesh degree).
+ */
+function shortestLaserPath(
+  nodes: OrbitalNode[],
+  start: number,
+  goal: number,
+): { hops: number[]; km: number } {
+  if (start === goal) return { hops: [start], km: 0 };
+  const dist = new Map<number, number>([[start, 0]]);
+  const prev = new Map<number, number>();
+  const open = new Set<number>([start]);
+  const done = new Set<number>();
+  while (open.size) {
+    let u = -1,
+      best = Infinity;
+    for (const i of open) {
+      const d = dist.get(i) ?? Infinity;
+      if (d < best) {
+        best = d;
+        u = i;
+      }
+    }
+    if (u < 0) break;
+    open.delete(u);
+    if (u === goal) break;
+    done.add(u);
+    if (done.size > 400) break;
+    for (const { i, km } of nearestLaserLinks(nodes, u)) {
+      if (done.has(i)) continue;
+      const cost = best + km / C_KM_PER_MS + PROC_MS_PER_HOP;
+      if (cost < (dist.get(i) ?? Infinity)) {
+        dist.set(i, cost);
+        prev.set(i, u);
+        open.add(i);
+      }
+    }
+  }
+  if (!prev.has(goal) && start !== goal)
+    throw new Error("No optical path to compute");
+  const hops = [goal];
+  while (hops[0] !== start) {
+    const p = prev.get(hops[0]);
+    if (p === undefined) throw new Error("No optical path to compute");
+    hops.unshift(p);
+  }
+  let km = 0;
+  for (let i = 1; i < hops.length; i++)
+    km += opticalDistanceKm(nodes[hops[i - 1]], nodes[hops[i]]);
+  return { hops, km };
+}
+
+/**
+ * Starlink-style LEO routing for an orbital AI request:
+ * 1. Ground comparison: fiber user → terrestrial provider site (unchanged).
+ * 2. Space: RF/optical user uplink to the best visible LEO ingress (elevation
+ *    mask, no GEO), then shortest ISL path to a nearby orbital compute node.
+ * 3. Hop cost = light time + small per-ISL processing — prefer short low-latency paths.
+ */
 export function routeAt(
   origin: Location,
   at: number,
   providerEntry: Location = origin,
 ): OrbitalRoute {
   const nodes = orbitalNodes(at);
-  // Use a land gateway with access to the dawn-dusk bands. A generic carrier
-  // relay provides RF access; Starcloud receives data over an optical crosslink.
-  const gateways = HUBS.filter((h) =>
-    nodes.some((n) => elevationDeg(h, n) >= 20),
+  const ground = groundRoute(origin, providerEntry);
+
+  const ranked = nodes
+    .map((node, i) => ({ node, i, elev: elevationDeg(origin, node) }))
+    .sort((a, b) => b.elev - a.elev);
+  const visibleFromUser = ranked.filter(
+    ({ elev }) => elev >= MIN_ELEVATION_DEG,
   );
-  if (!gateways.length)
-    throw new Error("No gateway visible to the modeled shells");
-  const gateway = gateways.reduce((best, h) =>
-    distanceKm(providerEntry, h) < distanceKm(providerEntry, best) ? h : best,
-  );
-  const relay = { ...gateway, altitudeKm: ALTITUDE_KM };
-  // Altitude matters: the nearest sub-satellite point can have a lower elevation
-  // than a more distant node in a higher band. Restrict selection before ranking.
-  const accessible = nodes
-    .map((node, i) => ({ node, i }))
-    .filter(
-      ({ node }) =>
-        elevationDeg(gateway, node) >= 20 &&
-        laserClearsEarth(relay, node) &&
-        opticalDistanceKm(relay, node) <= 4000,
+
+  let ingress: number;
+  let uplinkAnchor: Location & { name?: string };
+  if (visibleFromUser.length) {
+    const ingressEntry = visibleFromUser.reduce((best, entry) => {
+      if (entry.elev !== best.elev) return entry.elev > best.elev ? entry : best;
+      return opticalDistanceKm(origin, entry.node) <
+        opticalDistanceKm(origin, best.node)
+        ? entry
+        : best;
+    });
+    ingress = ingressEntry.i;
+    uplinkAnchor = origin;
+  } else {
+    // High-latitude / out-of-cone: fiber to a land gateway that sees the shell,
+    // then RF uplink (still LEO — never GEO).
+    const gateways = HUBS.map((h) => {
+      const vis = nodes
+        .map((node, i) => ({ i, elev: elevationDeg(h, node) }))
+        .filter(({ elev }) => elev >= MIN_ELEVATION_DEG);
+      return { h, vis };
+    }).filter((g) => g.vis.length);
+    if (!gateways.length) throw new Error("No LEO-visible land gateway");
+    const pick = gateways.reduce((best, g) =>
+      distanceKm(origin, g.h) < distanceKm(origin, best.h) ? g : best,
     );
-  if (!accessible.length) throw new Error("No accessible optical ingress");
-  const ingress = accessible.reduce((best, entry) =>
-    opticalDistanceKm(relay, entry.node) < opticalDistanceKm(relay, best.node)
-      ? entry
-      : best,
-  ).i;
-  // Route by the snapshot's actual angular neighbors, not array indices: differing
-  // altitudes have differing periods, so slot order is not preserved over time.
-  const heading = (p: Location) =>
-    Math.atan2(
-      Math.sin(p.lat * rad),
-      Math.cos(p.lat * rad) * Math.cos((p.lon + 1) * rad),
-    );
-  const ordered = nodes
-    .map((p, i) => ({ i, angle: heading(p) }))
-    .sort((a, b) => a.angle - b.angle);
-  let cursor = ordered.findIndex((n) => n.i === ingress);
-  const hops = [ingress];
-  for (let h = 0; h < 4; h++) {
-    let next = (cursor + Math.round(NODE_COUNT / 60)) % NODE_COUNT;
-    // Conservative fallback keeps every chosen laser clear of Earth and within
-    // the 4,000 km terminal distance described in Starcloud's May 2026 announcement.
-    while (
-      !laserClearsEarth(nodes[hops[h]], nodes[ordered[next].i]) ||
-      opticalDistanceKm(nodes[hops[h]], nodes[ordered[next].i]) > 4000
-    ) {
-      next = (next - 1 + NODE_COUNT) % NODE_COUNT;
-      if (next === cursor) throw new Error("No visible optical neighbor");
-    }
-    hops.push(ordered[next].i);
-    cursor = next;
+    ingress = pick.vis.reduce((best, entry) =>
+      entry.elev > best.elev ? entry : best,
+    ).i;
+    uplinkAnchor = pick.h;
   }
-  const ground = groundRoute(origin, providerEntry),
-    gatewayRoute = groundRoute(providerEntry, gateway);
-  const uplinkKm = ALTITUDE_KM; // Illustrative carrier relay directly above the gateway.
-  const carrierLinkKm = opticalDistanceKm(relay, nodes[ingress]);
-  const laserKm =
-    carrierLinkKm +
-    hops
-      .slice(1)
-      .reduce(
-        (sum, index, i) =>
-          sum + opticalDistanceKm(nodes[hops[i]], nodes[index]),
-        0,
-      );
+
+  // Prefer the uplink land site when used; else nearest hub that still sees ingress.
+  const visibleHubs = HUBS.filter(
+    (h) => elevationDeg(h, nodes[ingress]) >= MIN_ELEVATION_DEG,
+  );
+  const gateway =
+    typeof (uplinkAnchor as { name?: string }).name === "string"
+      ? (uplinkAnchor as (typeof HUBS)[number])
+      : (visibleHubs.length ? visibleHubs : HUBS).reduce((best, h) =>
+          distanceKm(providerEntry, h) < distanceKm(providerEntry, best)
+            ? h
+            : best,
+        );
+  const gatewayRoute = groundRoute(providerEntry, gateway);
+  const relay = { ...nodes[ingress] };
+  const uplinkKm = opticalDistanceKm(
+    { lat: uplinkAnchor.lat, lon: uplinkAnchor.lon, altitudeKm: 0 },
+    nodes[ingress],
+  );
+
+  // Compute node: laser-reachable neighbor, prefer a higher shell (ODC), not ingress.
+  const local = nearestLaserLinks(nodes, ingress, 24);
+  if (!local.length) throw new Error("No orbital compute neighbor");
+  const compute = local.sort((a, b) => {
+    const bandScore =
+      (nodes[b.i].band - nodes[a.i].band) * 120 + (a.km - b.km);
+    return bandScore;
+  })[0].i;
+
+  const path = shortestLaserPath(nodes, ingress, compute);
+  const hops = path.hops;
+  const laserKm = path.km;
   const gatewayKm = ground.km + gatewayRoute.km;
+  const oneWayMs =
+    uplinkKm / C_KM_PER_MS +
+    laserKm / C_KM_PER_MS +
+    hops.length * PROC_MS_PER_HOP +
+    4;
   return {
     at,
     nodes,
     relay,
-    carrierLinkKm,
+    carrierLinkKm: 0,
     ingress,
-    compute: hops[4],
+    compute: hops[hops.length - 1],
     hops,
     gateway,
     ground,
@@ -428,7 +523,6 @@ export function routeAt(
     gatewayKm,
     uplinkKm,
     laserKm,
-    rttMs:
-      2 * (gatewayKm / 200000 + (uplinkKm + laserKm) / 299792.458) * 1000 + 12,
+    rttMs: 2 * oneWayMs,
   };
 }
