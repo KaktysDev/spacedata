@@ -63,22 +63,22 @@ export function SourcesNote({
               <strong>In orbit</strong>
               <ol>
                 <li>You</li>
-                <li>Provider</li>
-                <li>Gateway</li>
-                <li>Relay</li>
-                <li>Compute</li>
-                <li>You</li>
+                <li>Visible LEO relay, or land gateway then relay</li>
+                <li>Optical links</li>
+                <li>Orbital compute</li>
+                <li>Relay, then you</li>
               </ol>
               <p>
-                Fiber reaches a land gateway, then an RF uplink reaches a
-                communications relay. Optical links connect the relay to
-                Starcloud and carry the workload to compute. The reply retraces
-                each segment.
+                The request leaves your location at the same time as the ground
+                route. A visible relay takes the uplink directly. If none is
+                visible, a land gateway provides it. The reply retraces that
+                orbital path and stops at you. It does not visit the ground
+                provider.
               </p>
             </div>
           </div>
           <p className="fine-print">
-            Both are modeled routes, not a traceroute. City connections
+            Both routes start together. They are modeled, not traceroutes. City connections
             approximate fiber corridors; real ISP policies and return paths
             vary. Provider markers are public infrastructure references, not a
             promise about where an API call runs. Gateway coverage, weather,
@@ -127,21 +127,25 @@ export function SourcesNote({
             </figure>
           </div>
           <p className="fine-print">
-            8,800 representative satellites in one ring at about 725 km, tilted
-            about 67° from the equator. The northern pass runs across Canada,
-            just north of the United States, then through northern Europe and
-            into western Asia, so the band sits a little above the regions that
-            send the most requests. The opposite side of the same circle is
-            over the southern Pacific. Starcloud’s 2026 filing requests up to
-            88,000 satellites in narrow, dawn-dusk sun-synchronous shells; it
-            does not specify this ring or this display count. Satellites run
-            around that single tilted circle, with a few kilometers of altitude
-            scatter and a few degrees of node scatter so the band has thickness
-            without splitting into separate rings or stacking on one meridian.
-            Satellites pass over Earth; they do not stay above remote regions.
-            Hardware size and altitude spacing are enlarged for visibility;
-            route distances use physical kilometers. This is an illustrative
-            snapshot, not live tracking.
+            The bright band is 8,800 illustrative access relays at 725 km. Its
+            center plane is inclined 55°, so the east-west crest crosses
+            central Canada. Cross-track width breathes around a nominal ±10°,
+            and some craft share one argument of latitude so they stack on a
+            meridian at that crest. The rest sit irregularly on the same ring.
+            A fixed fan of inclinations would pinch at the equator crossings
+            and pile up at the two crests; this ring does not. It is not the
+            compute constellation in
+            Starcloud’s white paper. That paper describes compact compute
+            containers on a shared power, cooling and network spine, in
+            dawn-dusk sun-synchronous LEO, with optical or RF terminals into
+            other constellations. The highlighted Starcloud craft uses the
+            sun-synchronous inclination for its altitude and sits one short
+            optical hop from the relay handoff. Its node follows that handoff,
+            not a live dawn-dusk sun vector. The 2026 FCC filing requests up
+            to 88,000 spacecraft in narrow 600–850 km sun-synchronous shells;
+            neither that count nor this Canada ribbon is an operating fleet.
+            Hardware size and the drawn orbital radius are enlarged; routing
+            distances use physical kilometers.
           </p>
         </section>
         <section className="method-section">
@@ -190,17 +194,14 @@ export function SourcesNote({
             </summary>
             <p>
               Fiber distance follows the city graph plus a 1.15× allowance for
-              local cable routing, at 200,000 km/s. Orbital timing includes that
-              ground entry, fiber to a land gateway, an assumed 550 km carrier
-              relay uplink, an optical handoff and four laser hops at 299,792
-              km/s. Laser distances use each satellite’s modeled altitude and
-              line of sight. Round trips add 10 ms overhead on Earth or 12 ms in
-              orbit. Processing, congestion and handovers are excluded.
-              Animation time is unrelated to network latency; positions freeze
-              during each journey. Carrier relays and gateways are conceptual,
-              not a live Starlink map. Earth orientation stays fixed during this
-              short illustration; long-term precession, collision avoidance and
-              actual deployment schedules are not simulated.
+              local cable routing, at 200,000 km/s. The orbital request starts
+              with the ground request. It uplinks directly when a relay is at
+              least 25° above the horizon; otherwise it uses a feeder to a land
+              gateway first. Optical links run at 299,792 km/s, must clear
+              Earth, and stay within 4,000 km. Round trips add 10 ms on the
+              ground path, or 8 ms plus 1.5 ms per optical hop in orbit.
+              Animation time is unrelated to those milliseconds. Positions
+              freeze at send so the picture matches the reported distances.
             </p>
             <p>
               No production AI request from this app runs in space.

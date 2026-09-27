@@ -44,6 +44,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     [flight, setFlight] = useState<Flight | null>(null),
     [elapsed, setElapsed] = useState(0),
     [answerReady, setAnswerReady] = useState(false),
+    [answerReadyAt, setAnswerReadyAt] = useState<number | null>(null),
     [result, setResult] = useState<ChatSuccessBody | null>(null),
     [results, setResults] = useState(false),
     [sources, setSources] = useState(false),
@@ -98,6 +99,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     setResult(null);
     setElapsed(0);
     setAnswerReady(false);
+    setAnswerReadyAt(null);
     const at = Date.now();
     setSnapshotAt(at);
     setFlight({ id: at, started, reduced });
@@ -120,11 +122,16 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         throw new Error("The provider returned an invalid result.");
       const answer: ChatSuccessBody = body;
       if (controller.signal.aborted) return;
+      const responseElapsed = performance.now() - started;
       setAnswerReady(true);
+      setAnswerReadyAt(responseElapsed);
       await new Promise<void>((resolve, reject) => {
         const wait = Math.max(
           0,
-          (reduced ? 300 : JOURNEY_MS) - (performance.now() - started),
+          (reduced
+            ? 300
+            : Math.max(JOURNEY_MS, responseElapsed + 4400)) -
+            (performance.now() - started),
         );
         const timer = setTimeout(() => {
           controller.signal.removeEventListener("abort", abort);
@@ -156,14 +163,21 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       }
     }
   }
-  const stage = journeyStage(elapsed);
+  const visualElapsed =
+    answerReadyAt === null
+      ? Math.min(elapsed, 10399)
+      : Math.min(
+          JOURNEY_MS,
+          elapsed - Math.max(0, answerReadyAt - 10400),
+        );
+  const stage = journeyStage(visualElapsed);
   const progress = flight?.reduced
     ? "Comparing the two paths"
-    : elapsed >= JOURNEY_MS
-      ? answerReady
+    : !answerReady && elapsed >= 10400
+      ? "Waiting for the AI response"
+      : visualElapsed >= JOURNEY_MS
         ? "Your comparison is ready"
-        : "Waiting for the AI response"
-      : STAGES[stage].label;
+        : STAGES[stage].label;
   return (
     <main
       className={`simulator ${flight ? "in-flight" : ""} ${sources ? "modal-open" : ""} ${results ? "answer-open" : ""}`}
@@ -174,6 +188,8 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         provider={provider}
         site={site}
         flight={flight}
+        answerReady={answerReady}
+        answerReadyAt={answerReadyAt}
         onLocation={(p) => {
           setOrigin(p);
           setPlaceName(
@@ -230,7 +246,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
           <div className="journey-track">
             <span
               style={{
-                width: `${Math.min(100, elapsed / (JOURNEY_MS / 100))}%`,
+                width: `${Math.min(100, visualElapsed / (JOURNEY_MS / 100))}%`,
               }}
             />
           </div>
@@ -287,7 +303,6 @@ export function Simulator({ available }: { available: ProviderId[] }) {
               </button>
             </div>
           </form>
-          <p className="composer-hint">Two responses · space vs ground</p>
           {error && (
             <p className="request-error" role="alert">
               {error}
@@ -311,13 +326,6 @@ export function Simulator({ available }: { available: ProviderId[] }) {
             aria-label="Zoom out"
           >
             −
-          </button>
-          <button
-            onClick={() => setFocusId((v) => v + 1)}
-            disabled={Boolean(flight)}
-            aria-label="Reset globe view"
-          >
-            ⌖
           </button>
         </div>
       </div>

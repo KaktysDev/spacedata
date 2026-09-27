@@ -6,6 +6,45 @@ import {
 import type { ChatAnswer, ChatSuccessBody } from "@/lib/starcloud/chat-types";
 
 export type Deployment = "ground" | "space";
+export type ProviderFailureKind =
+  | "model-unavailable"
+  | "request-rejected"
+  | "timeout"
+  | "network"
+  | "empty-answer"
+  | "invalid-response"
+  | "capacity"
+  | "blocked"
+  | "connection";
+
+export class ProviderCallError extends Error {
+  readonly provider: ProviderId;
+  readonly deployment: Deployment;
+  readonly kind: ProviderFailureKind;
+  readonly upstreamStatus?: number;
+  constructor(
+    provider: ProviderId,
+    deployment: Deployment,
+    kind: ProviderFailureKind,
+    upstreamStatus?: number,
+  ) {
+    super(kind);
+    this.name = "ProviderCallError";
+    this.provider = provider;
+    this.deployment = deployment;
+    this.kind = kind;
+    this.upstreamStatus = upstreamStatus;
+  }
+}
+
+function failureKind(status: number): ProviderFailureKind {
+  if (status === 404) return "model-unavailable";
+  if (status === 429) return "capacity";
+  if (status === 401 || status === 403) return "connection";
+  if (status === 408) return "timeout";
+  if (status >= 500) return "connection";
+  return "request-rejected";
+}
 
 const MODEL_VOICE: Record<ProviderId, string> = {
   gemini:
@@ -73,7 +112,7 @@ async function callProvider(
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         maxOutputTokens: maxTokens,
-        thinkingConfig: { thinkingBudget: 0 },
+        thinkingConfig: { thinkingLevel: "low" },
       },
     };
   } else if (id === "anthropic") {
@@ -112,20 +151,36 @@ async function callProvider(
   }
   const start = performance.now();
   // Exactly one billable call per deployment. No automatic retries.
-  const response = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-    signal,
-    cache: "no-store",
-    redirect: "error",
-  });
-  if (!response.ok) {
-    if (id === "gemini" && response.status === 404)
-      throw new Error("model-not-found");
-    throw new Error("provider-error");
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal,
+      cache: "no-store",
+      redirect: "error",
+    });
+  } catch (e) {
+    if (requestSignal?.aborted || (e instanceof DOMException && e.name === "AbortError"))
+      throw e;
+    if (e instanceof DOMException && e.name === "TimeoutError")
+      throw new ProviderCallError(id, deployment, "timeout");
+    throw new ProviderCallError(id, deployment, "network");
   }
-  const data = obj(await response.json());
+  if (!response.ok)
+    throw new ProviderCallError(
+      id,
+      deployment,
+      failureKind(response.status),
+      response.status,
+    );
+  let data: Json;
+  try {
+    data = obj(await response.json());
+  } catch {
+    throw new ProviderCallError(id, deployment, "invalid-response", response.status);
+  }
   const latencyMs = Math.round(performance.now() - start);
   let text = "",
     input: number | null = null,
@@ -175,7 +230,16 @@ async function callProvider(
     total = count(u.total_tokens);
     cached = count(obj(u.prompt_tokens_details).cached_tokens) ?? 0;
   }
-  if (!text.trim()) throw new Error("empty-answer");
+  if (!text.trim()) {
+    const blocked =
+      typeof obj(data.promptFeedback).blockReason === "string" ||
+      arr(data.candidates).some((c) => obj(c).finishReason === "SAFETY");
+    throw new ProviderCallError(
+      id,
+      deployment,
+      blocked ? "blocked" : "empty-answer",
+    );
+  }
   const estimated = input === null || output === null;
   input ??= Math.ceil((prompt.length + system.length) / 4);
   output ??= Math.ceil(text.length / 4);
@@ -200,10 +264,20 @@ export async function runAnswer(
   if (!key) throw new Error("unconfigured");
   const model = PROVIDERS[id].model;
   const start = performance.now();
-  const [ground, space] = await Promise.all([
-    callProvider(id, prompt, "ground", requestSignal),
-    callProvider(id, prompt, "space", requestSignal),
-  ]);
+  const stop = new AbortController();
+  const signal = requestSignal
+    ? AbortSignal.any([requestSignal, stop.signal])
+    : stop.signal;
+  let ground: ChatAnswer, space: ChatAnswer;
+  try {
+    [ground, space] = await Promise.all([
+      callProvider(id, prompt, "ground", signal),
+      callProvider(id, prompt, "space", signal),
+    ]);
+  } catch (e) {
+    stop.abort();
+    throw e;
+  }
   return {
     provider: id,
     model,

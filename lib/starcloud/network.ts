@@ -10,14 +10,16 @@ export const SHELL_ALTITUDES_KM = [SHELL_ALTITUDE_KM] as const;
 export const BAND_COUNT = 1,
   NODES_PER_BAND = 8800;
 export const NODE_COUNT = BAND_COUNT * NODES_PER_BAND;
-// One inclined ring, not a band wrapped around the equator. 67° puts the
-// northern pass across Canada (just north of the United States), through
-// northern Europe, and down into western Asia. A single plane cannot also
-// hold East Asia on that same pass.
-export const RING_INCLINATION_DEG = 67;
-// Ascending node. With the inclination above, the crest sits near 30°W,
-// between Canada and Europe, instead of over the Canadian Arctic.
-export const RING_RAAN_DEG = -120;
+// Center of the illustrative access ribbon. 55° puts the east-west apex
+// across Canada. The ribbon is not Starcloud's sun-synchronous compute orbit.
+export const RING_INCLINATION_DEG = 55;
+// Nominal cross-track half-width. The placed band breathes around this value
+// so the edges are ragged, and a few columns share one argument of latitude.
+export const RING_HALF_WIDTH_DEG = 10;
+export const RING_LANES = 40;
+// Northern apex near 100°W, over central Canada, instead of a steep meridian
+// across the Americas.
+export const RING_RAAN_DEG = 170;
 const MU = 398600.4418,
   J2 = 0.00108262668;
 export const orbitalPeriodMs = (altitudeKm: number) =>
@@ -49,12 +51,11 @@ export const MAX_LASER_KM = 4000;
 const C_KM_PER_MS = 299.792458;
 const PROC_MS_PER_HOP = 1.5;
 export const STAGES = [
-  { at: 0, label: "Through your local network", short: "Fiber" },
-  { at: 3400, label: "At the provider’s ground entry", short: "Provider" },
-  { at: 4400, label: "Uplink to a visible LEO satellite", short: "Uplink" },
-  { at: 6200, label: "Laser links to orbital compute", short: "Lasers" },
-  { at: 9000, label: "Processing in the orbital scenario", short: "Compute" },
-  { at: 10400, label: "Returning through the same network", short: "Return" },
+  { at: 0, label: "Ground and orbital requests launched", short: "Launch" },
+  { at: 2200, label: "Ground route reaches the provider", short: "Ground" },
+  { at: 2800, label: "Laser links relay the orbital request", short: "Lasers" },
+  { at: 6200, label: "Processing in the orbital scenario", short: "Compute" },
+  { at: 10400, label: "Responses return to your location", short: "Return" },
 ] as const;
 export function journeyStage(elapsed: number) {
   return STAGES.reduce((best, s, i) => (elapsed >= s.at ? i : best), 0);
@@ -250,51 +251,92 @@ export function groundRoute(
   return { points, stops, km, rttMs: ((2 * km) / 200000) * 1000 + 10 };
 }
 
-// One dense ring. Ascending nodes sit in a narrow fan around a single plane
-// (a few degrees, not 360°) so the band is about three or four satellites
-// thick without splitting into separate rings. Satellites still run all the
-// way around that tilted circle, so they are not piled on one meridian.
-const PLANES = 40;
-const SATS_PER_PLANE = NODE_COUNT / PLANES;
-const RAAN_FAN_DEG = 4.5;
+const PER_LANE = NODE_COUNT / RING_LANES;
+// A fixed inclination fan pinches every plane through the same two nodes and
+// bulges only at the crests. Rotating about the local velocity keeps one ring.
+// The half-width breathes along the track so that ring is not a ruled ribbon.
+function localHalfWidth(u: number, halfWidth: number) {
+  // One slow lap plus a weaker second harmonic. A faster wave hides inside
+  // each along-track sector and the silhouette stays a constant width.
+  const breathe = 0.34 * Math.sin(u + 0.7) + 0.12 * Math.sin(2 * u + 2.2);
+  return halfWidth * (1 + breathe);
+}
+function ribbonPoint(u: number, inclination: number, raan: number, across: number) {
+  const cosO = Math.cos(raan),
+    sinO = Math.sin(raan),
+    cosU = Math.cos(u),
+    sinU = Math.sin(u),
+    cosI = Math.cos(inclination),
+    sinI = Math.sin(inclination);
+  const px = cosO * cosU - sinO * sinU * cosI,
+    py = sinO * cosU + cosO * sinU * cosI,
+    pz = sinU * sinI;
+  const vx = -cosO * sinU - sinO * cosU * cosI,
+    vy = -sinO * sinU + cosO * cosU * cosI,
+    vz = cosU * sinI;
+  let nx = py * vz - pz * vy,
+    ny = pz * vx - px * vz,
+    nz = px * vy - py * vx;
+  const nlen = Math.hypot(nx, ny, nz) || 1;
+  nx /= nlen;
+  ny /= nlen;
+  nz /= nlen;
+  const c = Math.cos(across),
+    s = Math.sin(across);
+  const x = px * c + nx * s,
+    y = py * c + ny * s,
+    z = pz * c + nz * s;
+  return {
+    lat: Math.asin(Math.max(-1, Math.min(1, z))) / rad,
+    lon: Math.atan2(y, x) / rad,
+  };
+}
 export function orbitalNodes(at: number): OrbitalNode[] {
+  const inclination = RING_INCLINATION_DEG * rad,
+    raan = RING_RAAN_DEG * rad,
+    halfWidth = RING_HALF_WIDTH_DEG * rad,
+    slot = (2 * Math.PI) / PER_LANE;
+  const columnSlot = (index: number) =>
+    orbitalSeed((index + PER_LANE) % PER_LANE, 9) < 0.12;
   return Array.from({ length: NODE_COUNT }, (_, i) => {
-    const plane = Math.floor(i / SATS_PER_PLANE),
-      along = i % SATS_PER_PLANE;
+    const lane = i % RING_LANES,
+      along = Math.floor(i / RING_LANES);
     const altitudeKm =
       SHELL_ALTITUDE_KM +
       ((i + orbitalSeed(i, 1) * 0.999) / NODE_COUNT - 0.5) * 16;
-    const inclination =
-      (RING_INCLINATION_DEG + (orbitalSeed(i, 4) - 0.5) * 1.6) * rad;
-    // The 4.5° fan is thickness around one plane, not a second ring.
-    // RING_RAAN_DEG aims that plane so the northern arc crosses Canada,
-    // Europe, and western Asia instead of cresting over the Arctic.
-    const raan =
-      ((RING_RAAN_DEG +
-        ((plane + 0.5) / PLANES - 0.5) * RAAN_FAN_DEG +
-        (orbitalSeed(plane, 2) - 0.5) * 0.35) *
-        Math.PI) /
-      180;
     const period = orbitalPeriodMs(altitudeKm);
     let turns = ((at - ORBIT_EPOCH_MS) % period) / period;
     if (turns < 0) turns += 1;
-    const u =
-      turns * Math.PI * 2 +
-      (along / SATS_PER_PLANE) * Math.PI * 2 +
-      (plane * Math.PI) / SATS_PER_PLANE +
-      (orbitalSeed(i, 3) - 0.5) * (2.2 * rad);
-    const cosO = Math.cos(raan),
-      sinO = Math.sin(raan),
-      cosU = Math.cos(u),
-      sinU = Math.sin(u),
-      cosI = Math.cos(inclination),
-      sinI = Math.sin(inclination);
-    const ex = cosO * cosU - sinO * sinU * cosI;
-    const ey = sinO * cosU + cosO * sinU * cosI;
-    const ez = sinU * sinI;
+    // A minority of slots are full columns. Every craft in that slot shares
+    // one argument of latitude, so at the Canada crest the column is a
+    // north-south stack on one meridian. Neighbors are biased away from that
+    // argument so the stack stays readable. Everyone else wanders inside the
+    // slot. Offsets stay cross-track, so the set remains one ring.
+    const column = columnSlot(along);
+    const u0 = turns * Math.PI * 2 + along * slot;
+    let alongJitter = (orbitalSeed(i, 3) - 0.5) * slot * 0.5;
+    if (!column) {
+      if (columnSlot(along - 1)) alongJitter = Math.abs(alongJitter) + slot * 0.08;
+      else if (columnSlot(along + 1))
+        alongJitter = -Math.abs(alongJitter) - slot * 0.08;
+    }
+    const u = column ? u0 : u0 + alongJitter;
+    const local = localHalfWidth(u, halfWidth);
+    const laneFrac = (lane + 0.5) / RING_LANES - 0.5;
+    const across = column
+      ? laneFrac * 2 * local * 0.96 +
+        (orbitalSeed(i, 4) - 0.5) * local * 0.05
+      : laneFrac * 2 * local * (0.4 + 0.55 * orbitalSeed(i, 6)) +
+        (orbitalSeed(i, 4) - 0.5) * local * 0.22;
+    // Stay inside the local envelope. A global clamp would redraw a perfect edge.
+    const limit = local;
     return {
-      lat: Math.asin(Math.max(-1, Math.min(1, ez))) / rad,
-      lon: Math.atan2(ey, ex) / rad,
+      ...ribbonPoint(
+        u,
+        inclination,
+        raan,
+        Math.max(-limit, Math.min(limit, across)),
+      ),
       altitudeKm,
       band: 0,
       slot: along,
@@ -334,9 +376,13 @@ export type OrbitalRoute = {
   relay: ElevatedLocation;
   carrierLinkKm: number;
   ingress: number;
-  compute: number;
+  computeRelay: number;
+  /** SSO-inclined craft one optical hop from the relay. Not a dawn-dusk ephemeris. */
+  computeCraft: OrbitalNode;
   hops: number[];
   gateway: Location & { name: string };
+  /** RF endpoint: the user when a relay is visible, otherwise a land gateway. */
+  uplinkAnchor: Location;
   ground: GroundRoute;
   gatewayRoute: GroundRoute;
   gatewayKm: number;
@@ -419,12 +465,62 @@ function shortestLaserPath(
   return { hops, km };
 }
 
+const COMPUTE_ALTITUDE_KM = SHELL_ALTITUDE_KM + 36;
+
 /**
- * Starlink-style LEO routing for an orbital AI request:
- * 1. Ground comparison: fiber user → terrestrial provider site (unchanged).
- * 2. Space: RF/optical user uplink to the best visible LEO ingress (elevation
- *    mask, no GEO), then shortest ISL path to a nearby orbital compute node.
- * 3. Hop cost = light time + small per-ISL processing — prefer short low-latency paths.
+ * Sun-synchronous inclination at the compute altitude, on the plane that
+ * passes through the relay egress, stepped a few degrees ahead so the optical
+ * hop is short. Dawn-dusk would also fix the node relative to the sun; this
+ * picks the node that can actually see the handoff.
+ */
+function ssoCraftNear(egress: OrbitalNode): OrbitalNode {
+  const altitudeKm = COMPUTE_ALTITUDE_KM;
+  const incl = (sunSyncInclination(altitudeKm) * Math.PI) / 180;
+  const lat = egress.lat * rad,
+    lon = egress.lon * rad;
+  const sinArg = Math.sin(lat) / Math.sin(incl);
+  const u0 = Math.asin(Math.max(-1, Math.min(1, sinArg)));
+  let best: OrbitalNode | null = null;
+  let bestKm = Infinity;
+  for (const u of [u0, Math.PI - u0]) {
+    const cosU = Math.cos(u),
+      sinU = Math.sin(u),
+      cosI = Math.cos(incl);
+    const ex = Math.cos(lat) * Math.cos(lon),
+      ey = Math.cos(lat) * Math.sin(lon);
+    const a = cosU,
+      b = -sinU * cosI,
+      c = sinU * cosI,
+      d = cosU;
+    const det = a * d - b * c;
+    if (Math.abs(det) < 1e-8) continue;
+    const raan = Math.atan2((-c * ex + a * ey) / det, (d * ex - b * ey) / det);
+    const craft: OrbitalNode = {
+      ...ribbonPoint(u + (4 * Math.PI) / 180, incl, raan, 0),
+      altitudeKm,
+      band: -1,
+      slot: -1,
+    };
+    const km = opticalDistanceKm(egress, craft);
+    if (
+      km < bestKm &&
+      km <= MAX_LASER_KM &&
+      laserClearsEarth(egress, craft)
+    ) {
+      best = craft;
+      bestKm = km;
+    }
+  }
+  if (!best) throw new Error("No optical link to modeled ODC");
+  return best;
+}
+
+/**
+ * Two independent requests leave the user at the same time.
+ * Ground: fiber to the provider, then back along that path.
+ * Orbit: direct uplink when a relay is above the elevation mask; otherwise a
+ * feeder to a land gateway, then uplink and laser links to a separate compute
+ * craft. The reply retraces that orbital path and stops at the user.
  */
 export function routeAt(
   origin: Location,
@@ -454,8 +550,6 @@ export function routeAt(
     ingress = ingressEntry.i;
     uplinkAnchor = origin;
   } else {
-    // High-latitude / out-of-cone: fiber to a land gateway that sees the shell,
-    // then RF uplink (still LEO — never GEO).
     const gateways = HUBS.map((h) => {
       const vis = nodes
         .map((node, i) => ({ i, elev: elevationDeg(h, node) }))
@@ -472,7 +566,6 @@ export function routeAt(
     uplinkAnchor = pick.h;
   }
 
-  // Prefer the uplink land site when used; else nearest hub that still sees ingress.
   const visibleHubs = HUBS.filter(
     (h) => elevationDeg(h, nodes[ingress]) >= MIN_ELEVATION_DEG,
   );
@@ -480,44 +573,41 @@ export function routeAt(
     typeof (uplinkAnchor as { name?: string }).name === "string"
       ? (uplinkAnchor as (typeof HUBS)[number])
       : (visibleHubs.length ? visibleHubs : HUBS).reduce((best, h) =>
-          distanceKm(providerEntry, h) < distanceKm(providerEntry, best)
-            ? h
-            : best,
+          distanceKm(origin, h) < distanceKm(origin, best) ? h : best,
         );
-  const gatewayRoute = groundRoute(providerEntry, gateway);
+  const gatewayRoute = groundRoute(origin, uplinkAnchor);
   const relay = { ...nodes[ingress] };
   const uplinkKm = opticalDistanceKm(
     { lat: uplinkAnchor.lat, lon: uplinkAnchor.lon, altitudeKm: 0 },
     nodes[ingress],
   );
 
-  // Compute node: laser-reachable neighbor, prefer a higher shell (ODC), not ingress.
   const local = nearestLaserLinks(nodes, ingress, 24);
   if (!local.length) throw new Error("No orbital compute neighbor");
-  const compute = local.sort((a, b) => {
-    const bandScore =
-      (nodes[b.i].band - nodes[a.i].band) * 120 + (a.km - b.km);
-    return bandScore;
-  })[0].i;
-
-  const path = shortestLaserPath(nodes, ingress, compute);
+  const computeRelay = local.sort((a, b) => a.km - b.km)[0].i;
+  const path = shortestLaserPath(nodes, ingress, computeRelay);
   const hops = path.hops;
-  const laserKm = path.km;
-  const gatewayKm = ground.km + gatewayRoute.km;
+  const computeCraft = ssoCraftNear(nodes[computeRelay]);
+  const carrierLinkKm = opticalDistanceKm(nodes[computeRelay], computeCraft);
+  const laserKm = path.km + carrierLinkKm;
+  const gatewayKm = gatewayRoute.km;
   const oneWayMs =
+    gatewayRoute.km / 200 +
     uplinkKm / C_KM_PER_MS +
     laserKm / C_KM_PER_MS +
-    hops.length * PROC_MS_PER_HOP +
+    (hops.length + 1) * PROC_MS_PER_HOP +
     4;
   return {
     at,
     nodes,
     relay,
-    carrierLinkKm: 0,
+    carrierLinkKm,
     ingress,
-    compute: hops[hops.length - 1],
+    computeRelay,
+    computeCraft,
     hops,
     gateway,
+    uplinkAnchor,
     ground,
     gatewayRoute,
     gatewayKm,

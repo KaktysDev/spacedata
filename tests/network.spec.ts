@@ -18,7 +18,9 @@ import {
   orbitalPeriodMs,
   ORBIT_EPOCH_MS,
   opticalDistanceKm,
+  RING_HALF_WIDTH_DEG,
   RING_INCLINATION_DEG,
+  RING_LANES,
   RING_RAAN_DEG,
   sunSyncInclination,
 } from "../lib/starcloud/network";
@@ -36,40 +38,134 @@ test("satellites occupy every longitude bin instead of one meridian", () => {
   expect(Math.max(...bins)).toBeLessThan(NODE_COUNT * 0.36);
   expect(Math.min(...bins)).toBeGreaterThan(100);
 });
-test("loose orbital bands stay within the proposed altitude envelope and display cap", () => {
+function planeOffsetDeg(node: { lat: number; lon: number }) {
+  const lat = (node.lat * Math.PI) / 180,
+    lon = (node.lon * Math.PI) / 180,
+    incl = (RING_INCLINATION_DEG * Math.PI) / 180,
+    raan = (RING_RAAN_DEG * Math.PI) / 180;
+  const ex = Math.cos(lat) * Math.cos(lon),
+    ey = Math.cos(lat) * Math.sin(lon),
+    ez = Math.sin(lat);
+  const dot =
+    ex * Math.sin(raan) * Math.sin(incl) +
+    ey * -Math.cos(raan) * Math.sin(incl) +
+    ez * Math.cos(incl);
+  return (Math.asin(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI;
+}
+function trackAngleDeg(node: { lat: number; lon: number }) {
+  const lat = (node.lat * Math.PI) / 180,
+    lon = (node.lon * Math.PI) / 180,
+    incl = (RING_INCLINATION_DEG * Math.PI) / 180,
+    raan = (RING_RAAN_DEG * Math.PI) / 180;
+  const ex = Math.cos(lat) * Math.cos(lon),
+    ey = Math.cos(lat) * Math.sin(lon),
+    ez = Math.sin(lat);
+  const hx = Math.sin(raan) * Math.sin(incl),
+    hy = -Math.cos(raan) * Math.sin(incl),
+    hz = Math.cos(incl);
+  const dot = ex * hx + ey * hy + ez * hz;
+  const px = ex - dot * hx,
+    py = ey - dot * hy,
+    pz = ez - dot * hz;
+  const e1x = Math.cos(raan),
+    e1y = Math.sin(raan);
+  const e2x = -hz * e1y,
+    e2y = hz * e1x,
+    e2z = hx * e1y - hy * e1x;
+  return (
+    (Math.atan2(px * e2x + py * e2y + pz * e2z, px * e1x + py * e1y) * 180) /
+    Math.PI
+  );
+}
+test("the access ring keeps a ragged width, Canada crest, and meridian stacks", () => {
   const nodes = orbitalNodes(0);
   expect(nodes).toHaveLength(NODE_COUNT);
-  expect(NODE_COUNT).toBeLessThanOrEqual(40000);
   expect(NODE_COUNT).toBe(8800);
+  expect(RING_INCLINATION_DEG).toBe(55);
+  expect(RING_HALF_WIDTH_DEG).toBe(10);
+  expect(RING_RAAN_DEG).toBe(170);
+  expect(RING_LANES).toBe(40);
   const lats = nodes.map((p) => p.lat);
   const alts = nodes.map((p) => p.altitudeKm);
-  expect(RING_INCLINATION_DEG).toBe(67);
-  expect(RING_RAAN_DEG).toBe(-120);
-  expect(Math.max(...lats)).toBeGreaterThan(64);
+  const offsets = nodes.map(planeOffsetDeg);
+  const abs = offsets.map(Math.abs);
+  // Nominal half-width is 10°. Breathing and ragged placement pass that edge
+  // without opening a second shell.
+  expect(Math.max(...abs)).toBeGreaterThan(RING_HALF_WIDTH_DEG + 0.4);
+  expect(Math.max(...abs)).toBeLessThan(14.5);
+  expect(Math.max(...lats)).toBeGreaterThan(62);
   expect(Math.max(...lats)).toBeLessThan(72);
-  expect(Math.min(...lats)).toBeLessThan(-64);
+  // The opposite crest can be the narrow part of the breath, so it does not
+  // have to match the wide crest.
+  expect(Math.min(...lats)).toBeLessThan(-58);
   expect(Math.min(...lats)).toBeGreaterThan(-72);
-  const north = nodes.filter((n) => n.lat > 40);
-  const band = (lon0: number, lon1: number, lat0: number) =>
-    north.filter((n) => n.lat >= lat0 && n.lon >= lon0 && n.lon <= lon1)
-      .length;
-  // Northern pass: across Canada, through Europe, into western Asia.
-  expect(band(-115, -60, 45)).toBeGreaterThan(120);
-  expect(band(-12, 32, 50)).toBeGreaterThan(80);
-  expect(band(28, 55, 32)).toBeGreaterThan(40);
+  const crest = nodes.filter((n) => n.lat > 60);
+  expect(crest.length).toBeGreaterThan(40);
+  expect(crest.every((n) => n.lon > -145 && n.lon < -55)).toBe(true);
+  const sectorMax = Array.from({ length: 8 }, () => 0);
+  const sectorMin = Array.from({ length: 8 }, () => 90);
+  nodes.forEach((node, i) => {
+    let angle = trackAngleDeg(node);
+    if (angle < 0) angle += 360;
+    const sector = Math.min(7, Math.floor(angle / 45));
+    const off = Math.abs(offsets[i]);
+    sectorMax[sector] = Math.max(sectorMax[sector], off);
+    sectorMin[sector] = Math.min(sectorMin[sector], off);
+  });
+  for (let sector = 0; sector < 8; sector++) {
+    expect(sectorMax[sector]).toBeGreaterThan(6);
+    expect(sectorMin[sector]).toBeLessThan(2);
+  }
+  expect(Math.max(...sectorMax) - Math.min(...sectorMax)).toBeGreaterThan(1.5);
+  const columns = new Map<number, number[]>();
+  nodes.forEach((node, i) => {
+    const key = Math.round(trackAngleDeg(node) / 0.12);
+    const group = columns.get(key);
+    if (group) group.push(offsets[i]);
+    else columns.set(key, [offsets[i]]);
+  });
+  let stacks = 0;
+  for (const group of columns.values()) {
+    if (group.length < 8) continue;
+    if (Math.max(...group) - Math.min(...group) > 8) stacks++;
+  }
+  expect(stacks).toBeGreaterThan(15);
+  const north = nodes.filter(
+    (n) => n.lat > 48 && n.lon > -140 && n.lon < -60,
+  );
+  const meridians = new Map<number, number[]>();
+  for (const node of north) {
+    const key = Math.round(node.lon / 0.4);
+    const group = meridians.get(key);
+    if (group) group.push(node.lat);
+    else meridians.set(key, [node.lat]);
+  }
+  let vertical = 0;
+  for (const group of meridians.values()) {
+    if (group.length >= 6 && Math.max(...group) - Math.min(...group) > 8)
+      vertical++;
+  }
+  expect(vertical).toBeGreaterThan(2);
   expect(Math.max(...alts) - Math.min(...alts)).toBeLessThan(20);
   expect(Math.min(...alts)).toBeGreaterThan(710);
   expect(Math.max(...alts)).toBeLessThan(740);
   expect(new Set(nodes.map((p) => p.altitudeKm)).size).toBe(NODE_COUNT);
-  for (const p of nodes) {
+  for (const p of nodes)
     expect(sunSyncInclination(p.altitudeKm)).toBeGreaterThan(97);
-    expect(sunSyncInclination(p.altitudeKm)).toBeLessThan(100);
-  }
   expect(
     new Set(nodes.map((p) => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`)).size,
   ).toBe(NODE_COUNT);
 });
-test("provider entry precedes a visible LEO uplink at every tested location", () => {
+test("the ring stays populated all the way around", () => {
+  const nodes = orbitalNodes(ORBIT_EPOCH_MS);
+  const angles = nodes.map(trackAngleDeg).sort((a, b) => a - b);
+  let maxGap = angles[0] + 360 - angles[angles.length - 1];
+  for (let i = 1; i < angles.length; i++)
+    maxGap = Math.max(maxGap, angles[i] - angles[i - 1]);
+  // A two-clump shell would leave a multi-degree empty arc.
+  expect(maxGap).toBeLessThan(2.6);
+});
+test("ground and orbital routes leave the user independently", () => {
   const places = [
     ...PRESETS,
     { lat: 89.9, lon: 179.9 },
@@ -88,15 +184,27 @@ test("provider entry precedes a visible LEO uplink at every tested location", ()
           r = routeAt(origin, at, site);
         expect(r.ground.points[0]).toEqual(origin);
         expect(r.ground.points.at(-1)).toEqual(site);
-        expect(r.gatewayRoute.points[0]).toEqual(site);
-        expect(r.gatewayRoute.points.at(-1)).toEqual(r.gateway);
+        expect(r.gatewayRoute.points[0]).toEqual(origin);
+        expect(r.gatewayRoute.points.at(-1)).toEqual(r.uplinkAnchor);
         const elevUser = elevationDeg(origin, r.nodes[r.ingress]);
-        const elevGw = elevationDeg(r.gateway, r.nodes[r.ingress]);
-        expect(Math.max(elevUser, elevGw)).toBeGreaterThanOrEqual(15);
+        const elevAnchor = elevationDeg(r.uplinkAnchor, r.nodes[r.ingress]);
+        expect(elevAnchor).toBeGreaterThanOrEqual(25);
+        if (elevUser >= 25) expect(r.uplinkAnchor).toEqual(origin);
+        else expect(r.uplinkAnchor).toEqual(r.gateway);
         expect(r.uplinkKm).toBeGreaterThan(400);
         expect(r.uplinkKm).toBeLessThan(3000);
         expect(r.hops[0]).toBe(r.ingress);
-        expect(r.hops.at(-1)).toBe(r.compute);
+        expect(r.hops.at(-1)).toBe(r.computeRelay);
+        expect(r.computeCraft.band).toBe(-1);
+        expect(laserClearsEarth(r.nodes[r.computeRelay], r.computeCraft)).toBe(
+          true,
+        );
+        expect(
+          opticalDistanceKm(r.nodes[r.computeRelay], r.computeCraft),
+        ).toBeLessThanOrEqual(4000);
+        expect(r.carrierLinkKm).toBeCloseTo(
+          opticalDistanceKm(r.nodes[r.computeRelay], r.computeCraft),
+        );
         expect(r.hops.length).toBeGreaterThanOrEqual(2);
         expect(r.hops.length).toBeLessThanOrEqual(12);
         expect(new Set(r.hops).size).toBe(r.hops.length);

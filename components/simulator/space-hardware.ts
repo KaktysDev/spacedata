@@ -169,7 +169,10 @@ export function satelliteOverviewGeometry() {
   box(0.075, 0.23, 0.075, 0xcacaca, 0, 0, 0.015);
   box(0.56, 0.012, 0.014, 0xbcbcbc);
   for (const side of [-1, 1]) {
-    box(0.22, 0.27, 0.008, 0x363636, side * 0.17);
+    // Light array faces. At overview scale the old near-black cells fell
+    // under the clear color, so the lane area disappeared and only stacked
+    // buses remained. Close-up meshes keep the dark cell grid.
+    box(0.22, 0.27, 0.008, 0xc4c4c4, side * 0.17);
     box(0.22, 0.007, 0.011, 0xc9c9c9, side * 0.17, 0.13);
     box(0.22, 0.007, 0.011, 0xc9c9c9, side * 0.17, -0.13);
     box(0.115, 0.2, 0.006, 0xd5d5d5, side * 0.097, -0.24, -0.015);
@@ -187,6 +190,98 @@ export function hardwareMaterial() {
     roughness: 0.53,
     side: THREE.DoubleSide,
   });
+}
+
+// The wordmark belongs on the compute craft. The paper's containers carry the
+// name; stamping it on every access relay would be unreadable at 8,800 copies.
+export function satelliteBrand() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 256;
+  const context = canvas.getContext("2d");
+  if (context) {
+    context.fillStyle = "rgba(8, 8, 8, 0.93)";
+    context.beginPath();
+    context.roundRect(8, 8, 1008, 240, 28);
+    context.fill();
+    context.strokeStyle = "#ffffff";
+    context.lineWidth = 8;
+    context.stroke();
+    context.beginPath();
+    context.ellipse(130, 128, 78, 44, -Math.PI / 4, 0, Math.PI * 2);
+    context.stroke();
+    context.fillStyle = "#ffffff";
+    context.beginPath();
+    context.moveTo(130, 38);
+    context.lineTo(143, 115);
+    context.lineTo(218, 128);
+    context.lineTo(143, 141);
+    context.lineTo(130, 218);
+    context.lineTo(117, 141);
+    context.lineTo(42, 128);
+    context.lineTo(117, 115);
+    context.closePath();
+    context.fill();
+    context.font = "bold 104px Arial, Helvetica, sans-serif";
+    context.textBaseline = "middle";
+    context.fillText("Starcloud", 255, 132);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+    }),
+  );
+  sprite.scale.set(0.72, 0.18, 1);
+  return sprite;
+}
+
+// Compact container cluster, separate from the access-relay mesh.
+export function orbitalComputeCraft() {
+  const craft = new THREE.Group();
+  const white = new THREE.MeshStandardMaterial({
+    color: 0xe6e6e6,
+    metalness: 0.32,
+    roughness: 0.48,
+  });
+  const frame = new THREE.MeshStandardMaterial({
+    color: 0x8f8f8f,
+    metalness: 0.68,
+    roughness: 0.34,
+  });
+  const dark = new THREE.MeshStandardMaterial({
+    color: 0x272727,
+    metalness: 0.3,
+    roughness: 0.68,
+  });
+  const box = (
+    w: number,
+    h: number,
+    d: number,
+    x: number,
+    y: number,
+    z: number,
+    material: THREE.Material,
+  ) => {
+    const part = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    part.position.set(x, y, z);
+    craft.add(part);
+  };
+  box(0.71, 0.025, 0.045, 0, 0, 0, frame);
+  for (const x of [-0.22, 0, 0.22]) {
+    box(0.19, 0.28, 0.16, x, 0.025, 0.03, white);
+    box(0.15, 0.018, 0.168, x, 0.176, 0.03, frame);
+    box(0.15, 0.07, 0.006, x, -0.04, 0.114, dark);
+  }
+  for (const side of [-1, 1]) {
+    box(0.14, 0.34, 0.012, side * 0.43, 0, -0.01, frame);
+    for (let fin = -3; fin <= 3; fin++)
+      box(0.13, 0.004, 0.024, side * 0.43, fin * 0.045, 0, white);
+  }
+  return craft;
 }
 type CampusMat = "silver" | "dark" | "white" | "steel" | "trim";
 // One grayscale campus per company. Value contrast carries the silhouette;
