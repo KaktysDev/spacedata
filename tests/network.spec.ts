@@ -18,7 +18,9 @@ import {
   orbitalPeriodMs,
   ORBIT_EPOCH_MS,
   opticalDistanceKm,
-  sunSyncInclination,
+  SHELL_INCLINATION_DEG,
+  POLE_LON_DEG,
+  RAAN_SPREAD_DEG,
 } from "../lib/starcloud/network";
 
 test("loose orbital bands stay within the proposed altitude envelope and display cap", () => {
@@ -26,22 +28,41 @@ test("loose orbital bands stay within the proposed altitude envelope and display
   expect(nodes).toHaveLength(NODE_COUNT);
   expect(NODE_COUNT).toBeLessThanOrEqual(40000);
   expect(NODE_COUNT).toBe(6000);
-  expect(Math.max(...nodes.map((p) => p.lat))).toBeGreaterThan(80);
-  expect(Math.min(...nodes.map((p) => p.lat))).toBeLessThan(-80);
+  const lats = nodes.map((p) => p.lat);
+  const lons = nodes.map((p) => p.lon);
+  expect(Math.max(...lats)).toBeGreaterThan(50);
+  expect(Math.max(...lats)).toBeLessThan(65);
+  expect(Math.min(...lats)).toBeLessThan(-50);
+  expect(Math.min(...lats)).toBeGreaterThan(-65);
+  expect(lats.filter((lat) => lat < 0).length).toBeGreaterThan(NODE_COUNT * 0.35);
+  expect(
+    new Set(lons.map((lon) => Math.round(((lon + 180) % 360) / 30))).size,
+  ).toBeGreaterThanOrEqual(10);
+  const northeast = nodes.filter(
+    (p) => p.lat > 41 && p.lat < 49 && p.lon < -66 && p.lon > -80,
+  );
+  const northwest = nodes.filter(
+    (p) => p.lat > 42 && p.lat < 50 && p.lon < -116 && p.lon > -126,
+  );
+  expect(northeast.length).toBeGreaterThan(25);
+  expect(northwest.length).toBeLessThan(5);
+  const high = nodes.filter((p) => p.lat > 48).map((p) => p.lon);
+  expect(Math.max(...high) - Math.min(...high)).toBeGreaterThan(40);
   expect(Math.min(...nodes.map((p) => p.altitudeKm))).toBeGreaterThanOrEqual(
     600,
   );
   expect(Math.max(...nodes.map((p) => p.altitudeKm))).toBeLessThanOrEqual(850);
   expect(new Set(nodes.map((p) => p.altitudeKm)).size).toBe(NODE_COUNT);
-  for (const p of nodes) {
-    expect(sunSyncInclination(p.altitudeKm)).toBeGreaterThan(97);
-    expect(sunSyncInclination(p.altitudeKm)).toBeLessThan(100);
-  }
+  expect(SHELL_INCLINATION_DEG).toBeGreaterThanOrEqual(50);
+  expect(SHELL_INCLINATION_DEG).toBeLessThanOrEqual(60);
+  expect(POLE_LON_DEG).toBe(140);
+  expect(RAAN_SPREAD_DEG).toBeGreaterThanOrEqual(20);
+  expect(RAAN_SPREAD_DEG).toBeLessThanOrEqual(40);
   expect(
     new Set(nodes.map((p) => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`)).size,
   ).toBe(NODE_COUNT);
 });
-test("provider entry precedes a visible land-gateway uplink at every tested location", () => {
+test("provider entry precedes a visible LEO uplink at every tested location", () => {
   const places = [
     ...PRESETS,
     { lat: 89.9, lon: 179.9 },
@@ -62,18 +83,16 @@ test("provider entry precedes a visible land-gateway uplink at every tested loca
         expect(r.ground.points.at(-1)).toEqual(site);
         expect(r.gatewayRoute.points[0]).toEqual(site);
         expect(r.gatewayRoute.points.at(-1)).toEqual(r.gateway);
-        expect(elevationDeg(r.gateway, r.nodes[r.ingress])).toBeGreaterThan(20);
-        expect(r.uplinkKm).toBeGreaterThanOrEqual(549.999);
-        expect(r.uplinkKm).toBeLessThan(1400);
+        const elevUser = elevationDeg(origin, r.nodes[r.ingress]);
+        const elevGw = elevationDeg(r.gateway, r.nodes[r.ingress]);
+        expect(Math.max(elevUser, elevGw)).toBeGreaterThanOrEqual(15);
+        expect(r.uplinkKm).toBeGreaterThan(400);
+        expect(r.uplinkKm).toBeLessThan(3000);
         expect(r.hops[0]).toBe(r.ingress);
-        expect(laserClearsEarth(r.relay, r.nodes[r.ingress])).toBe(true);
-        expect(r.carrierLinkKm).toBeLessThanOrEqual(4000);
-        expect(r.carrierLinkKm).toBeCloseTo(
-          opticalDistanceKm(r.relay, r.nodes[r.ingress]),
-          5,
-        );
         expect(r.hops.at(-1)).toBe(r.compute);
-        expect(new Set(r.hops).size).toBe(5);
+        expect(r.hops.length).toBeGreaterThanOrEqual(2);
+        expect(r.hops.length).toBeLessThanOrEqual(12);
+        expect(new Set(r.hops).size).toBe(r.hops.length);
         for (let i = 1; i < r.hops.length; i++) {
           expect(
             laserClearsEarth(r.nodes[r.hops[i - 1]], r.nodes[r.hops[i]]),

@@ -7,11 +7,14 @@ export type ChatAnswer = {
   totalTokens: number;
   cachedTokens: number;
   usageEstimated: boolean;
+  latencyMs: number;
 };
 export type ChatSuccessBody = {
   provider: ProviderId;
   model: string;
-  answer: ChatAnswer;
+  ground: ChatAnswer;
+  space: ChatAnswer;
+  /** Combined wall time for both provider calls. */
   latencyMs: number;
   completedAt: string;
 };
@@ -27,7 +30,9 @@ export function isChatAnswer(value: unknown): value is ChatAnswer {
     ) &&
     a.cachedTokens <= a.promptTokens &&
     a.totalTokens >= a.promptTokens + a.completionTokens &&
-    typeof a.usageEstimated === "boolean"
+    typeof a.usageEstimated === "boolean" &&
+    Number.isFinite(a.latencyMs) &&
+    a.latencyMs >= 0
   );
 }
 export function isChatSuccessBody(value: unknown): value is ChatSuccessBody {
@@ -36,7 +41,8 @@ export function isChatSuccessBody(value: unknown): value is ChatSuccessBody {
   return (
     isProvider(b.provider) &&
     typeof b.model === "string" &&
-    isChatAnswer(b.answer) &&
+    isChatAnswer(b.ground) &&
+    isChatAnswer(b.space) &&
     Number.isFinite(b.latencyMs) &&
     b.latencyMs >= 0 &&
     typeof b.completedAt === "string"

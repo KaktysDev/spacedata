@@ -5,8 +5,29 @@ import {
 } from "@/lib/starcloud/catalog";
 import type { ChatAnswer, ChatSuccessBody } from "@/lib/starcloud/chat-types";
 import { durableProtectionConfigured } from "./chat-guard";
-const SYSTEM =
-  "Answer the user directly in under 140 words. Do not invent datacenter telemetry or environmental measurements. You have no tools or access to credentials.";
+
+export type Deployment = "ground" | "space";
+
+const MODEL_VOICE: Record<ProviderId, string> = {
+  gemini:
+    "Write like Gemini: crisp, structured, helpful. Prefer short labeled sections or tight bullets when useful. Sound confident and practical.",
+  openai:
+    "Write like GPT: clear prose, numbered steps for procedures, careful edge cases, calm and precise. Prefer complete sentences over hype.",
+  anthropic:
+    "Write like Claude: thoughtful, slightly formal, careful about assumptions. Lead with the direct answer, then brief reasoning. Avoid fluff.",
+  xai: "Write like Grok: witty and direct, a little irreverent, still correct. Short paragraphs. Skip corporate padding.",
+};
+
+function systemFor(id: ProviderId, deployment: Deployment) {
+  const voice = MODEL_VOICE[id];
+  if (deployment === "space") {
+    return `${voice}
+You are answering from an orbital LEO datacenter. Constraints that must shape the writing (do not lecture about them): slightly tighter token budget, favor the shortest correct path, acknowledge light-time/ISL hop cost only if latency matters to the answer. Under 120 words. No tools. Do not invent telemetry.`;
+  }
+  return `${voice}
+You are answering from a terrestrial hyperscale datacenter. Constraints that must shape the writing (do not lecture about them): full ground context, slightly more elaborate when helpful, assume fiber RTT. Under 160 words. No tools. Do not invent telemetry.`;
+}
+
 export function providerKey(id: ProviderId) {
   return (
     process.env[PROVIDERS[id].key] ||
@@ -25,14 +46,18 @@ const obj = (v: unknown): Json =>
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const count = (v: unknown): number | null =>
   typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
-export async function runAnswer(
+
+async function callProvider(
   id: ProviderId,
   prompt: string,
+  deployment: Deployment,
   requestSignal?: AbortSignal,
-): Promise<ChatSuccessBody> {
+): Promise<ChatAnswer> {
   const key = providerKey(id);
   if (!key) throw new Error("unconfigured");
   const model = PROVIDERS[id].model;
+  const system = systemFor(id, deployment);
+  const maxTokens = deployment === "space" ? 360 : 512;
   const signal = AbortSignal.any([
     AbortSignal.timeout(45_000),
     ...(requestSignal ? [requestSignal] : []),
@@ -45,10 +70,10 @@ export async function runAnswer(
     url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
     headers["x-goog-api-key"] = key;
     body = {
-      systemInstruction: { parts: [{ text: SYSTEM }] },
+      systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
-        maxOutputTokens: 512,
+        maxOutputTokens: maxTokens,
         thinkingConfig: { thinkingBudget: 0 },
       },
     };
@@ -58,8 +83,8 @@ export async function runAnswer(
     headers["anthropic-version"] = "2023-06-01";
     body = {
       model,
-      max_tokens: 512,
-      system: SYSTEM,
+      max_tokens: maxTokens,
+      system,
       messages: [{ role: "user", content: prompt }],
     };
   } else if (id === "openai") {
@@ -67,9 +92,9 @@ export async function runAnswer(
     headers.Authorization = `Bearer ${key}`;
     body = {
       model,
-      instructions: SYSTEM,
+      instructions: system,
       input: prompt,
-      max_output_tokens: 512,
+      max_output_tokens: maxTokens,
       reasoning: { effort: "minimal" },
       store: false,
     };
@@ -78,16 +103,16 @@ export async function runAnswer(
     headers.Authorization = `Bearer ${key}`;
     body = {
       model,
-      max_tokens: 512,
+      max_tokens: maxTokens,
       messages: [
-        { role: "system", content: SYSTEM },
+        { role: "system", content: system },
         { role: "user", content: prompt },
       ],
       stream: false,
     };
   }
   const start = performance.now();
-  // Exactly one billable call. No automatic retries that could duplicate charges.
+  // Exactly one billable call per deployment. No automatic retries.
   const response = await fetch(url, {
     method: "POST",
     headers,
@@ -149,21 +174,39 @@ export async function runAnswer(
   }
   if (!text.trim()) throw new Error("empty-answer");
   const estimated = input === null || output === null;
-  input ??= Math.ceil((prompt.length + SYSTEM.length) / 4);
+  input ??= Math.ceil((prompt.length + system.length) / 4);
   output ??= Math.ceil(text.length / 4);
-  const answer: ChatAnswer = {
+  return {
     text: text.trim().slice(0, 8000),
     promptTokens: input,
     completionTokens: output,
     totalTokens: Math.max(total ?? 0, input + output),
     cachedTokens: Math.min(cached, input),
     usageEstimated: estimated,
+    latencyMs,
   };
+}
+
+/** Two prompted answers (space vs ground) via the selected provider. */
+export async function runAnswer(
+  id: ProviderId,
+  prompt: string,
+  requestSignal?: AbortSignal,
+): Promise<ChatSuccessBody> {
+  const key = providerKey(id);
+  if (!key) throw new Error("unconfigured");
+  const model = PROVIDERS[id].model;
+  const start = performance.now();
+  const [ground, space] = await Promise.all([
+    callProvider(id, prompt, "ground", requestSignal),
+    callProvider(id, prompt, "space", requestSignal),
+  ]);
   return {
     provider: id,
     model,
-    answer,
-    latencyMs,
+    ground,
+    space,
+    latencyMs: Math.round(performance.now() - start),
     completedAt: new Date().toISOString(),
   };
 }
