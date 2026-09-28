@@ -129,12 +129,13 @@ export function SourcesNote({
             </figure>
           </div>
           <p className="fine-print">
-            The picture shows 8,800 illustrative spacecraft spread through a
-            thick volume: altitudes from 420 km to 1,720 km, inclinations in a
-            100° band around the sun-synchronous value, and ascending nodes
-            around the full circle. They are not stacked on one terminator.
+            The picture shows 8,800 illustrative spacecraft in one ring, held
+            off the globe. Altitudes run from 1,080 km to 1,520 km. Inclination
+            and the ascending node each wander about a dozen degrees around the
+            sun-synchronous dawn-dusk plane, so the ring has thickness without
+            becoming a shell. Craft are spaced all the way around that ring.
             The 2026 FCC filing asks for narrow 600–850 km shells; this view
-            is wider so the fleet reads as a belt instead of a line. A fixed
+            is a thicker, higher ring so it reads as a band instead of a line. A fixed
             sun over 20°E still defines the reference dawn-dusk plane, matching
             the paper’s figure. That sun direction is not a live ephemeris.
             The paper’s data center is a set of containers on one spine, with

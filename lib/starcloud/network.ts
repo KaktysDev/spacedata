@@ -3,10 +3,11 @@ import { distanceKm, type Location } from "./catalog";
 export const EARTH_KM = 6371,
   ALTITUDE_KM = 550;
 // Reference altitude for the sun-synchronous plane used by routing and the
-// fixed dawn-dusk sun. The drawn fleet is not confined to this altitude.
+// fixed dawn-dusk sun. The drawn ring sits higher than this reference so the
+// belt reads clear of the globe, with a few hundred kilometres of thickness.
 export const SHELL_ALTITUDE_KM = 725;
-export const SHELL_ALTITUDE_MIN_KM = 420;
-export const SHELL_ALTITUDE_MAX_KM = 1720;
+export const SHELL_ALTITUDE_MIN_KM = 1080;
+export const SHELL_ALTITUDE_MAX_KM = 1520;
 export const SHELL_ALTITUDES_KM = [SHELL_ALTITUDE_KM] as const;
 export const BAND_COUNT = 1,
   NODES_PER_BAND = 8800;
@@ -17,10 +18,10 @@ const MU = 398600.4418,
 // reference plane can stay perpendicular to the sun. Individual spacecraft
 // are spread far from this plane.
 export const RING_INCLINATION_DEG = sunSyncInclination(SHELL_ALTITUDE_KM);
-// Full inclination width centered on the reference plane. ±50° plus a full
-// circle of ascending nodes fills a volume instead of a flat ring.
-export const INCLINATION_SPREAD_DEG = 100;
-export const RAAN_SPREAD_DEG = 360;
+// Modest body on one ring. Wide enough that craft are not a razor line,
+// narrow enough that the fleet stays an annulus instead of a shell.
+export const INCLINATION_SPREAD_DEG = 12;
+export const RAAN_SPREAD_DEG = 16;
 // Dawn-dusk means the orbit normal is the sun direction, so the plane is the
 // terminator. 20°E is a fixed subsolar longitude chosen so the lit hemisphere
 // matches the white-paper figure (Africa and Europe in daylight). It is not a
@@ -281,11 +282,6 @@ export function groundRoute(
   return { points, stops, km, rttMs: ((2 * km) / 200000) * 1000 + 10 };
 }
 
-// 20 inclination bins × 20 ascending-node bins × 22 along-track bins = 8,800.
-const INCL_BINS = 20,
-  RAAN_BINS = 20,
-  ALONG_BINS = 22,
-  ALT_BINS = 16;
 function ribbonPoint(u: number, inclination: number, raan: number, across: number) {
   const cosO = Math.cos(raan),
     sinO = Math.sin(raan),
@@ -317,43 +313,37 @@ function ribbonPoint(u: number, inclination: number, raan: number, across: numbe
   };
 }
 export function orbitalNodes(at: number): OrbitalNode[] {
-  const incl0 = RING_INCLINATION_DEG - INCLINATION_SPREAD_DEG / 2;
   const altSpan = SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM;
   return Array.from({ length: NODE_COUNT }, (_, i) => {
-    const inclBin = i % INCL_BINS;
-    const raanBin = Math.floor(i / INCL_BINS) % RAAN_BINS;
-    const alongBin = Math.floor(i / (INCL_BINS * RAAN_BINS));
-    // Jitter stays inside the cell, so neighbors cannot fall on top of each other.
-    const inclJ = (orbitalSeed(i, 2) - 0.5) * 0.7;
-    const raanJ = (orbitalSeed(i, 4) - 0.5) * 0.7;
-    const alongJ = (orbitalSeed(i, 3) - 0.5) * 0.7;
-    const inclinationDeg = Math.min(
-      179,
-      Math.max(
-        1,
-        incl0 +
-          ((inclBin + 0.5 + inclJ) / INCL_BINS) * INCLINATION_SPREAD_DEG,
-      ),
-    );
+    // One unique station along the ring. Cross-track and altitude use other
+    // strides so neighbors do not stack on that station.
+    const alongJ = (orbitalSeed(i, 3) - 0.5) * 0.45;
+    const inclT = ((i * 17) % 48) / 47;
+    const raanT = ((i * 29) % 40) / 39;
+    const altT = ((i * 13) % 32) / 31;
+    const inclinationDeg =
+      RING_INCLINATION_DEG +
+      (inclT - 0.5 + (orbitalSeed(i, 2) - 0.5) * 0.08) *
+        INCLINATION_SPREAD_DEG;
     const raanDeg =
       RING_RAAN_DEG +
-      ((raanBin + 0.5 + raanJ) / RAAN_BINS) * RAAN_SPREAD_DEG;
-    const altitudeSlot =
-      ((inclBin * 3 + raanBin * 5 + alongBin * 7) % ALT_BINS) +
-      orbitalSeed(i, 1) * 0.7 +
-      ((i + 0.5) / NODE_COUNT) * 0.2;
+      (raanT - 0.5 + (orbitalSeed(i, 4) - 0.5) * 0.08) * RAAN_SPREAD_DEG;
     const altitudeKm =
-      SHELL_ALTITUDE_MIN_KM + (altitudeSlot / ALT_BINS) * altSpan;
+      SHELL_ALTITUDE_MIN_KM +
+      Math.min(
+        0.999,
+        Math.max(0, altT + (orbitalSeed(i, 1) - 0.5) * 0.04),
+      ) *
+        altSpan;
     const period = orbitalPeriodMs(altitudeKm);
     let turns = ((at - ORBIT_EPOCH_MS) % period) / period;
     if (turns < 0) turns += 1;
-    const u =
-      (turns + (alongBin + 0.5 + alongJ) / ALONG_BINS) * Math.PI * 2;
+    const u = (turns + (i + 0.5 + alongJ) / NODE_COUNT) * Math.PI * 2;
     return {
       ...ribbonPoint(u, inclinationDeg * rad, raanDeg * rad, 0),
       altitudeKm,
       band: 0,
-      slot: alongBin,
+      slot: i,
     };
   });
 }
@@ -405,7 +395,7 @@ export type OrbitalRoute = {
   rttMs: number;
 };
 /**
- * Optical ISLs through the volumetric shell. The compute craft sits several
+ * Optical ISLs along the ring. The compute craft sits several
  * thousand kilometres from the uplink, and each hop is the Earth-clear step
  * inside 4,000 km that closes the most of that gap.
  */

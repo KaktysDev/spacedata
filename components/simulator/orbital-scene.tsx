@@ -44,14 +44,13 @@ type Props = {
   onReady: () => void;
 };
 const R = 3.5,
-  // Thick visual shell. Physical altitudes span SHELL_ALTITUDE_MIN/MAX;
-  // the on-screen radii are enlarged so that span reads as a wide band.
-  BELT_INNER = 4.75,
-  BELT_OUTER = 8.7,
-  // Closest orbit stays outside the cloud. 4.18 (the old ring limit) is
-  // between Earth and the inner satellites, so dolly stopped inside the fleet.
-  MIN_ORBIT = BELT_OUTER + 1.35,
-  MAX_ORBIT = 84,
+  // Formed ring, enlarged and held off the globe. Earth is 3.5; the belt
+  // starts past 6 so the gap stays empty.
+  BELT_INNER = 6.15,
+  BELT_OUTER = 7.35,
+  // Close enough for the land dots to fill the frame, still outside Earth.
+  MIN_ORBIT = 4.22,
+  MAX_ORBIT = 64,
   UP = new THREE.Vector3(0, 1, 0);
 function fitDistance(w: number, h: number) {
   const framed = BELT_OUTER + 0.9;
