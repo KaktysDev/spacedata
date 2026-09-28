@@ -22,21 +22,39 @@ import {
   RING_INCLINATION_DEG,
   RING_LANES,
   RING_RAAN_DEG,
+  dawnDuskSunEcef,
   sunSyncInclination,
 } from "../lib/starcloud/network";
 
-test("satellites occupy every longitude bin instead of one meridian", () => {
+test("the shell is one dawn-dusk plane, tall and narrow", () => {
   const nodes = orbitalNodes(ORBIT_EPOCH_MS);
-  const bins = Array.from({ length: 12 }, () => 0);
+  expect(RING_INCLINATION_DEG).toBeCloseTo(sunSyncInclination(725), 6);
+  expect(RING_INCLINATION_DEG).toBeGreaterThan(98);
+  expect(RING_INCLINATION_DEG).toBeLessThan(99);
+  expect(RING_RAAN_DEG).toBeCloseTo(110, 3);
+  expect(RING_HALF_WIDTH_DEG).toBeLessThan(1);
+  expect(RING_LANES).toBe(8);
+  const sun = dawnDuskSunEcef();
+  const incl = (RING_INCLINATION_DEG * Math.PI) / 180;
+  const raan = (RING_RAAN_DEG * Math.PI) / 180;
+  const hx = Math.sin(raan) * Math.sin(incl);
+  const hy = -Math.cos(raan) * Math.sin(incl);
+  const hz = Math.cos(incl);
+  expect(hx * sun.x + hy * sun.y + hz * sun.z).toBeCloseTo(1, 6);
+  const meridians = new Map<number, number[]>();
   for (const node of nodes) {
     const lon = ((node.lon % 360) + 360) % 360;
-    bins[Math.min(11, Math.floor(lon / 30))]++;
+    const key = Math.round(lon / 2);
+    const group = meridians.get(key);
+    if (group) group.push(node.lat);
+    else meridians.set(key, [node.lat]);
   }
-  expect(bins.filter((count) => count > 0)).toHaveLength(12);
-  // A steep ring spends a little more time in some longitude bins than a
-  // uniform shell. One meridian would put nearly every satellite in one bin.
-  expect(Math.max(...bins)).toBeLessThan(NODE_COUNT * 0.36);
-  expect(Math.min(...bins)).toBeGreaterThan(100);
+  let stacks = 0;
+  for (const group of meridians.values()) {
+    if (group.length >= 200 && Math.max(...group) - Math.min(...group) > 12)
+      stacks++;
+  }
+  expect(stacks).toBeGreaterThan(2);
 });
 function planeOffsetDeg(node: { lat: number; lon: number }) {
   const lat = (node.lat * Math.PI) / 180,
@@ -77,81 +95,28 @@ function trackAngleDeg(node: { lat: number; lon: number }) {
     Math.PI
   );
 }
-test("the access ring keeps a ragged width, Canada crest, and meridian stacks", () => {
+test("the dawn-dusk shell stays narrow, poleward, and inside one altitude band", () => {
   const nodes = orbitalNodes(0);
   expect(nodes).toHaveLength(NODE_COUNT);
   expect(NODE_COUNT).toBe(8800);
-  expect(RING_INCLINATION_DEG).toBe(55);
-  expect(RING_HALF_WIDTH_DEG).toBe(10);
-  expect(RING_RAAN_DEG).toBe(170);
-  expect(RING_LANES).toBe(40);
   const lats = nodes.map((p) => p.lat);
   const alts = nodes.map((p) => p.altitudeKm);
   const offsets = nodes.map(planeOffsetDeg);
   const abs = offsets.map(Math.abs);
-  // Nominal half-width is 10°. Breathing and ragged placement pass that edge
-  // without opening a second shell.
-  expect(Math.max(...abs)).toBeGreaterThan(RING_HALF_WIDTH_DEG + 0.4);
-  expect(Math.max(...abs)).toBeLessThan(14.5);
-  expect(Math.max(...lats)).toBeGreaterThan(62);
-  expect(Math.max(...lats)).toBeLessThan(72);
-  // The opposite crest can be the narrow part of the breath, so it does not
-  // have to match the wide crest.
-  expect(Math.min(...lats)).toBeLessThan(-58);
-  expect(Math.min(...lats)).toBeGreaterThan(-72);
-  const crest = nodes.filter((n) => n.lat > 60);
-  expect(crest.length).toBeGreaterThan(40);
-  expect(crest.every((n) => n.lon > -145 && n.lon < -55)).toBe(true);
-  const sectorMax = Array.from({ length: 8 }, () => 0);
-  const sectorMin = Array.from({ length: 8 }, () => 90);
-  nodes.forEach((node, i) => {
-    let angle = trackAngleDeg(node);
-    if (angle < 0) angle += 360;
-    const sector = Math.min(7, Math.floor(angle / 45));
-    const off = Math.abs(offsets[i]);
-    sectorMax[sector] = Math.max(sectorMax[sector], off);
-    sectorMin[sector] = Math.min(sectorMin[sector], off);
-  });
-  for (let sector = 0; sector < 8; sector++) {
-    expect(sectorMax[sector]).toBeGreaterThan(6);
-    expect(sectorMin[sector]).toBeLessThan(2);
-  }
-  expect(Math.max(...sectorMax) - Math.min(...sectorMax)).toBeGreaterThan(1.5);
-  const columns = new Map<number, number[]>();
-  nodes.forEach((node, i) => {
-    const key = Math.round(trackAngleDeg(node) / 0.12);
-    const group = columns.get(key);
-    if (group) group.push(offsets[i]);
-    else columns.set(key, [offsets[i]]);
-  });
-  let stacks = 0;
-  for (const group of columns.values()) {
-    if (group.length < 8) continue;
-    if (Math.max(...group) - Math.min(...group) > 8) stacks++;
-  }
-  expect(stacks).toBeGreaterThan(15);
-  const north = nodes.filter(
-    (n) => n.lat > 48 && n.lon > -140 && n.lon < -60,
-  );
-  const meridians = new Map<number, number[]>();
-  for (const node of north) {
-    const key = Math.round(node.lon / 0.4);
-    const group = meridians.get(key);
-    if (group) group.push(node.lat);
-    else meridians.set(key, [node.lat]);
-  }
-  let vertical = 0;
-  for (const group of meridians.values()) {
-    if (group.length >= 6 && Math.max(...group) - Math.min(...group) > 8)
-      vertical++;
-  }
-  expect(vertical).toBeGreaterThan(2);
-  expect(Math.max(...alts) - Math.min(...alts)).toBeLessThan(20);
-  expect(Math.min(...alts)).toBeGreaterThan(710);
-  expect(Math.max(...alts)).toBeLessThan(740);
-  expect(new Set(nodes.map((p) => p.altitudeKm)).size).toBe(NODE_COUNT);
-  for (const p of nodes)
+  expect(Math.max(...abs)).toBeGreaterThan(0.2);
+  expect(Math.max(...abs)).toBeLessThanOrEqual(RING_HALF_WIDTH_DEG + 0.02);
+  expect(Math.max(...lats)).toBeGreaterThan(78);
+  expect(Math.max(...lats)).toBeLessThan(86);
+  expect(Math.min(...lats)).toBeLessThan(-78);
+  expect(Math.min(...lats)).toBeGreaterThan(-86);
+  expect(Math.max(...alts) - Math.min(...alts)).toBeLessThan(14);
+  expect(Math.min(...alts)).toBeGreaterThan(718);
+  expect(Math.max(...alts)).toBeLessThan(732);
+  expect(new Set(alts).size).toBe(NODE_COUNT);
+  for (const p of nodes) {
+    expect(p.band).toBe(0);
     expect(sunSyncInclination(p.altitudeKm)).toBeGreaterThan(97);
+  }
   expect(
     new Set(nodes.map((p) => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`)).size,
   ).toBe(NODE_COUNT);
@@ -162,8 +127,7 @@ test("the ring stays populated all the way around", () => {
   let maxGap = angles[0] + 360 - angles[angles.length - 1];
   for (let i = 1; i < angles.length; i++)
     maxGap = Math.max(maxGap, angles[i] - angles[i - 1]);
-  // A two-clump shell would leave a multi-degree empty arc.
-  expect(maxGap).toBeLessThan(2.6);
+  expect(maxGap).toBeLessThan(1);
 });
 test("ground and orbital routes leave the user independently", () => {
   const places = [
@@ -195,18 +159,13 @@ test("ground and orbital routes leave the user independently", () => {
         expect(r.uplinkKm).toBeLessThan(3000);
         expect(r.hops[0]).toBe(r.ingress);
         expect(r.hops.at(-1)).toBe(r.computeRelay);
-        expect(r.computeCraft.band).toBe(-1);
-        expect(laserClearsEarth(r.nodes[r.computeRelay], r.computeCraft)).toBe(
-          true,
-        );
-        expect(
-          opticalDistanceKm(r.nodes[r.computeRelay], r.computeCraft),
-        ).toBeLessThanOrEqual(4000);
-        expect(r.carrierLinkKm).toBeCloseTo(
-          opticalDistanceKm(r.nodes[r.computeRelay], r.computeCraft),
-        );
-        expect(r.hops.length).toBeGreaterThanOrEqual(2);
-        expect(r.hops.length).toBeLessThanOrEqual(12);
+        expect(r.computeCraft).toBe(r.nodes[r.computeRelay]);
+        expect(r.computeCraft.band).toBe(0);
+        expect(r.carrierLinkKm).toBe(0);
+        expect(r.laserKm).toBeGreaterThan(2500);
+        expect(r.laserKm).toBeLessThan(12000);
+        expect(r.hops.length).toBeGreaterThanOrEqual(3);
+        expect(r.hops.length).toBeLessThanOrEqual(8);
         expect(new Set(r.hops).size).toBe(r.hops.length);
         for (let i = 1; i < r.hops.length; i++) {
           expect(

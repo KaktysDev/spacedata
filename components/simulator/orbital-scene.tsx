@@ -42,7 +42,7 @@ type Props = {
   onReady: () => void;
 };
 const R = 3.5,
-  ORBIT_R = 5.68,
+  ORBIT_R = 6.22,
   UP = new THREE.Vector3(0, 1, 0);
 function displayRadius(altitudeKm: number) {
   return ORBIT_R + ((altitudeKm - 725) / 80) * 0.22;
@@ -205,13 +205,9 @@ export function OrbitalScene(props: Props) {
     el.prepend(renderer.domElement);
     const scene = new THREE.Scene(),
       camera = new THREE.PerspectiveCamera(43, 1, 0.03, 100);
-    // The crest is 55°N, 100°W. A camera on that radius looks along the orbit
-    // plane, so every longitude collapses into one silhouette and the eye
-    // reads the two lane-extremes as a pair of lines. 35°N, 100°W sits 20°
-    // south of the crest, over the central United States: the cross-track
-    // spread stays mostly in the picture plane (a north-south swath across
-    // Canada) while other longitudes separate into a ring.
-    const overview = position({ lat: 35, lon: -100 }, 1);
+    // Ascending node of the dawn-dusk plane. From here the shell is edge-on:
+    // a tall line on the terminator, the way the white-paper figure draws it.
+    const overview = position({ lat: 0, lon: RING_RAAN_DEG + 180 }, 1);
     const ringTilt = (RING_INCLINATION_DEG * Math.PI) / 180,
       ringNode = (RING_RAAN_DEG * Math.PI) / 180;
     const ringNormal = new THREE.Vector3(
@@ -246,16 +242,22 @@ export function OrbitalScene(props: Props) {
     controls.maxDistance = 38;
     controls.rotateSpeed = 0.45;
     controls.zoomSpeed = 0.6;
-    scene.add(new THREE.AmbientLight(0xffffff, 1.4));
-    const sun = new THREE.DirectionalLight(0xffffff, 3.5);
-    sun.position.set(-8, 10, 12);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+    const sun = new THREE.DirectionalLight(0xfff4e4, 3.2);
+    sun.position.copy(ringNormal).multiplyScalar(24);
     scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xffffff, 0.7);
-    fill.position.set(10, -4, -5);
+    const fill = new THREE.DirectionalLight(0x8899bb, 0.18);
+    fill.position.copy(ringNormal).multiplyScalar(-12);
     scene.add(fill);
     const earth = new THREE.Mesh(
       new THREE.SphereGeometry(R, 96, 64),
-      new THREE.MeshBasicMaterial({ color: 0x090909 }),
+      new THREE.ShaderMaterial({
+        uniforms: { sunDir: { value: ringNormal } },
+        vertexShader:
+          "varying vec3 w;void main(){w=normalize((modelMatrix*vec4(position,1.)).xyz);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}",
+        fragmentShader:
+          "uniform vec3 sunDir;varying vec3 w;void main(){float d=dot(normalize(w),normalize(sunDir));float day=smoothstep(-0.06,0.16,d);vec3 col=mix(vec3(0.012,0.014,0.02),vec3(0.11,0.115,0.12),day);gl_FragColor=vec4(col,1.);}",
+      }),
     );
     scene.add(earth);
     const atmosphere = new THREE.Mesh(
@@ -276,17 +278,23 @@ export function OrbitalScene(props: Props) {
       coordinates: THREE.Vector3[],
       size: number,
       opacity: number,
+      shade = false,
     ) =>
       new THREE.Points(
         new THREE.BufferGeometry().setFromPoints(coordinates),
         new THREE.ShaderMaterial({
           transparent: true,
           depthWrite: false,
-          uniforms: { size: { value: size }, opacity: { value: opacity } },
+          uniforms: {
+            size: { value: size },
+            opacity: { value: opacity },
+            sunDir: { value: ringNormal },
+            shade: { value: shade ? 1 : 0 },
+          },
           vertexShader:
-            "uniform float size;void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=size;}",
+            "uniform float size;uniform vec3 sunDir;uniform float shade;varying float day;void main(){vec3 n=normalize(position);day=shade>0.5?smoothstep(-0.04,0.2,dot(n,normalize(sunDir))):1.;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=size;}",
           fragmentShader:
-            "uniform float opacity;void main(){float d=length(gl_PointCoord-vec2(.5));if(d>.5)discard;gl_FragColor=vec4(vec3(1.),opacity*(1.-smoothstep(.3,.5,d)));}",
+            "uniform float opacity;varying float day;void main(){float d=length(gl_PointCoord-vec2(.5));if(d>.5)discard;float a=opacity*(1.-smoothstep(.3,.5,d))*mix(0.22,1.,day);gl_FragColor=vec4(vec3(mix(0.15,1.,day)),a);}",
         }),
       );
     fetch("/globe-land.json", { signal: abort.signal })
@@ -304,7 +312,8 @@ export function OrbitalScene(props: Props) {
             roundPoints(
               data.dots.map(([lon, lat]) => position({ lon, lat }, R + 0.004)),
               1.65 * renderer.getPixelRatio(),
-              0.42,
+              0.55,
+              true,
             ),
           );
           scene.add(
@@ -313,7 +322,8 @@ export function OrbitalScene(props: Props) {
                 position({ lon, lat }, R + 0.005),
               ),
               1.85 * renderer.getPixelRatio(),
-              0.8,
+              0.9,
+              true,
             ),
           );
           latest.current.onReady();
@@ -352,9 +362,12 @@ export function OrbitalScene(props: Props) {
     detailed.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     detailed.frustumCulled = false;
     scene.add(detailed);
+    const overviewMat = hardwareMat.clone();
+    overviewMat.emissive.setHex(0xffffff);
+    overviewMat.emissiveIntensity = 0.55;
     const distant = new THREE.InstancedMesh(
       satelliteOverviewGeometry(),
-      hardwareMat,
+      overviewMat,
       NODE_COUNT,
     );
     distant.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -431,7 +444,10 @@ export function OrbitalScene(props: Props) {
       riseTarget = new THREE.Vector3(),
       riseCamera = new THREE.Vector3();
     const idleCamera = camera.position.clone(),
-      idleTarget = new THREE.Vector3();
+      idleTarget = new THREE.Vector3(),
+      // Abeam side chosen on the way up. Kept so the reversed return path
+      // does not swap the camera to the other side of the shell.
+      sideReference = new THREE.Vector3();
     const motion = matchMedia("(prefers-reduced-motion: reduce)"),
       epoch = Date.now(),
       clockStart = performance.now();
@@ -440,7 +456,9 @@ export function OrbitalScene(props: Props) {
       camera: THREE.Vector3;
       target: THREE.Vector3;
     } | null = null;
-    let flightRestore: {
+    // Pose the follow camera held when the reply turned around. Blended into
+    // the live return pose so the look direction does not pop 180°.
+    let returnHandoff: {
       at: number;
       camera: THREE.Vector3;
       target: THREE.Vector3;
@@ -624,32 +642,93 @@ export function OrbitalScene(props: Props) {
       v: THREE.Vector3,
       scale: number,
     ) {
-      // Local +X is the array span. Lay it on the orbit normal so each craft
-      // covers its cross-track lane instead of turning edge-on to this view.
-      // A shared aim left the bright bus sub-pixel and only the line-of-sight
-      // stack read as a stroke.
+      // Dawn-dusk: panel normal (local Z) faces the sun, which is the orbit
+      // normal. The array span (local X) lies in the orbital plane, so the
+      // shell stays a thin terminator line instead of a wide cross-track band.
       radialAxis.copy(v).normalize();
-      acrossAxis.copy(ringNormal).addScaledVector(radialAxis, -ringNormal.dot(radialAxis));
-      if (acrossAxis.lengthSq() < 1e-8) acrossAxis.set(1, 0, 0);
-      acrossAxis.normalize();
-      alongAxis.crossVectors(radialAxis, acrossAxis).normalize();
-      craftBasis.makeBasis(acrossAxis, alongAxis, radialAxis);
+      acrossAxis.copy(ringNormal);
+      alongAxis.crossVectors(acrossAxis, radialAxis);
+      if (alongAxis.lengthSq() < 1e-8) alongAxis.crossVectors(acrossAxis, UP);
+      alongAxis.normalize();
+      radialAxis.crossVectors(alongAxis, acrossAxis).normalize();
+      craftBasis.makeBasis(alongAxis, radialAxis, acrossAxis);
       matrix.quaternion.setFromRotationMatrix(craftBasis);
       matrix.position.copy(v);
       matrix.scale.setScalar(scale);
       matrix.updateMatrix();
       instance.setMatrixAt(index, matrix.matrix);
     }
-    function cameraBetween(a: THREE.Vector3, b: THREE.Vector3, t: number) {
-      const q = new THREE.Quaternion().setFromUnitVectors(
-        a.clone().normalize(),
-        b.clone().normalize(),
+    function samplePath(from: THREE.Vector3, to: THREE.Vector3, t: number) {
+      const minR = R + 1.45;
+      const ax = to.x - from.x,
+        ay = to.y - from.y,
+        az = to.z - from.z;
+      const lenSq = ax * ax + ay * ay + az * az;
+      if (lenSq < 1e-12) return from.clone();
+      const closestT = THREE.MathUtils.clamp(
+        -(from.x * ax + from.y * ay + from.z * az) / lenSq,
+        0,
+        1,
       );
-      camera.position
-        .copy(a)
-        .normalize()
-        .applyQuaternion(new THREE.Quaternion().slerp(q, t))
-        .multiplyScalar(THREE.MathUtils.lerp(a.length(), b.length(), t));
+      const cx = from.x + ax * closestT,
+        cy = from.y + ay * closestT,
+        cz = from.z + az * closestT;
+      const closestLen = Math.hypot(cx, cy, cz);
+      // World-space lerp. A radial slerp ends on the ray through the satellite
+      // and never settles on the offset side pose.
+      if (closestLen >= minR) return from.clone().lerp(to, t);
+      // Chord would enter the keep-out sphere. Bulge it, in world space, just
+      // outside R+1.45. Endpoints stay exact so a blend can hand off without a pop.
+      let dx: number, dy: number, dz: number;
+      if (closestLen > 1e-4) {
+        dx = cx / closestLen;
+        dy = cy / closestLen;
+        dz = cz / closestLen;
+      } else {
+        const px = from.y * to.z - from.z * to.y,
+          py = from.z * to.x - from.x * to.z,
+          pz = from.x * to.y - from.y * to.x,
+          pl = Math.hypot(px, py, pz);
+        if (pl > 1e-4) {
+          dx = px / pl;
+          dy = py / pl;
+          dz = pz / pl;
+        } else {
+          dx = 0;
+          dy = 1;
+          dz = 0;
+        }
+      }
+      const limit = minR + 0.08;
+      const clearance = (radius: number, s: number) => {
+        const u = 1 - s,
+          w = 2 * u * s * radius;
+        return Math.hypot(
+          u * u * from.x + w * dx + s * s * to.x,
+          u * u * from.y + w * dy + s * s * to.y,
+          u * u * from.z + w * dz + s * s * to.z,
+        );
+      };
+      let radius = limit;
+      for (let pass = 0; pass < 14 && radius < 80; pass++) {
+        let deficit = 0;
+        for (let i = 1; i < 64; i++) {
+          const d = clearance(radius, i / 64);
+          if (d < limit) deficit = Math.max(deficit, limit - d);
+        }
+        if (deficit === 0) break;
+        radius += deficit + 0.05;
+      }
+      const u = 1 - t,
+        w = 2 * u * t * radius;
+      return new THREE.Vector3(
+        u * u * from.x + w * dx + t * t * to.x,
+        u * u * from.y + w * dy + t * t * to.y,
+        u * u * from.z + w * dz + t * t * to.z,
+      );
+    }
+    function cameraBetween(a: THREE.Vector3, b: THREE.Vector3, t: number) {
+      camera.position.copy(samplePath(a, b, t));
     }
     function blendPose(
       fromCamera: THREE.Vector3,
@@ -658,40 +737,100 @@ export function OrbitalScene(props: Props) {
       toTarget: THREE.Vector3,
       t: number,
     ) {
-      cameraBetween(fromCamera, toCamera, smooth(t));
-      controls.target.lerpVectors(fromTarget, toTarget, smooth(t));
+      const k = smooth(t);
+      if (k >= 1) {
+        camera.position.copy(toCamera);
+        controls.target.copy(toTarget);
+        return;
+      }
+      camera.position.copy(samplePath(fromCamera, toCamera, k));
+      controls.target.lerpVectors(fromTarget, toTarget, k);
     }
     function pathTangent(points: THREE.Vector3[], point: THREE.Vector3) {
       if (points.length < 2) return new THREE.Vector3(1, 0, 0);
-      let best = 1,
+      let best = -1,
         bestD = Infinity;
+      const scratch = new THREE.Vector3();
       for (let i = 1; i < points.length; i++) {
-        const d = point.distanceTo(points[i]);
+        const a = points[i - 1],
+          b = points[i],
+          ab = b.clone().sub(a);
+        const len2 = ab.lengthSq();
+        // A repeated waypoint is a vertex. Using it would flip the tangent 180°.
+        if (len2 < 1e-8) continue;
+        const span = THREE.MathUtils.clamp(
+          scratch.copy(point).sub(a).dot(ab) / len2,
+          0,
+          1,
+        );
+        const d = scratch.copy(a).lerp(b, span).distanceToSquared(point);
         if (d < bestD) {
           bestD = d;
           best = i;
         }
       }
-      const delta = points[best].clone().sub(points[best - 1]);
-      return delta.lengthSq() > 1e-8
-        ? delta.normalize()
-        : points[1].clone().sub(points[0]).normalize();
+      if (best < 1) return new THREE.Vector3(1, 0, 0);
+      return points[best].clone().sub(points[best - 1]).normalize();
     }
-    function sidePose(point: THREE.Vector3) {
+    function sidePose(point: THREE.Vector3, points: THREE.Vector3[]) {
       const radial = point.clone().normalize();
-      const tangent = pathTangent(laserPath, point);
+      const tangent = pathTangent(points.length > 1 ? points : [point, point.clone().add(UP)], point);
+      tangent.addScaledVector(radial, -tangent.dot(radial));
+      if (tangent.lengthSq() < 1e-8) tangent.crossVectors(UP, radial);
+      if (tangent.lengthSq() < 1e-8) tangent.set(1, 0, 0);
+      tangent.normalize();
       const side = new THREE.Vector3().crossVectors(radial, tangent);
       if (side.lengthSq() < 1e-6) side.crossVectors(radial, UP);
       side.normalize();
+      if (sideReference.lengthSq() > 0.25 && side.dot(sideReference) < 0)
+        side.negate();
+      sideReference.copy(side);
+      // Look stays in the local horizontal plane, so Earth stays outside the frame.
+      const radialOffset = 0.55;
       return {
         camera: point
           .clone()
-          .addScaledVector(side, 1.8)
-          .addScaledVector(radial, 0.25),
+          .addScaledVector(side, 2.4)
+          .addScaledVector(radial, radialOffset),
         target: point
           .clone()
-          .addScaledVector(tangent, 2.4)
-          .addScaledVector(radial, 0.25),
+          .addScaledVector(tangent, 2.2)
+          .addScaledVector(radial, radialOffset),
+      };
+    }
+    function outwardPose(point: THREE.Vector3) {
+      const radial = point.clone().normalize();
+      const lateral = new THREE.Vector3().crossVectors(radial, UP);
+      if (lateral.lengthSq() < 1e-6) lateral.set(1, 0, 0);
+      else lateral.normalize();
+      if (sideReference.lengthSq() > 0.25 && lateral.dot(sideReference) < 0)
+        lateral.negate();
+      const cameraPos = point
+        .clone()
+        .addScaledVector(radial, 4.4)
+        .addScaledVector(lateral, 2.2);
+      if (cameraPos.length() < R + 1.45) cameraPos.setLength(R + 1.45);
+      return { camera: cameraPos, target: point.clone() };
+    }
+    function trackedPose(
+      point: THREE.Vector3,
+      points: THREE.Vector3[],
+      elapsed: number,
+    ) {
+      const side = sidePose(point, points);
+      // The abeam pose is for the shell. Once the reply is back near the
+      // surface, pull outward and look at the dot itself.
+      if (elapsed < 10400) return side;
+      const inner = R + 0.8,
+        outer = R + 1.6;
+      const alt = point.length();
+      if (alt >= outer) return side;
+      const pulled = outwardPose(point);
+      if (alt <= inner) return pulled;
+      const k = smooth((outer - alt) / (outer - inner));
+      return {
+        camera: samplePath(side.camera, pulled.camera, k),
+        target: side.target.clone().lerp(pulled.target, k),
       };
     }
     function render(now: number) {
@@ -700,6 +839,8 @@ export function OrbitalScene(props: Props) {
       const p = latest.current,
         active = !!p.flight;
       hardwareMat.color.setScalar(active ? 0.28 : 1);
+      overviewMat.color.setScalar(active ? 0.35 : 1);
+      overviewMat.emissiveIntensity = active ? 0.12 : 0.55;
       const networkTime =
         p.flight?.id ?? (motion.matches ? epoch : epoch + now - clockStart);
       const nextRoute = `${p.provider},${p.origin.lat},${p.origin.lon},${p.site.name},${p.flight?.id ?? 0}`;
@@ -784,14 +925,8 @@ export function OrbitalScene(props: Props) {
             position(network.uplinkAnchor, R + 0.016),
             vectors[network.ingress].clone(),
           ];
-          computeVector = position(
-            network.computeCraft,
-            displayRadius(network.computeCraft.altitudeKm),
-          );
-          laserPath = [
-            ...network.hops.map((i) => vectors[i].clone()),
-            computeVector.clone(),
-          ];
+          laserPath = network.hops.map((i) => vectors[i].clone());
+          computeVector = laserPath[laserPath.length - 1].clone();
           returnPath = [
             ...laserPath.slice().reverse(),
             ...uplink.slice().reverse().slice(1),
@@ -830,22 +965,22 @@ export function OrbitalScene(props: Props) {
             UP,
             gateway.position.clone().normalize(),
           );
-          const hopCount = Math.min(network.hops.length, 16);
-          network.hops.slice(0, hopCount).forEach((index, i) =>
-            orient(
-              selected,
-              i,
-              vectors[index],
-              i === hopCount - 1 ? 0.56 : 0.39,
-            ),
+          const relayHops = network.hops.slice(0, -1);
+          const hopCount = Math.min(relayHops.length, 16);
+          relayHops.slice(0, hopCount).forEach((index, i) =>
+            orient(selected, i, vectors[index], 0.39),
           );
           selected.count = hopCount;
           selected.instanceMatrix.needsUpdate = true;
           odcCraft.position.copy(computeVector);
-          odcCraft.quaternion.setFromUnitVectors(
-            new THREE.Vector3(0, 0, 1),
-            computeVector.clone().normalize(),
-          );
+          radialAxis.copy(computeVector).normalize();
+          acrossAxis.copy(ringNormal);
+          alongAxis.crossVectors(acrossAxis, radialAxis);
+          if (alongAxis.lengthSq() < 1e-8) alongAxis.crossVectors(acrossAxis, UP);
+          alongAxis.normalize();
+          radialAxis.crossVectors(alongAxis, acrossAxis).normalize();
+          craftBasis.makeBasis(alongAxis, radialAxis, acrossAxis);
+          odcCraft.quaternion.setFromRotationMatrix(craftBasis);
           computeBrand.position
             .copy(computeVector)
             .addScaledVector(computeVector.clone().normalize(), 0.28);
@@ -894,17 +1029,15 @@ export function OrbitalScene(props: Props) {
           const riseSide = new THREE.Vector3().crossVectors(radial, UP);
           if (riseSide.lengthSq() < 1e-6) riseSide.set(1, 0, 0);
           riseSide.normalize();
-          const uplinkHeight = vectors[network.ingress].length() - R;
-          const groundMid =
-            groundPath[Math.floor(groundPath.length / 2)] ?? anchor;
+          const uplinkHeight = Math.max(
+            0.9,
+            vectors[network.ingress].length() - R,
+          );
           riseCamera = radial
             .clone()
-            .multiplyScalar(R + uplinkHeight * 0.7)
-            .addScaledVector(riseSide, 4.6);
-          riseTarget = anchor
-            .clone()
-            .lerp(vectors[network.ingress], 0.5)
-            .lerp(groundMid, 0.28);
+            .multiplyScalar(R + uplinkHeight * 0.72)
+            .addScaledVector(riseSide, Math.min(2.4, uplinkHeight * 0.9));
+          riseTarget = anchor.clone().lerp(vectors[network.ingress], 0.62);
         }
       }
       if (now - lastDetailTime > 400) {
@@ -914,7 +1047,7 @@ export function OrbitalScene(props: Props) {
         // 0.11 × the 0.56 array span is 0.062. At the display radius a
         // half-degree of cross-track is about 0.05, so neighbors still read
         // as separate craft where the band is ragged.
-        const scale = 0.11;
+        const scale = 0.2;
         const focal = height / (2 * Math.tan((43 * Math.PI) / 360));
         const candidates = vectors
           .map((v, i) => ({ i, distance: v.distanceTo(camera.position) }))
@@ -971,32 +1104,51 @@ export function OrbitalScene(props: Props) {
         : answerAt === null
           ? Math.min(rawElapsed, 10399)
           : Math.max(0, rawElapsed - Math.max(0, answerAt - 10400));
+      let spacePath = laserPath;
+      if (active && network) {
+        const ms = visualElapsed;
+        if (ms < 2200) follow(groundPath, ms / 2200, groundDot.position);
+        else if (ms < 10400) groundDot.position.copy(groundPath.at(-1)!);
+        else follow(groundPath, 1 - (ms - 10400) / 4400, groundDot.position);
+        if (ms < 2800) {
+          const feederMs = feederPath.length ? 900 : 0;
+          if (feederMs && ms < feederMs) {
+            spacePath = feederPath;
+            follow(feederPath, ms / feederMs, spaceDot.position);
+          } else {
+            spacePath = uplink;
+            follow(
+              uplink,
+              (ms - feederMs) / (2800 - feederMs),
+              spaceDot.position,
+            );
+          }
+        } else if (ms < 6200) {
+          spacePath = laserPath;
+          follow(laserPath, (ms - 2800) / 3400, spaceDot.position);
+        } else if (ms < 10400) {
+          spacePath = laserPath;
+          spaceDot.position.copy(laserPath.at(-1)!);
+        } else {
+          spacePath = returnPath;
+          follow(returnPath, (ms - 10400) / 4400, spaceDot.position);
+        }
+        spaceDot.scale.setScalar(
+          ms >= 6200 && ms < 10400 ? 1 + Math.sin(now / 160) * 0.25 : 1,
+        );
+      }
       if (p.flight) {
         if (lastFlight !== p.flight.id) {
           lastFlight = p.flight.id;
           idleCamera.copy(camera.position);
           idleTarget.copy(controls.target);
+          sideReference.set(0, 0, 0);
           returning = null;
           focusing = null;
-          flightRestore = null;
+          returnHandoff = null;
         }
         if (!p.flight.reduced) {
-          if (!flightRestore && visualElapsed >= 10400) {
-            flightRestore = {
-              at: now,
-              camera: camera.position.clone(),
-              target: controls.target.clone(),
-            };
-          }
-          if (flightRestore) {
-            blendPose(
-              flightRestore.camera,
-              flightRestore.target,
-              idleCamera,
-              idleTarget,
-              (now - flightRestore.at) / 1800,
-            );
-          } else if (visualElapsed < 2400) {
+          if (visualElapsed < 2400) {
             blendPose(
               idleCamera,
               idleTarget,
@@ -1012,25 +1164,50 @@ export function OrbitalScene(props: Props) {
               riseTarget,
               (visualElapsed - 2400) / 2400,
             );
-          } else if (network) {
-            const side = sidePose(spaceDot.position);
-            if (visualElapsed < 6800)
+          } else if (network && spacePath.length > 1) {
+            const pose = trackedPose(
+              spaceDot.position,
+              spacePath,
+              visualElapsed,
+            );
+            const followBlend = (visualElapsed - 4800) / 2000;
+            if (followBlend < 1)
               blendPose(
                 riseCamera,
                 riseTarget,
-                side.camera,
-                side.target,
-                (visualElapsed - 4800) / 2000,
+                pose.camera,
+                pose.target,
+                followBlend,
               );
-            else {
-              camera.position.copy(side.camera);
-              controls.target.copy(side.target);
+            else if (visualElapsed >= 10400) {
+              if (!returnHandoff)
+                returnHandoff = {
+                  at: now,
+                  camera: camera.position.clone(),
+                  target: controls.target.clone(),
+                };
+              const handoff = (now - returnHandoff.at) / 700;
+              if (handoff < 1)
+                blendPose(
+                  returnHandoff.camera,
+                  returnHandoff.target,
+                  pose.camera,
+                  pose.target,
+                  handoff,
+                );
+              else {
+                camera.position.copy(pose.camera);
+                controls.target.copy(pose.target);
+              }
+            } else {
+              camera.position.copy(pose.camera);
+              controls.target.copy(pose.target);
             }
           }
         }
       } else if (lastFlight) {
         lastFlight = 0;
-        flightRestore = null;
+        returnHandoff = null;
         if (
           camera.position.distanceTo(idleCamera) > 0.01 ||
           controls.target.distanceTo(idleTarget) > 0.01
@@ -1057,7 +1234,8 @@ export function OrbitalScene(props: Props) {
       controls.enableDamping = controls.enabled;
       controls.minDistance = active ? 1.7 : 4.18;
       camera.setViewOffset(width, height, 0, -height * offset, width, height);
-      controls.update();
+      if (controls.enabled) controls.update();
+      else camera.lookAt(controls.target);
       camera.updateMatrixWorld();
       routes.visible = active;
       selected.visible = active;
@@ -1065,30 +1243,7 @@ export function OrbitalScene(props: Props) {
       gateway.visible = active && feederPath.length > 0;
       carrier.visible = active;
       groundDot.visible = spaceDot.visible = active;
-      if (active && network) {
-        const ms = visualElapsed;
-        orbitalGroup.visible = true;
-        if (ms < 2200) follow(groundPath, ms / 2200, groundDot.position);
-        else if (ms < 10400) groundDot.position.copy(groundPath.at(-1)!);
-        else follow(groundPath, 1 - (ms - 10400) / 4400, groundDot.position);
-        if (ms < 2800) {
-          const feederMs = feederPath.length ? 900 : 0;
-          if (feederMs && ms < feederMs)
-            follow(feederPath, ms / feederMs, spaceDot.position);
-          else
-            follow(
-              uplink,
-              (ms - feederMs) / (2800 - feederMs),
-              spaceDot.position,
-            );
-        } else if (ms < 6200)
-          follow(laserPath, (ms - 2800) / 3400, spaceDot.position);
-        else if (ms < 10400) spaceDot.position.copy(laserPath.at(-1)!);
-        else follow(returnPath, (ms - 10400) / 4400, spaceDot.position);
-        spaceDot.scale.setScalar(
-          ms >= 6200 && ms < 10400 ? 1 + Math.sin(now / 160) * 0.25 : 1,
-        );
-      }
+      if (active) orbitalGroup.visible = true;
       occupied.length = 0;
       const labelTime = p.flight ? visualElapsed : 0;
       project(pin.current, originMarker.position, !active, 0, 0);
@@ -1096,7 +1251,7 @@ export function OrbitalScene(props: Props) {
         groundLabel.current,
         dc.position,
         !active || labelTime < 2200,
-        width < 700 ? -105 : -155,
+        width < 700 ? -70 : -96,
         -30,
       );
       if (network) {
@@ -1158,17 +1313,13 @@ export function OrbitalScene(props: Props) {
       </button>
       <div ref={groundLabel} className="scene-label ground-label">
         <div className="label-card" key={props.provider}>
-          <div className="datacenter-brand">
-            <span className="datacenter-mark">
-              <ProviderLogo provider={props.provider} />
-            </span>
-            <span className="datacenter-id">
-              {PROVIDERS[props.provider].company}
-              <small>{props.site.kind}</small>
-            </span>
-          </div>
-          <strong>{props.site.name}</strong>
-          <span className="label-caption">Reference location</span>
+          <span className="datacenter-mark">
+            <ProviderLogo provider={props.provider} />
+          </span>
+          <span className="datacenter-id">
+            <strong>{props.site.name}</strong>
+            <small>{PROVIDERS[props.provider].company}</small>
+          </span>
         </div>
       </div>
       <svg ref={leaderSvg} className="site-leader" aria-hidden="true">
