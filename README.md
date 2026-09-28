@@ -1,4 +1,4 @@
-# Spacedata
+# SpaceVision
 
 A minimal 3D experiment following one AI prompt across a ground route and a Starcloud-inspired orbital route. Drag the Earth, hold and move the origin pin, choose a provider, and send a question. A camera journey ends in a blurred comparison of electricity cost, cooling water, network round-trip time and facility energy. The same real AI workload powers both modeled scenarios.
 

@@ -219,9 +219,9 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         onReady={onReady}
       />
       <header className="site-header">
-        <Link href="/" className="wordmark" aria-label="Spacedata home">
+        <Link href="/" className="wordmark" aria-label="SpaceVision home">
           <span className="brand-orbit" />
-          spacedata<span className="wordmark-dot">.</span>
+          SpaceVision<span className="wordmark-dot">.</span>
         </Link>
         <button
           className="about-button"

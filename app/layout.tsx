@@ -4,7 +4,8 @@ import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Spacedata — A thought. Two paths.",
+  title: "SpaceVision — A thought. Two paths.",
+  applicationName: "SpaceVision",
   description:
     "Follow your AI prompt around Earth and into orbit. Compare measured AI usage with transparent infrastructure scenarios.",
 };

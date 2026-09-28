@@ -37,7 +37,7 @@ export async function GET(request: Request) {
   const response = await fetch(url, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "Spacedata/1.0 (https://spacedata.vercel.app)",
+      "User-Agent": "SpaceVision/1.0 (https://spacedata.vercel.app)",
     },
     next: { revalidate: 3600 },
     signal: AbortSignal.timeout(8000),
