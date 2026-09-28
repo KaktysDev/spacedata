@@ -2,23 +2,25 @@ import { distanceKm, type Location } from "./catalog";
 
 export const EARTH_KM = 6371,
   ALTITUDE_KM = 550;
-// Illustrative shell inside the 600–850 km dawn-dusk family from the 2026 FCC
-// filing. The 2024 paper selects the orbit type and does not fix this altitude.
+// Reference altitude for the sun-synchronous plane used by routing and the
+// fixed dawn-dusk sun. The drawn fleet is not confined to this altitude.
 export const SHELL_ALTITUDE_KM = 725;
+export const SHELL_ALTITUDE_MIN_KM = 420;
+export const SHELL_ALTITUDE_MAX_KM = 1720;
 export const SHELL_ALTITUDES_KM = [SHELL_ALTITUDE_KM] as const;
 export const BAND_COUNT = 1,
   NODES_PER_BAND = 8800;
 export const NODE_COUNT = BAND_COUNT * NODES_PER_BAND;
 const MU = 398600.4418,
   J2 = 0.00108262668;
-// Sun-synchronous inclination at the shell altitude. Retrograde, so the plane
-// precesses once per year and can stay perpendicular to the sun.
+// Sun-synchronous inclination at the reference altitude. Retrograde, so the
+// reference plane can stay perpendicular to the sun. Individual spacecraft
+// are spread far from this plane.
 export const RING_INCLINATION_DEG = sunSyncInclination(SHELL_ALTITUDE_KM);
-// Narrow cross-track half-width. The FCC filing asks for narrow shells. Lanes
-// that share one argument of latitude then stack on the terminator instead of
-// spreading into an east-west ribbon.
-export const RING_HALF_WIDTH_DEG = 0.42;
-export const RING_LANES = 8;
+// Full inclination width centered on the reference plane. ±50° plus a full
+// circle of ascending nodes fills a volume instead of a flat ring.
+export const INCLINATION_SPREAD_DEG = 100;
+export const RAAN_SPREAD_DEG = 360;
 // Dawn-dusk means the orbit normal is the sun direction, so the plane is the
 // terminator. 20°E is a fixed subsolar longitude chosen so the lit hemisphere
 // matches the white-paper figure (Africa and Europe in daylight). It is not a
@@ -279,7 +281,11 @@ export function groundRoute(
   return { points, stops, km, rttMs: ((2 * km) / 200000) * 1000 + 10 };
 }
 
-const PER_LANE = NODE_COUNT / RING_LANES;
+// 20 inclination bins × 20 ascending-node bins × 22 along-track bins = 8,800.
+const INCL_BINS = 20,
+  RAAN_BINS = 20,
+  ALONG_BINS = 22,
+  ALT_BINS = 16;
 function ribbonPoint(u: number, inclination: number, raan: number, across: number) {
   const cosO = Math.cos(raan),
     sinO = Math.sin(raan),
@@ -311,41 +317,43 @@ function ribbonPoint(u: number, inclination: number, raan: number, across: numbe
   };
 }
 export function orbitalNodes(at: number): OrbitalNode[] {
-  const inclination = RING_INCLINATION_DEG * rad,
-    raan = RING_RAAN_DEG * rad,
-    halfWidth = RING_HALF_WIDTH_DEG * rad,
-    slot = (2 * Math.PI) / PER_LANE;
+  const incl0 = RING_INCLINATION_DEG - INCLINATION_SPREAD_DEG / 2;
+  const altSpan = SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM;
   return Array.from({ length: NODE_COUNT }, (_, i) => {
-    const lane = i % RING_LANES,
-      along = Math.floor(i / RING_LANES);
-    // A few kilometers of scatter inside one shell, still inside 600–850 km.
+    const inclBin = i % INCL_BINS;
+    const raanBin = Math.floor(i / INCL_BINS) % RAAN_BINS;
+    const alongBin = Math.floor(i / (INCL_BINS * RAAN_BINS));
+    // Jitter stays inside the cell, so neighbors cannot fall on top of each other.
+    const inclJ = (orbitalSeed(i, 2) - 0.5) * 0.7;
+    const raanJ = (orbitalSeed(i, 4) - 0.5) * 0.7;
+    const alongJ = (orbitalSeed(i, 3) - 0.5) * 0.7;
+    const inclinationDeg = Math.min(
+      179,
+      Math.max(
+        1,
+        incl0 +
+          ((inclBin + 0.5 + inclJ) / INCL_BINS) * INCLINATION_SPREAD_DEG,
+      ),
+    );
+    const raanDeg =
+      RING_RAAN_DEG +
+      ((raanBin + 0.5 + raanJ) / RAAN_BINS) * RAAN_SPREAD_DEG;
+    const altitudeSlot =
+      ((inclBin * 3 + raanBin * 5 + alongBin * 7) % ALT_BINS) +
+      orbitalSeed(i, 1) * 0.7 +
+      ((i + 0.5) / NODE_COUNT) * 0.2;
     const altitudeKm =
-      SHELL_ALTITUDE_KM +
-      ((i + orbitalSeed(i, 1) * 0.999) / NODE_COUNT - 0.5) * 12;
+      SHELL_ALTITUDE_MIN_KM + (altitudeSlot / ALT_BINS) * altSpan;
     const period = orbitalPeriodMs(altitudeKm);
     let turns = ((at - ORBIT_EPOCH_MS) % period) / period;
     if (turns < 0) turns += 1;
-    // Every lane in a slot shares one argument of latitude, so the craft stack
-    // on the terminator longitude instead of painting a wide ribbon. A small
-    // along-track jitter keeps the shell from looking like a ruled grid.
     const u =
-      turns * Math.PI * 2 +
-      along * slot +
-      (orbitalSeed(i, 3) - 0.5) * slot * 0.15;
-    const laneFrac = (lane + 0.5) / RING_LANES - 0.5;
-    const across =
-      laneFrac * 2 * halfWidth * 0.82 +
-      (orbitalSeed(i, 4) - 0.5) * halfWidth * 0.16;
+      (turns + (alongBin + 0.5 + alongJ) / ALONG_BINS) * Math.PI * 2;
     return {
-      ...ribbonPoint(
-        u,
-        inclination,
-        raan,
-        Math.max(-halfWidth, Math.min(halfWidth, across)),
-      ),
+      ...ribbonPoint(u, inclinationDeg * rad, raanDeg * rad, 0),
       altitudeKm,
       band: 0,
-      slot: along,
+      slot: alongBin,
     };
   });
 }
@@ -396,58 +404,30 @@ export type OrbitalRoute = {
   laserKm: number;
   rttMs: number;
 };
-function trackAngleRad(node: Location) {
-  const lat = node.lat * rad,
-    lon = node.lon * rad,
-    incl = RING_INCLINATION_DEG * rad,
-    raan = RING_RAAN_DEG * rad;
-  const ex = Math.cos(lat) * Math.cos(lon),
-    ey = Math.cos(lat) * Math.sin(lon),
-    ez = Math.sin(lat);
-  const hx = Math.sin(raan) * Math.sin(incl),
-    hy = -Math.cos(raan) * Math.sin(incl),
-    hz = Math.cos(incl);
-  const dot = ex * hx + ey * hy + ez * hz;
-  const px = ex - dot * hx,
-    py = ey - dot * hy,
-    pz = ez - dot * hz;
-  const e1x = Math.cos(raan),
-    e1y = Math.sin(raan);
-  const e2x = -hz * e1y,
-    e2y = hz * e1x,
-    e2z = hx * e1y - hy * e1x;
-  return Math.atan2(px * e2x + py * e2y + pz * e2z, px * e1x + py * e1y);
-}
-function aheadRad(from: number, to: number) {
-  let d = to - from;
-  while (d <= -Math.PI) d += 2 * Math.PI;
-  while (d > Math.PI) d -= 2 * Math.PI;
-  return d;
-}
 /**
- * Optical ISLs along the dawn-dusk shell. Each hop uses the longest Earth-clear
- * link that still aims at the compute node and stays inside the 4,000 km
- * terminal reach. The compute node is another spacecraft on this shell, about
- * 70° ahead, not a second orbit.
+ * Optical ISLs through the volumetric shell. The compute craft sits several
+ * thousand kilometres from the uplink, and each hop is the Earth-clear step
+ * inside 4,000 km that closes the most of that gap.
  */
 function laserRelayToCompute(nodes: OrbitalNode[], ingress: number) {
-  const angles = nodes.map(trackAngleRad);
-  const target = angles[ingress] + (70 * Math.PI) / 180;
-  let goal = ingress,
-    best = Infinity;
+  let goal = -1,
+    goalScore = Infinity;
   for (let i = 0; i < nodes.length; i++) {
-    const miss = Math.abs(aheadRad(target, angles[i]));
-    if (miss < best) {
-      best = miss;
+    if (i === ingress) continue;
+    const dist = opticalDistanceKm(nodes[ingress], nodes[i]);
+    if (dist < 5500 || dist > 9500) continue;
+    const score = Math.abs(dist - 7200);
+    if (score < goalScore) {
+      goalScore = score;
       goal = i;
     }
   }
+  if (goal < 0) throw new Error("No optical path to compute");
   const hops = [ingress];
   let km = 0;
   const seen = new Set<number>([ingress]);
   for (let guard = 0; guard < 8 && hops[hops.length - 1] !== goal; guard++) {
     const cur = hops[hops.length - 1];
-    const remaining = aheadRad(angles[cur], angles[goal]);
     const goalDist = opticalDistanceKm(nodes[cur], nodes[goal]);
     if (
       goalDist > 40 &&
@@ -459,16 +439,15 @@ function laserRelayToCompute(nodes: OrbitalNode[], ingress: number) {
       break;
     }
     let pick = -1,
-      pickAdvance = -1;
+      bestRemain = goalDist;
     for (let i = 0; i < nodes.length; i++) {
       if (seen.has(i)) continue;
-      const adv = aheadRad(angles[cur], angles[i]);
-      if (adv <= 0.002 || adv > remaining + 0.01) continue;
       const dist = opticalDistanceKm(nodes[cur], nodes[i]);
-      if (dist <= 40 || dist > MAX_LASER_KM) continue;
+      if (dist <= 200 || dist > MAX_LASER_KM) continue;
       if (!laserClearsEarth(nodes[cur], nodes[i])) continue;
-      if (adv > pickAdvance) {
-        pickAdvance = adv;
+      const remain = opticalDistanceKm(nodes[i], nodes[goal]);
+      if (remain < bestRemain - 100) {
+        bestRemain = remain;
         pick = i;
       }
     }
@@ -486,7 +465,7 @@ function laserRelayToCompute(nodes: OrbitalNode[], ingress: number) {
  * Ground: fiber to the provider, then back along that path.
  * Orbit: RF uplink when a shell spacecraft is above the elevation mask;
  * otherwise a feeder to a land gateway, then the uplink. Optical links then
- * run along this dawn-dusk shell to a compute spacecraft on the same plane.
+ * cross the volumetric shell to a compute spacecraft a few thousand kilometres away.
  * The reply retraces that path and stops at the user.
  */
 export function routeAt(
