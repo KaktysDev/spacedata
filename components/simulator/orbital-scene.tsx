@@ -285,37 +285,23 @@ export function OrbitalScene(props: Props) {
     scene.add(atmosphere);
     const abort = new AbortController();
     let disposed = false;
-    const mapPointMaterials: THREE.ShaderMaterial[] = [];
     const roundPoints = (
       coordinates: THREE.Vector3[],
       size: number,
       opacity: number,
-      trackGlobe = false,
-    ) => {
-      const material = new THREE.ShaderMaterial({
-        transparent: true,
-        depthWrite: false,
-        uniforms: {
-          size: { value: size },
-          opacity: { value: opacity },
-          // 1 at the idle camera. Grows as the camera approaches so land
-          // marks keep their size on the globe instead of shrinking to specks.
-          cover: { value: 1 },
-        },
-        vertexShader:
-          "uniform float size;uniform float cover;void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=size*cover;}",
-        fragmentShader:
-          "uniform float opacity;void main(){float d=length(gl_PointCoord-vec2(.5));if(d>.5)discard;gl_FragColor=vec4(vec3(1.),opacity*(1.-smoothstep(.3,.5,d)));}",
-      });
-      if (trackGlobe) {
-        material.userData.baseOpacity = opacity;
-        mapPointMaterials.push(material);
-      }
-      return new THREE.Points(
+    ) =>
+      new THREE.Points(
         new THREE.BufferGeometry().setFromPoints(coordinates),
-        material,
+        new THREE.ShaderMaterial({
+          transparent: true,
+          depthWrite: false,
+          uniforms: { size: { value: size }, opacity: { value: opacity } },
+          vertexShader:
+            "uniform float size;void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=size;}",
+          fragmentShader:
+            "uniform float opacity;void main(){float d=length(gl_PointCoord-vec2(.5));if(d>.5)discard;gl_FragColor=vec4(vec3(1.),opacity*(1.-smoothstep(.3,.5,d)));}",
+        }),
       );
-    };
     fetch("/globe-land.json", { signal: abort.signal })
       .then((r) => {
         if (!r.ok) throw Error("map");
@@ -332,7 +318,6 @@ export function OrbitalScene(props: Props) {
               data.dots.map(([lon, lat]) => position({ lon, lat }, R + 0.004)),
               1.65 * renderer.getPixelRatio(),
               0.42,
-              true,
             ),
           );
           scene.add(
@@ -342,7 +327,6 @@ export function OrbitalScene(props: Props) {
               ),
               1.85 * renderer.getPixelRatio(),
               0.8,
-              true,
             ),
           );
           latest.current.onReady();
@@ -1254,19 +1238,6 @@ export function OrbitalScene(props: Props) {
       if (controls.enabled) controls.update();
       else camera.lookAt(controls.target);
       camera.updateMatrixWorld();
-      // Land and borders are fixed pixel sprites. Scale them with how large
-      // the globe is on screen so a close zoom does not turn them into dim specks.
-      const surfaceDepth = Math.max(camera.position.length() - R, 0.45);
-      const mapCover = Math.max(1, (homeDistance - R) / surfaceDepth);
-      for (const material of mapPointMaterials) {
-        // gl_PointSize is in device pixels. Stay under common point-size limits.
-        const cap = 64 / (material.uniforms.size.value as number);
-        const cover = Math.min(mapCover, cap);
-        material.uniforms.cover.value = cover;
-        // Separated dots no longer stack, so raise opacity or a close view looks gray.
-        const base = material.userData.baseOpacity as number;
-        material.uniforms.opacity.value = Math.min(1, base + (cover - 1) * 0.4);
-      }
       routes.visible = active;
       selected.visible = active;
       odcCraft.visible = computeBrand.visible = active;
