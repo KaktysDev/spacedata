@@ -13,39 +13,15 @@ const number = (n: number) =>
     ? "0"
     : n < 0.001
       ? n.toPrecision(2)
-      : n.toLocaleString(undefined, { maximumFractionDigits: 3 });
+      : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 const money = (n: number) =>
-  n < 0.0001 ? `$${n.toFixed(8)}` : `$${n.toFixed(6)}`;
+  n < 0.0001 ? `$${n.toFixed(6)}` : `$${n.toFixed(4)}`;
 
 function formatWater(ml: number) {
-  if (ml <= 0) return { label: "0 mL", fill: 0, bucket: false };
-  if (ml >= 1000)
-    return {
-      label: `${number(ml / 1000)} L`,
-      fill: Math.min(1, ml / 5000),
-      bucket: true,
-    };
-  return {
-    label: `${number(ml)} mL`,
-    fill: Math.min(1, Math.max(0.08, ml / 80)),
-    bucket: false,
-  };
-}
-
-function WaterGraphic({ ml }: { ml: number }) {
-  const { label, fill, bucket } = formatWater(ml);
-  return (
-    <div className={`water-meter ${bucket ? "bucket" : "cup"}`}>
-      <span
-        aria-hidden="true"
-        className={`water-vessel ${bucket ? "bucket" : "cup"} ${fill <= 0 ? "dry" : ""}`}
-      >
-        <span style={{ height: `${fill * 100}%` }} />
-      </span>
-      <strong>{label}</strong>
-    </div>
-  );
+  if (ml <= 0) return "0 mL";
+  if (ml >= 1000) return `${number(ml / 1000)} L`;
+  return `${number(ml)} mL`;
 }
 
 function formatTime(ms: number) {
@@ -82,8 +58,7 @@ export function InferenceComparison({
     snapshotAt,
   );
   const name = PROVIDERS[provider].name;
-  const groundTitle = `${name} · ground`;
-  const spaceTitle = `${name} · space`;
+  const answer = result?.space.text || result?.ground.text || "";
 
   return (
     <div className="results-shell" role="dialog" aria-label="Route comparison">
@@ -98,87 +73,60 @@ export function InferenceComparison({
             ×
           </button>
         </div>
-
-        <div className="results-sides" role="table" aria-label="Metrics">
-          <div className="results-col" role="columnheader">
-            <span className="results-side-label">{groundTitle}</span>
-            <small>{site.name}</small>
-          </div>
-          <div className="results-col" role="columnheader">
-            <span className="results-side-label">{spaceTitle}</span>
-            <small>LEO compute</small>
-          </div>
-
-          <div className="results-metric-label">water</div>
-          <div className="results-col">
-            <WaterGraphic ml={c.ground.waterMl} />
-          </div>
-          <div className="results-col">
-            <WaterGraphic ml={c.space.waterMl} />
-          </div>
-
-          <div className="results-metric-label">energy</div>
-          <div className="results-col">
-            <strong>
-              {number(c.ground.energyWh)}
-              <small>Wh</small>
-            </strong>
-          </div>
-          <div className="results-col">
-            <strong>
-              {number(c.space.energyWh)}
-              <small>Wh</small>
-            </strong>
-          </div>
-
-          <div className="results-metric-label">tokens</div>
-          <div className="results-col">
-            <strong>{c.ground.tokens.toLocaleString()}</strong>
-          </div>
-          <div className="results-col">
-            <strong>{c.space.tokens.toLocaleString()}</strong>
-          </div>
-
-          <div className="results-metric-label">time</div>
-          <div className="results-col">
-            <strong>
-              {result ? formatTime(c.ground.timeMs) : `${c.ground.rttMs.toFixed(0)} ms`}
-            </strong>
-          </div>
-          <div className="results-col">
-            <strong>
-              {result ? formatTime(c.space.timeMs) : `${c.space.rttMs.toFixed(0)} ms`}
-            </strong>
-          </div>
-
-          <div className="results-metric-label">cost</div>
-          <div className="results-col">
-            <strong>
-              {c.ground.costUsd !== null ? money(c.ground.costUsd) : "—"}
-            </strong>
-          </div>
-          <div className="results-col">
-            <strong>
-              {c.space.costUsd !== null ? money(c.space.costUsd) : "—"}
-            </strong>
-          </div>
-        </div>
-
-        {result ? (
-          <div className="results-answers">
-            <article>
-              <h3>{groundTitle}</h3>
-              <p>{result.ground.text}</p>
-            </article>
-            <article>
-              <h3>{spaceTitle}</h3>
-              <p>{result.space.text}</p>
-            </article>
+        <table className="results-table">
+          <thead>
+            <tr>
+              <th />
+              <th>
+                Ground
+                <small>{site.name}</small>
+              </th>
+              <th>
+                Orbit
+                <small>{name} on the shell</small>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className="metric">Water</td>
+              <td>{formatWater(c.ground.waterMl)}</td>
+              <td>{formatWater(c.space.waterMl)}</td>
+            </tr>
+            <tr>
+              <td className="metric">Energy</td>
+              <td>{number(c.ground.energyWh)} Wh</td>
+              <td>{number(c.space.energyWh)} Wh</td>
+            </tr>
+            <tr>
+              <td className="metric">Network</td>
+              <td>{Math.round(c.ground.rttMs)} ms</td>
+              <td>{Math.round(c.space.rttMs)} ms</td>
+            </tr>
+            <tr>
+              <td className="metric">Power</td>
+              <td>{money(c.ground.powerCostUsd)}</td>
+              <td>{money(c.space.powerCostUsd)}</td>
+            </tr>
+            {result ? (
+              <tr>
+                <td className="metric">Reply</td>
+                <td>{formatTime(c.ground.timeMs)}</td>
+                <td>{formatTime(c.space.timeMs)}</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+        {answer ? (
+          <div className="results-answer">
+            <h3>Answer</h3>
+            <p>{answer}</p>
           </div>
         ) : (
-          <p className="results-preview">Preview · no API answers</p>
+          <p className="results-preview">
+            Network and power are modeled. Send a prompt for a reply.
+          </p>
         )}
-
         <button className="primary-button results-again" onClick={onClose}>
           Ask again
         </button>
