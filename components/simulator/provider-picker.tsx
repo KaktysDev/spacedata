@@ -20,9 +20,11 @@ export function ProviderLogo({ provider }: { provider: ProviderId }) {
 export function ProviderPicker({
   value,
   onChange,
+  connected = [],
 }: {
   value: ProviderId;
   onChange: (id: ProviderId) => void;
+  connected?: readonly ProviderId[];
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null),
@@ -56,7 +58,8 @@ export function ProviderPicker({
         ref={trigger}
         type="button"
         className="provider-trigger"
-        aria-label={`AI provider: ${PROVIDERS[value].name}`}
+        aria-label={`AI provider: ${PROVIDERS[value].name}${connected.includes(value) ? ", connected" : ""}`}
+        data-connected={connected.includes(value) ? "true" : "false"}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls="provider-options"

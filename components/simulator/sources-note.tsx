@@ -72,7 +72,7 @@ export function SourcesNote({
                 The request leaves your location at the same time as the ground
                 route. A shell spacecraft at least 25° up takes the RF uplink.
                 If none is visible, a land gateway provides it. Optical links
-                then stay on that dawn-dusk shell until a compute spacecraft.
+                then hop across the shell to a compute spacecraft.
                 The reply retraces that path and stops at you. It does not
                 visit the ground provider.
               </p>
@@ -129,19 +129,20 @@ export function SourcesNote({
             </figure>
           </div>
           <p className="fine-print">
-            The line is 8,800 illustrative spacecraft at 725 km, inside the
-            600–850 km range from the 2026 FCC filing. Inclination is the
-            sun-synchronous value at that altitude. The node is chosen so the
-            orbit plane is the terminator for a sun over 20°E, matching the
-            paper’s dawn-dusk figure. That sun direction is fixed for the
-            picture; it is not a live ephemeris. Cross-track half-width is
-            0.42°, so craft stack on the terminator instead of spreading into
-            a wide band. The paper’s data center is a set of containers on one
-            spine in this orbit, with laser links to other constellations. The
-            highlighted craft is the compute node on this shell. The FCC filing
-            requests up to 88,000 spacecraft; 8,800 is not that fleet and not
-            an operating constellation. Hardware size and the drawn orbital
-            radius are enlarged; routing distances use physical kilometers.
+            The picture shows 8,800 illustrative spacecraft spread through a
+            thick volume: altitudes from 420 km to 1,720 km, inclinations in a
+            100° band around the sun-synchronous value, and ascending nodes
+            around the full circle. They are not stacked on one terminator.
+            The 2026 FCC filing asks for narrow 600–850 km shells; this view
+            is wider so the fleet reads as a belt instead of a line. A fixed
+            sun over 20°E still defines the reference dawn-dusk plane, matching
+            the paper’s figure. That sun direction is not a live ephemeris.
+            The paper’s data center is a set of containers on one spine, with
+            laser links onward. The highlighted craft is the compute node.
+            The FCC filing requests up to 88,000 spacecraft; 8,800 is not that
+            fleet and not an operating constellation. Hardware size and the
+            drawn orbital radius are enlarged; routing distances use physical
+            kilometers.
           </p>
         </section>
         <section className="method-section">

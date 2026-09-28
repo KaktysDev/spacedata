@@ -19,9 +19,15 @@ import {
   takeRateToken,
   reserveRequest,
 } from "../lib/server/chat-guard";
-import { runAnswer, availableProviders, providerKey } from "../lib/server/llm";
+import {
+  runAnswer,
+  availableProviders,
+  providerKey,
+  resetGeminiModelCacheForTests,
+} from "../lib/server/llm";
 import { isChatSuccessBody } from "../lib/starcloud/chat-types";
 import { POST } from "../app/api/chat/route";
+import { GET as providerStatus } from "../app/api/providers/route";
 const originalFetch = globalThis.fetch;
 const envNames = [
   "GEMINI_API_KEY",
@@ -47,6 +53,7 @@ const browserHeaders = {
   "Sec-Fetch-Site": "same-origin",
 };
 test.beforeEach(() => {
+  resetGeminiModelCacheForTests();
   resetChatGuardStateForTests();
   for (const k of envNames) delete process.env[k];
   Object.assign(process.env, {
@@ -532,6 +539,65 @@ test("Gemini alias works and primary key takes precedence", () => {
   delete process.env.Gemini_api_Key;
   expect(providerKey("gemini")).toBe("alias");
   expect(availableProviders()).toContain("gemini");
+});
+test("GEMINI_API_KEY alone is enough and is mirrored for the Google SDK name", () => {
+  delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  delete process.env.Gemini_api_Key;
+  process.env.GEMINI_API_KEY = '"test-secret"';
+  expect(providerKey("gemini")).toBe("test-secret");
+  expect(process.env.GOOGLE_GENERATIVE_AI_API_KEY).toBe("test-secret");
+  expect(availableProviders()).toEqual(["gemini"]);
+});
+test("provider status reports Gemini configured without returning the key", async () => {
+  const r = providerStatus(
+    new Request("https://example.test/api/providers"),
+  );
+  expect(r.headers.get("Cache-Control")).toBe("no-store");
+  const body = await r.json();
+  expect(body).toEqual({
+    providers: [
+      { id: "gemini", configured: true },
+      { id: "openai", configured: false },
+      { id: "anthropic", configured: false },
+      { id: "xai", configured: false },
+    ],
+  });
+  expect(JSON.stringify(body)).not.toContain("test-secret");
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  delete process.env.Gemini_api_Key;
+  const missing = await providerStatus(
+    new Request("https://example.test/api/providers"),
+  ).json();
+  expect(missing.providers.find((p: { id: string }) => p.id === "gemini")).toEqual({
+    id: "gemini",
+    configured: false,
+  });
+});
+test("a 404 on gemini-3.8-flash falls forward instead of reporting the model unavailable", async () => {
+  const urls: string[] = [];
+  mockProvider((url) => {
+    urls.push(String(url));
+    if (String(url).includes("gemini-3.8-flash"))
+      return Response.json(
+        {
+          error: {
+            message:
+              "models/gemini-3.8-flash is not available. Please update your code to use models/gemini-3.6-flash.",
+          },
+        },
+        { status: 404 },
+      );
+    return gemini();
+  });
+  const r = await POST(req());
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.error).toBeUndefined();
+  expect(body.model).toBe("gemini-3.6-flash");
+  expect(urls.some((url) => url.includes("gemini-3.8-flash"))).toBe(true);
+  expect(urls.some((url) => url.includes("gemini-3.6-flash"))).toBe(true);
+  expect(JSON.stringify(body)).not.toMatch(/unavailable/i);
 });
 test("Gemini missing usage is explicitly estimated and never reported as measured", async () => {
   mockProvider(() =>

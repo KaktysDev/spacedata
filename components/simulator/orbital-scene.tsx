@@ -15,6 +15,8 @@ import {
   NODE_COUNT,
   RING_INCLINATION_DEG,
   RING_RAAN_DEG,
+  SHELL_ALTITUDE_MIN_KM,
+  SHELL_ALTITUDE_MAX_KM,
   type OrbitalNode,
   interpolateLocation,
   type OrbitalRoute,
@@ -42,10 +44,41 @@ type Props = {
   onReady: () => void;
 };
 const R = 3.5,
-  ORBIT_R = 6.22,
+  // Thick visual shell. Physical altitudes span SHELL_ALTITUDE_MIN/MAX;
+  // the on-screen radii are enlarged so that span reads as a wide band.
+  BELT_INNER = 4.75,
+  BELT_OUTER = 8.7,
+  // Closest orbit stays outside the cloud. 4.18 (the old ring limit) is
+  // between Earth and the inner satellites, so dolly stopped inside the fleet.
+  MIN_ORBIT = BELT_OUTER + 1.35,
+  MAX_ORBIT = 84,
   UP = new THREE.Vector3(0, 1, 0);
+function fitDistance(w: number, h: number) {
+  const framed = BELT_OUTER + 0.9;
+  const width = Math.max(w, 1);
+  const height = Math.max(h, 1);
+  const fov = (43 * Math.PI) / 180;
+  const tanHalf = Math.tan(fov / 2);
+  // Header, the upward view offset, and the composer. The shell has to fit
+  // in that window, not in the raw canvas.
+  const chromeTop = 72;
+  const chromeBottom = width < 700 ? 236 : 292;
+  const usableH = Math.max(180, height - chromeTop - chromeBottom);
+  const usableW = Math.max(180, width * 0.9);
+  const distH = framed / (tanHalf * (usableH / height));
+  const horizontal =
+    2 * Math.atan(tanHalf * (width / height));
+  const distW = framed / (Math.tan(horizontal / 2) * (usableW / width));
+  return THREE.MathUtils.clamp(
+    Math.max(distH, distW),
+    MIN_ORBIT + 2,
+    MAX_ORBIT,
+  );
+}
 function displayRadius(altitudeKm: number) {
-  return ORBIT_R + ((altitudeKm - 725) / 80) * 0.22;
+  const span = SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM;
+  const t = (altitudeKm - SHELL_ALTITUDE_MIN_KM) / span;
+  return BELT_INNER + Math.min(1, Math.max(0, t)) * (BELT_OUTER - BELT_INNER);
 }
 function position(p: Location, r = R) {
   const lat = (p.lat * Math.PI) / 180,
@@ -205,9 +238,10 @@ export function OrbitalScene(props: Props) {
     el.prepend(renderer.domElement);
     const scene = new THREE.Scene(),
       camera = new THREE.PerspectiveCamera(43, 1, 0.03, 100);
-    // Ascending node of the dawn-dusk plane. From here the shell is edge-on:
-    // a tall line on the terminator, the way the white-paper figure draws it.
-    const overview = position({ lat: 0, lon: RING_RAAN_DEG + 180 }, 1);
+    // Three-quarter view over the central United States, the previous
+    // black-and-white framing. An edge-on look down the terminator collapsed
+    // every altitude and node into one dark line.
+    const overview = position({ lat: 35, lon: -100 }, 1);
     const ringTilt = (RING_INCLINATION_DEG * Math.PI) / 180,
       ringNode = (RING_RAAN_DEG * Math.PI) / 180;
     const ringNormal = new THREE.Vector3(
@@ -215,49 +249,27 @@ export function OrbitalScene(props: Props) {
       Math.cos(ringTilt),
       Math.sin(ringNode) * Math.sin(ringTilt),
     ).normalize();
-    const fitDistance = (direction: THREE.Vector3, w: number, h: number) => {
-      const forward = direction.clone().normalize();
-      const viewUp = UP.clone()
-        .addScaledVector(forward, -UP.dot(forward))
-        .normalize();
-      const normal = ringNormal;
-      // Fit the projected orbital band and globe independently.
-      const verticalExtent = Math.max(
-        R + 0.2,
-        ORBIT_R * Math.sqrt(Math.max(0, 1 - normal.dot(viewUp) ** 2)) + 0.9,
-      );
-      const focal = h / (2 * Math.tan((43 * Math.PI) / 360));
-      return Math.max(
-        ((ORBIT_R + 0.25) * focal) / (w * 0.42),
-        (verticalExtent * focal) / Math.max(120, (h - 355) / 2),
-      );
-    };
-    let homeDistance = fitDistance(overview, el.clientWidth, el.clientHeight);
+    let homeDistance = fitDistance(el.clientWidth, el.clientHeight);
     camera.position.copy(overview).multiplyScalar(homeDistance);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enablePan = false;
     controls.enableDamping = true;
     controls.dampingFactor = 0.075;
-    controls.minDistance = 4.18;
-    controls.maxDistance = 38;
+    controls.target.set(0, 0, 0);
+    controls.minDistance = MIN_ORBIT;
+    controls.maxDistance = MAX_ORBIT;
     controls.rotateSpeed = 0.45;
     controls.zoomSpeed = 0.6;
-    scene.add(new THREE.AmbientLight(0xffffff, 0.22));
-    const sun = new THREE.DirectionalLight(0xfff4e4, 3.2);
-    sun.position.copy(ringNormal).multiplyScalar(24);
+    scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+    const sun = new THREE.DirectionalLight(0xffffff, 3.5);
+    sun.position.set(-8, 10, 12);
     scene.add(sun);
-    const fill = new THREE.DirectionalLight(0x8899bb, 0.18);
-    fill.position.copy(ringNormal).multiplyScalar(-12);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.7);
+    fill.position.set(10, -4, -5);
     scene.add(fill);
     const earth = new THREE.Mesh(
       new THREE.SphereGeometry(R, 96, 64),
-      new THREE.ShaderMaterial({
-        uniforms: { sunDir: { value: ringNormal } },
-        vertexShader:
-          "varying vec3 w;void main(){w=normalize((modelMatrix*vec4(position,1.)).xyz);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}",
-        fragmentShader:
-          "uniform vec3 sunDir;varying vec3 w;void main(){float d=dot(normalize(w),normalize(sunDir));float day=smoothstep(-0.06,0.16,d);vec3 col=mix(vec3(0.012,0.014,0.02),vec3(0.11,0.115,0.12),day);gl_FragColor=vec4(col,1.);}",
-      }),
+      new THREE.MeshBasicMaterial({ color: 0x090909 }),
     );
     scene.add(earth);
     const atmosphere = new THREE.Mesh(
@@ -278,23 +290,17 @@ export function OrbitalScene(props: Props) {
       coordinates: THREE.Vector3[],
       size: number,
       opacity: number,
-      shade = false,
     ) =>
       new THREE.Points(
         new THREE.BufferGeometry().setFromPoints(coordinates),
         new THREE.ShaderMaterial({
           transparent: true,
           depthWrite: false,
-          uniforms: {
-            size: { value: size },
-            opacity: { value: opacity },
-            sunDir: { value: ringNormal },
-            shade: { value: shade ? 1 : 0 },
-          },
+          uniforms: { size: { value: size }, opacity: { value: opacity } },
           vertexShader:
-            "uniform float size;uniform vec3 sunDir;uniform float shade;varying float day;void main(){vec3 n=normalize(position);day=shade>0.5?smoothstep(-0.04,0.2,dot(n,normalize(sunDir))):1.;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=size;}",
+            "uniform float size;void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=size;}",
           fragmentShader:
-            "uniform float opacity;varying float day;void main(){float d=length(gl_PointCoord-vec2(.5));if(d>.5)discard;float a=opacity*(1.-smoothstep(.3,.5,d))*mix(0.22,1.,day);gl_FragColor=vec4(vec3(mix(0.15,1.,day)),a);}",
+            "uniform float opacity;void main(){float d=length(gl_PointCoord-vec2(.5));if(d>.5)discard;gl_FragColor=vec4(vec3(1.),opacity*(1.-smoothstep(.3,.5,d)));}",
         }),
       );
     fetch("/globe-land.json", { signal: abort.signal })
@@ -312,8 +318,7 @@ export function OrbitalScene(props: Props) {
             roundPoints(
               data.dots.map(([lon, lat]) => position({ lon, lat }, R + 0.004)),
               1.65 * renderer.getPixelRatio(),
-              0.55,
-              true,
+              0.42,
             ),
           );
           scene.add(
@@ -322,8 +327,7 @@ export function OrbitalScene(props: Props) {
                 position({ lon, lat }, R + 0.005),
               ),
               1.85 * renderer.getPixelRatio(),
-              0.9,
-              true,
+              0.8,
             ),
           );
           latest.current.onReady();
@@ -362,12 +366,9 @@ export function OrbitalScene(props: Props) {
     detailed.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     detailed.frustumCulled = false;
     scene.add(detailed);
-    const overviewMat = hardwareMat.clone();
-    overviewMat.emissive.setHex(0xffffff);
-    overviewMat.emissiveIntensity = 0.55;
     const distant = new THREE.InstancedMesh(
       satelliteOverviewGeometry(),
-      overviewMat,
+      hardwareMat,
       NODE_COUNT,
     );
     distant.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -477,9 +478,12 @@ export function OrbitalScene(props: Props) {
       width = el.clientWidth;
       height = el.clientHeight;
       renderer.setSize(width, height);
-      const fit = fitDistance(overview, width, height);
-      camera.position.multiplyScalar(fit / homeDistance);
+      const fit = fitDistance(width, height);
+      const zoom = camera.position.length() / Math.max(homeDistance, 1e-3);
       homeDistance = fit;
+      camera.position.setLength(
+        THREE.MathUtils.clamp(fit * zoom, MIN_ORBIT, MAX_ORBIT),
+      );
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
     };
@@ -839,8 +843,6 @@ export function OrbitalScene(props: Props) {
       const p = latest.current,
         active = !!p.flight;
       hardwareMat.color.setScalar(active ? 0.28 : 1);
-      overviewMat.color.setScalar(active ? 0.35 : 1);
-      overviewMat.emissiveIntensity = active ? 0.12 : 0.55;
       const networkTime =
         p.flight?.id ?? (motion.matches ? epoch : epoch + now - clockStart);
       const nextRoute = `${p.provider},${p.origin.lat},${p.origin.lon},${p.site.name},${p.flight?.id ?? 0}`;
@@ -1080,21 +1082,19 @@ export function OrbitalScene(props: Props) {
         focusing = {
           at: now,
           camera: camera.position.clone(),
-          to: focusDirection.multiplyScalar(
-            fitDistance(focusDirection, width, height),
-          ),
+          to: focusDirection.multiplyScalar(fitDistance(width, height)),
         };
       }
       if (p.zoom !== lastZoom) {
         camera.position
           .sub(controls.target)
           .multiplyScalar(p.zoom > lastZoom ? 0.87 : 1.15)
-          .clampLength(4.18, 38)
+          .clampLength(MIN_ORBIT, MAX_ORBIT)
           .add(controls.target);
         lastZoom = p.zoom;
         focusing = null;
       }
-      const offset = -(width < 700 ? 20 : 72) / height;
+      const offset = height > 2 ? -(width < 700 ? 20 : 72) / height : 0;
       const rawElapsed = p.flight ? Math.max(0, now - p.flight.started) : 0;
       const answerAt = p.answerReadyAt;
       const visualElapsed = p.flight?.reduced
@@ -1232,8 +1232,10 @@ export function OrbitalScene(props: Props) {
       }
       controls.enabled = !active && !drag && !returning && !focusing;
       controls.enableDamping = controls.enabled;
-      controls.minDistance = active ? 1.7 : 4.18;
-      camera.setViewOffset(width, height, 0, -height * offset, width, height);
+      controls.minDistance = active ? R + 0.45 : MIN_ORBIT;
+      controls.maxDistance = MAX_ORBIT;
+      if (width > 2 && height > 2)
+        camera.setViewOffset(width, height, 0, -height * offset, width, height);
       if (controls.enabled) controls.update();
       else camera.lookAt(controls.target);
       camera.updateMatrixWorld();

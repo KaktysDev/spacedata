@@ -18,22 +18,24 @@ import {
   orbitalPeriodMs,
   ORBIT_EPOCH_MS,
   opticalDistanceKm,
-  RING_HALF_WIDTH_DEG,
   RING_INCLINATION_DEG,
-  RING_LANES,
   RING_RAAN_DEG,
+  INCLINATION_SPREAD_DEG,
+  RAAN_SPREAD_DEG,
+  SHELL_ALTITUDE_MIN_KM,
+  SHELL_ALTITUDE_MAX_KM,
   dawnDuskSunEcef,
   sunSyncInclination,
 } from "../lib/starcloud/network";
 
-test("the shell is one dawn-dusk plane, tall and narrow", () => {
+test("the reference plane stays dawn-dusk while the fleet fills a volume", () => {
   const nodes = orbitalNodes(ORBIT_EPOCH_MS);
   expect(RING_INCLINATION_DEG).toBeCloseTo(sunSyncInclination(725), 6);
   expect(RING_INCLINATION_DEG).toBeGreaterThan(98);
   expect(RING_INCLINATION_DEG).toBeLessThan(99);
   expect(RING_RAAN_DEG).toBeCloseTo(110, 3);
-  expect(RING_HALF_WIDTH_DEG).toBeLessThan(1);
-  expect(RING_LANES).toBe(8);
+  expect(INCLINATION_SPREAD_DEG).toBeGreaterThanOrEqual(90);
+  expect(RAAN_SPREAD_DEG).toBe(360);
   const sun = dawnDuskSunEcef();
   const incl = (RING_INCLINATION_DEG * Math.PI) / 180;
   const raan = (RING_RAAN_DEG * Math.PI) / 180;
@@ -41,20 +43,11 @@ test("the shell is one dawn-dusk plane, tall and narrow", () => {
   const hy = -Math.cos(raan) * Math.sin(incl);
   const hz = Math.cos(incl);
   expect(hx * sun.x + hy * sun.y + hz * sun.z).toBeCloseTo(1, 6);
-  const meridians = new Map<number, number[]>();
-  for (const node of nodes) {
-    const lon = ((node.lon % 360) + 360) % 360;
-    const key = Math.round(lon / 2);
-    const group = meridians.get(key);
-    if (group) group.push(node.lat);
-    else meridians.set(key, [node.lat]);
-  }
-  let stacks = 0;
-  for (const group of meridians.values()) {
-    if (group.length >= 200 && Math.max(...group) - Math.min(...group) > 12)
-      stacks++;
-  }
-  expect(stacks).toBeGreaterThan(2);
+  const offsets = nodes.map(planeOffsetDeg);
+  const abs = offsets.map(Math.abs);
+  const far = abs.filter((v) => v > 20).length;
+  expect(Math.max(...abs)).toBeGreaterThan(40);
+  expect(far / nodes.length).toBeGreaterThan(0.35);
 });
 function planeOffsetDeg(node: { lat: number; lon: number }) {
   const lat = (node.lat * Math.PI) / 180,
@@ -95,31 +88,44 @@ function trackAngleDeg(node: { lat: number; lon: number }) {
     Math.PI
   );
 }
-test("the dawn-dusk shell stays narrow, poleward, and inside one altitude band", () => {
+test("the fleet is a wide shell in altitude, latitude, and longitude", () => {
   const nodes = orbitalNodes(0);
   expect(nodes).toHaveLength(NODE_COUNT);
   expect(NODE_COUNT).toBe(8800);
   const lats = nodes.map((p) => p.lat);
+  const lons = nodes.map((p) => ((p.lon % 360) + 360) % 360);
   const alts = nodes.map((p) => p.altitudeKm);
-  const offsets = nodes.map(planeOffsetDeg);
-  const abs = offsets.map(Math.abs);
-  expect(Math.max(...abs)).toBeGreaterThan(0.2);
-  expect(Math.max(...abs)).toBeLessThanOrEqual(RING_HALF_WIDTH_DEG + 0.02);
-  expect(Math.max(...lats)).toBeGreaterThan(78);
-  expect(Math.max(...lats)).toBeLessThan(86);
-  expect(Math.min(...lats)).toBeLessThan(-78);
-  expect(Math.min(...lats)).toBeGreaterThan(-86);
-  expect(Math.max(...alts) - Math.min(...alts)).toBeLessThan(14);
-  expect(Math.min(...alts)).toBeGreaterThan(718);
-  expect(Math.max(...alts)).toBeLessThan(732);
-  expect(new Set(alts).size).toBe(NODE_COUNT);
-  for (const p of nodes) {
-    expect(p.band).toBe(0);
-    expect(sunSyncInclination(p.altitudeKm)).toBeGreaterThan(97);
-  }
+  expect(Math.max(...lats)).toBeGreaterThan(70);
+  expect(Math.min(...lats)).toBeLessThan(-70);
+  expect(Math.max(...alts) - Math.min(...alts)).toBeGreaterThan(1100);
+  expect(Math.min(...alts)).toBeGreaterThanOrEqual(SHELL_ALTITUDE_MIN_KM - 1);
+  expect(Math.min(...alts)).toBeLessThan(SHELL_ALTITUDE_MIN_KM + 120);
+  expect(Math.max(...alts)).toBeGreaterThan(SHELL_ALTITUDE_MAX_KM - 120);
+  expect(Math.max(...alts)).toBeLessThanOrEqual(SHELL_ALTITUDE_MAX_KM + 1);
+  const lonBins = new Set(lons.map((lon) => Math.floor(lon / 30)));
+  expect(lonBins.size).toBe(12);
+  const latBins = new Set(lats.map((lat) => Math.floor((lat + 90) / 30)));
+  expect(latBins.size).toBeGreaterThanOrEqual(5);
+  for (const p of nodes) expect(p.band).toBe(0);
   expect(
-    new Set(nodes.map((p) => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`)).size,
+    new Set(nodes.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`)).size,
   ).toBe(NODE_COUNT);
+  const sample = nodes.filter((_, i) => i % 40 === 0);
+  const nearest = sample.map((node) => {
+    let best = Infinity;
+    for (const other of nodes) {
+      if (other === node) continue;
+      const d = Math.hypot(
+        distanceKm(node, other),
+        node.altitudeKm - other.altitudeKm,
+      );
+      if (d < best) best = d;
+    }
+    return best;
+  });
+  nearest.sort((a, b) => a - b);
+  expect(nearest[0]).toBeGreaterThan(25);
+  expect(nearest[Math.floor(nearest.length / 2)]).toBeGreaterThan(150);
 });
 test("the ring stays populated all the way around", () => {
   const nodes = orbitalNodes(ORBIT_EPOCH_MS);

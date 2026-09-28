@@ -66,14 +66,51 @@ You are answering from an orbital LEO datacenter. Constraints that must shape th
 You are answering from a terrestrial hyperscale datacenter. Constraints that must shape the writing (do not lecture about them): full ground context, slightly more elaborate when helpful, assume fiber RTT. Under 160 words. No tools. Do not invent telemetry.`;
 }
 
+function cleanEnv(value: string | undefined) {
+  if (typeof value !== "string") return "";
+  let v = value.replace(/^\uFEFF/, "").trim();
+  if (
+    v.length >= 2 &&
+    ((v.startsWith('"') && v.endsWith('"')) ||
+      (v.startsWith("'") && v.endsWith("'")))
+  )
+    v = v.slice(1, -1).trim();
+  return v;
+}
+
+/** Runtime env read. Static branches keep the names visible to the Next tracer. */
+export function readServerEnv(name: string) {
+  const traced =
+    name === "GEMINI_API_KEY"
+      ? process.env.GEMINI_API_KEY
+      : name === "Gemini_api_Key"
+        ? process.env.Gemini_api_Key
+        : name === "GOOGLE_GENERATIVE_AI_API_KEY"
+          ? process.env.GOOGLE_GENERATIVE_AI_API_KEY
+          : name === "OPENAI_API_KEY"
+            ? process.env.OPENAI_API_KEY
+            : name === "ANTHROPIC_API_KEY"
+              ? process.env.ANTHROPIC_API_KEY
+              : name === "XAI_API_KEY"
+                ? process.env.XAI_API_KEY
+                : undefined;
+  const dynamic = process.env[name];
+  const raw =
+    typeof dynamic === "string" && dynamic.trim() ? dynamic : traced;
+  return cleanEnv(raw);
+}
+
 export function providerKey(id: ProviderId) {
-  const gemini =
-    id === "gemini"
-      ? process.env.GEMINI_API_KEY ||
-        process.env.Gemini_api_Key ||
-        process.env.GOOGLE_GENERATIVE_AI_API_KEY
-      : "";
-  return (process.env[PROVIDERS[id].key] || gemini || "").trim();
+  if (id !== "gemini") return readServerEnv(PROVIDERS[id].key);
+  const key =
+    readServerEnv("GEMINI_API_KEY") ||
+    readServerEnv("Gemini_api_Key") ||
+    readServerEnv("GOOGLE_GENERATIVE_AI_API_KEY");
+  // Google's SDK reads GOOGLE_GENERATIVE_AI_API_KEY. Vercel is set with
+  // GEMINI_API_KEY, so mirror it server-side without touching a real alias.
+  if (key && !readServerEnv("GOOGLE_GENERATIVE_AI_API_KEY"))
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = key;
+  return key;
 }
 export function availableProviders(): ProviderId[] {
   return PROVIDER_IDS.filter((id) => Boolean(providerKey(id)));
@@ -84,6 +121,51 @@ const obj = (v: unknown): Json =>
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const count = (v: unknown): number | null =>
   typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
+
+// New Gemini projects are refused gemini-2.5-flash with HTTP 404. Some keys
+// are refused gemini-3.8-flash the same way, with a message naming another
+// flash model. A 404 is not a billed generation, so walking this list is not
+// a paid retry. The first model that accepts the prompt is reused.
+const GEMINI_MODEL_CANDIDATES = [
+  "gemini-3.8-flash",
+  "gemini-3.7-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+];
+const GEMINI_MODEL_RE = /^gemini-[a-z0-9][a-z0-9.\-]{0,48}$/;
+let resolvedGeminiModel: string = PROVIDERS.gemini.model;
+
+export function resetGeminiModelCacheForTests() {
+  resolvedGeminiModel = PROVIDERS.gemini.model;
+}
+
+export function geminiModelInUse() {
+  return resolvedGeminiModel;
+}
+
+function geminiBody(
+  system: string,
+  prompt: string,
+  maxTokens: number,
+  model: string,
+  thinking: boolean,
+) {
+  const generationConfig: Record<string, unknown> = {
+    maxOutputTokens: maxTokens,
+  };
+  if (thinking)
+    generationConfig.thinkingConfig = model.startsWith("gemini-2.")
+      ? { thinkingBudget: 0 }
+      : { thinkingLevel: "low" };
+  return {
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig,
+  };
+}
 
 async function callProvider(
   id: ProviderId,
@@ -105,16 +187,9 @@ async function callProvider(
     "Content-Type": "application/json",
   };
   if (id === "gemini") {
-    url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
     headers["x-goog-api-key"] = key;
-    body = {
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        maxOutputTokens: maxTokens,
-        thinkingConfig: { thinkingLevel: "low" },
-      },
-    };
+    url = "";
+    body = null;
   } else if (id === "anthropic") {
     url = "https://api.anthropic.com/v1/messages";
     headers["x-api-key"] = key;
@@ -150,23 +225,84 @@ async function callProvider(
     };
   }
   const start = performance.now();
-  // Exactly one billable call per deployment. No automatic retries.
+  // One billable call per deployment. Gemini may walk unbilled 404s until a
+  // model the key can actually call accepts the prompt.
   let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal,
-      cache: "no-store",
-      redirect: "error",
-    });
-  } catch (e) {
-    if (requestSignal?.aborted || (e instanceof DOMException && e.name === "AbortError"))
-      throw e;
-    if (e instanceof DOMException && e.name === "TimeoutError")
-      throw new ProviderCallError(id, deployment, "timeout");
-    throw new ProviderCallError(id, deployment, "network");
+  const post = async (target: string, payload: unknown) => {
+    try {
+      return await fetch(target, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+        signal,
+        cache: "no-store",
+        redirect: "error",
+      });
+    } catch (e) {
+      if (
+        requestSignal?.aborted ||
+        (e instanceof DOMException && e.name === "AbortError")
+      )
+        throw e;
+      if (e instanceof DOMException && e.name === "TimeoutError")
+        throw new ProviderCallError(id, deployment, "timeout");
+      throw new ProviderCallError(id, deployment, "network");
+    }
+  };
+  if (id === "gemini") {
+    const queue: string[] = [
+      resolvedGeminiModel,
+      ...GEMINI_MODEL_CANDIDATES.filter((m) => m !== resolvedGeminiModel),
+    ];
+    const tried = new Set<string>();
+    let lastStatus = 404;
+    response = new Response(null, { status: 404 });
+    for (let i = 0; i < queue.length && tried.size < 6; i++) {
+      const candidate = queue[i];
+      if (!candidate || tried.has(candidate) || !GEMINI_MODEL_RE.test(candidate))
+        continue;
+      tried.add(candidate);
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${candidate}:generateContent`;
+      let attempt = await post(
+        endpoint,
+        geminiBody(system, prompt, maxTokens, candidate, true),
+      );
+      if (attempt.status === 400) {
+        const detail = (await attempt.text()).slice(0, 2000);
+        if (/thinking/i.test(detail))
+          attempt = await post(
+            endpoint,
+            geminiBody(system, prompt, maxTokens, candidate, false),
+          );
+        else {
+          response = new Response(detail, { status: 400 });
+          break;
+        }
+      }
+      if (attempt.status === 404) {
+        lastStatus = 404;
+        const detail = (await attempt.text()).slice(0, 2000);
+        const suggested = [...detail.matchAll(/models\/(gemini-[a-z0-9.\-]+)/gi)]
+          .map((match) => match[1].replace(/\.+$/, ""))
+          .find((name) => GEMINI_MODEL_RE.test(name) && !tried.has(name));
+        if (suggested) {
+          const at = queue.indexOf(suggested);
+          if (at < 0) queue.splice(i + 1, 0, suggested);
+          else if (at > i + 1) {
+            queue.splice(at, 1);
+            queue.splice(i + 1, 0, suggested);
+          }
+        }
+        continue;
+      }
+      response = attempt;
+      if (attempt.ok) resolvedGeminiModel = candidate;
+      break;
+    }
+    if (response.status === 404 && lastStatus === 404 && !response.ok)
+      response = new Response(null, { status: 404 });
+  } else {
+    response = await post(url, body);
   }
   if (!response.ok)
     throw new ProviderCallError(
@@ -262,7 +398,6 @@ export async function runAnswer(
 ): Promise<ChatSuccessBody> {
   const key = providerKey(id);
   if (!key) throw new Error("unconfigured");
-  const model = PROVIDERS[id].model;
   const start = performance.now();
   const stop = new AbortController();
   const signal = requestSignal
@@ -280,7 +415,7 @@ export async function runAnswer(
   }
   return {
     provider: id,
-    model,
+    model: id === "gemini" ? resolvedGeminiModel : PROVIDERS[id].model,
     ground,
     space,
     latencyMs: Math.round(performance.now() - start),
