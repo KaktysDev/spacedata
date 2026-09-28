@@ -48,7 +48,33 @@ const R = 3.5,
   // the on-screen radii are enlarged so that span reads as a wide band.
   BELT_INNER = 4.75,
   BELT_OUTER = 8.7,
+  // Closest orbit stays outside the cloud. 4.18 (the old ring limit) is
+  // between Earth and the inner satellites, so dolly stopped inside the fleet.
+  MIN_ORBIT = BELT_OUTER + 1.35,
+  MAX_ORBIT = 84,
   UP = new THREE.Vector3(0, 1, 0);
+function fitDistance(w: number, h: number) {
+  const framed = BELT_OUTER + 0.9;
+  const width = Math.max(w, 1);
+  const height = Math.max(h, 1);
+  const fov = (43 * Math.PI) / 180;
+  const tanHalf = Math.tan(fov / 2);
+  // Header, the upward view offset, and the composer. The shell has to fit
+  // in that window, not in the raw canvas.
+  const chromeTop = 72;
+  const chromeBottom = width < 700 ? 236 : 292;
+  const usableH = Math.max(180, height - chromeTop - chromeBottom);
+  const usableW = Math.max(180, width * 0.9);
+  const distH = framed / (tanHalf * (usableH / height));
+  const horizontal =
+    2 * Math.atan(tanHalf * (width / height));
+  const distW = framed / (Math.tan(horizontal / 2) * (usableW / width));
+  return THREE.MathUtils.clamp(
+    Math.max(distH, distW),
+    MIN_ORBIT + 2,
+    MAX_ORBIT,
+  );
+}
 function displayRadius(altitudeKm: number) {
   const span = SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM;
   const t = (altitudeKm - SHELL_ALTITUDE_MIN_KM) / span;
@@ -223,22 +249,15 @@ export function OrbitalScene(props: Props) {
       Math.cos(ringTilt),
       Math.sin(ringNode) * Math.sin(ringTilt),
     ).normalize();
-    const fitDistance = (w: number, h: number) => {
-      const outer = BELT_OUTER + 0.55;
-      const focal = h / (2 * Math.tan((43 * Math.PI) / 360));
-      return Math.max(
-        (outer * focal) / (w * 0.42),
-        (outer * focal) / Math.max(120, (h - 355) / 2),
-      );
-    };
     let homeDistance = fitDistance(el.clientWidth, el.clientHeight);
     camera.position.copy(overview).multiplyScalar(homeDistance);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enablePan = false;
     controls.enableDamping = true;
     controls.dampingFactor = 0.075;
-    controls.minDistance = 4.18;
-    controls.maxDistance = 38;
+    controls.target.set(0, 0, 0);
+    controls.minDistance = MIN_ORBIT;
+    controls.maxDistance = MAX_ORBIT;
     controls.rotateSpeed = 0.45;
     controls.zoomSpeed = 0.6;
     scene.add(new THREE.AmbientLight(0xffffff, 1.4));
@@ -460,8 +479,11 @@ export function OrbitalScene(props: Props) {
       height = el.clientHeight;
       renderer.setSize(width, height);
       const fit = fitDistance(width, height);
-      camera.position.multiplyScalar(fit / homeDistance);
+      const zoom = camera.position.length() / Math.max(homeDistance, 1e-3);
       homeDistance = fit;
+      camera.position.setLength(
+        THREE.MathUtils.clamp(fit * zoom, MIN_ORBIT, MAX_ORBIT),
+      );
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
     };
@@ -1067,12 +1089,12 @@ export function OrbitalScene(props: Props) {
         camera.position
           .sub(controls.target)
           .multiplyScalar(p.zoom > lastZoom ? 0.87 : 1.15)
-          .clampLength(4.18, 38)
+          .clampLength(MIN_ORBIT, MAX_ORBIT)
           .add(controls.target);
         lastZoom = p.zoom;
         focusing = null;
       }
-      const offset = -(width < 700 ? 20 : 72) / height;
+      const offset = height > 2 ? -(width < 700 ? 20 : 72) / height : 0;
       const rawElapsed = p.flight ? Math.max(0, now - p.flight.started) : 0;
       const answerAt = p.answerReadyAt;
       const visualElapsed = p.flight?.reduced
@@ -1210,8 +1232,10 @@ export function OrbitalScene(props: Props) {
       }
       controls.enabled = !active && !drag && !returning && !focusing;
       controls.enableDamping = controls.enabled;
-      controls.minDistance = active ? 1.7 : 4.18;
-      camera.setViewOffset(width, height, 0, -height * offset, width, height);
+      controls.minDistance = active ? R + 0.45 : MIN_ORBIT;
+      controls.maxDistance = MAX_ORBIT;
+      if (width > 2 && height > 2)
+        camera.setViewOffset(width, height, 0, -height * offset, width, height);
       if (controls.enabled) controls.update();
       else camera.lookAt(controls.target);
       camera.updateMatrixWorld();
