@@ -599,6 +599,55 @@ test("a 404 on gemini-3.8-flash falls forward instead of reporting the model una
   expect(urls.some((url) => url.includes("gemini-3.6-flash"))).toBe(true);
   expect(JSON.stringify(body)).not.toMatch(/unavailable/i);
 });
+test("a 429 on gemini-3.8-flash falls through instead of saying the provider is busy", async () => {
+  const urls: string[] = [];
+  mockProvider((url) => {
+    urls.push(String(url));
+    if (String(url).includes("gemini-3.8-flash"))
+      return Response.json(
+        { error: { status: "RESOURCE_EXHAUSTED", message: "overloaded" } },
+        { status: 429 },
+      );
+    return gemini();
+  });
+  const r = await POST(req());
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.model).toBe("gemini-2.5-flash");
+  expect(JSON.stringify(body)).not.toMatch(/busy/i);
+  expect(urls.some((url) => url.includes("gemini-2.5-flash"))).toBe(true);
+});
+test("every Gemini model returning 429 is the busy message", async () => {
+  let calls = 0;
+  mockProvider(() => {
+    calls++;
+    return Response.json({ error: { message: "quota" } }, { status: 429 });
+  });
+  const busy = await POST(req());
+  expect(busy.status).toBe(503);
+  const busyText = await busy.text();
+  expect(busyText).toContain("The AI provider is busy");
+  expect(busyText).not.toContain("test-secret");
+  expect(calls).toBeGreaterThan(2);
+});
+test("an invalid Gemini key is rejected and is not described as busy", async () => {
+  let calls = 0;
+  mockProvider(() => {
+    calls++;
+    return Response.json(
+      { error: { message: "API key not valid" } },
+      { status: 400 },
+    );
+  });
+  const rejected = await POST(
+    req({ prompt: "How does a ring orbit look?", provider: "gemini" }),
+  );
+  expect(rejected.status).toBe(502);
+  const rejectedText = await rejected.text();
+  expect(rejectedText).not.toMatch(/busy/i);
+  expect(rejectedText).toContain("rejected");
+  expect(calls).toBe(2);
+});
 test("Gemini missing usage is explicitly estimated and never reported as measured", async () => {
   mockProvider(() =>
     Response.json({
@@ -620,7 +669,6 @@ test("Gemini blocked or empty answer returns a safe error rather than a fake res
 for (const [status, expected] of [
   [400, 502],
   [401, 503],
-  [429, 503],
   [500, 503],
 ] as const)
   test(`Gemini ${status} errors do not leak details or trigger paid retries`, async () => {

@@ -39,7 +39,7 @@ export class ProviderCallError extends Error {
 
 function failureKind(status: number): ProviderFailureKind {
   if (status === 404) return "model-unavailable";
-  if (status === 429) return "capacity";
+  if (status === 429 || status === 503) return "capacity";
   if (status === 401 || status === 403) return "connection";
   if (status === 408) return "timeout";
   if (status >= 500) return "connection";
@@ -128,12 +128,12 @@ const count = (v: unknown): number | null =>
 // a paid retry. The first model that accepts the prompt is reused.
 const GEMINI_MODEL_CANDIDATES = [
   "gemini-3.8-flash",
-  "gemini-3.7-flash",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
   "gemini-3.6-flash",
   "gemini-3.5-flash",
   "gemini-3.1-flash-lite",
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
+  "gemini-2.5-flash-lite",
 ];
 const GEMINI_MODEL_RE = /^gemini-[a-z0-9][a-z0-9.\-]{0,48}$/;
 let resolvedGeminiModel: string = PROVIDERS.gemini.model;
@@ -255,9 +255,21 @@ async function callProvider(
       ...GEMINI_MODEL_CANDIDATES.filter((m) => m !== resolvedGeminiModel),
     ];
     const tried = new Set<string>();
-    let lastStatus = 404;
-    response = new Response(null, { status: 404 });
-    for (let i = 0; i < queue.length && tried.size < 6; i++) {
+    let overloadStatus = 0;
+    let terminal: Response | null = null;
+    const queueSuggestion = (detail: string, index: number) => {
+      const suggested = [...detail.matchAll(/models\/(gemini-[a-z0-9.\-]+)/gi)]
+        .map((match) => match[1].replace(/\.+$/, ""))
+        .find((name) => GEMINI_MODEL_RE.test(name) && !tried.has(name));
+      if (!suggested) return;
+      const at = queue.indexOf(suggested);
+      if (at < 0) queue.splice(index + 1, 0, suggested);
+      else if (at > index + 1) {
+        queue.splice(at, 1);
+        queue.splice(index + 1, 0, suggested);
+      }
+    };
+    for (let i = 0; i < queue.length && tried.size < 8; i++) {
       const candidate = queue[i];
       if (!candidate || tried.has(candidate) || !GEMINI_MODEL_RE.test(candidate))
         continue;
@@ -274,33 +286,38 @@ async function callProvider(
             endpoint,
             geminiBody(system, prompt, maxTokens, candidate, false),
           );
-        else {
-          response = new Response(detail, { status: 400 });
+        else if (
+          !/api[_ ]?key/i.test(detail) &&
+          /not found|not available|unsupported|does not exist|unknown model/i.test(
+            detail,
+          )
+        ) {
+          queueSuggestion(detail, i);
+          continue;
+        } else {
+          terminal = new Response(detail, { status: 400 });
           break;
         }
       }
-      if (attempt.status === 404) {
-        lastStatus = 404;
-        const detail = (await attempt.text()).slice(0, 2000);
-        const suggested = [...detail.matchAll(/models\/(gemini-[a-z0-9.\-]+)/gi)]
-          .map((match) => match[1].replace(/\.+$/, ""))
-          .find((name) => GEMINI_MODEL_RE.test(name) && !tried.has(name));
-        if (suggested) {
-          const at = queue.indexOf(suggested);
-          if (at < 0) queue.splice(i + 1, 0, suggested);
-          else if (at > i + 1) {
-            queue.splice(at, 1);
-            queue.splice(i + 1, 0, suggested);
-          }
-        }
+      // 404 is an unknown model. 429 and 503 are often "this model is out of
+      // capacity" rather than a global outage, so try the next id before
+      // telling the user the provider is busy. None of these responses is billed.
+      if (
+        attempt.status === 404 ||
+        attempt.status === 429 ||
+        attempt.status === 503
+      ) {
+        if (attempt.status !== 404) overloadStatus = attempt.status;
+        queueSuggestion((await attempt.text()).slice(0, 2000), i);
         continue;
       }
-      response = attempt;
+      terminal = attempt;
       if (attempt.ok) resolvedGeminiModel = candidate;
       break;
     }
-    if (response.status === 404 && lastStatus === 404 && !response.ok)
-      response = new Response(null, { status: 404 });
+    response =
+      terminal ??
+      new Response(null, { status: overloadStatus || 404 });
   } else {
     response = await post(url, body);
   }
