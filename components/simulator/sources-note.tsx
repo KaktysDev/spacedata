@@ -63,17 +63,18 @@ export function SourcesNote({
               <strong>In orbit</strong>
               <ol>
                 <li>You</li>
-                <li>Visible LEO relay, or land gateway then relay</li>
-                <li>Optical links</li>
-                <li>Orbital compute</li>
+                <li>RF uplink to the shell, or a land gateway first</li>
+                <li>Optical links along the shell</li>
+                <li>Compute spacecraft on that shell</li>
                 <li>Relay, then you</li>
               </ol>
               <p>
                 The request leaves your location at the same time as the ground
-                route. A visible relay takes the uplink directly. If none is
-                visible, a land gateway provides it. The reply retraces that
-                orbital path and stops at you. It does not visit the ground
-                provider.
+                route. A shell spacecraft at least 25° up takes the RF uplink.
+                If none is visible, a land gateway provides it. Optical links
+                then stay on that dawn-dusk shell until a compute spacecraft.
+                The reply retraces that path and stops at you. It does not
+                visit the ground provider.
               </p>
             </div>
           </div>
@@ -90,9 +91,10 @@ export function SourcesNote({
           <h3>Built around power, cooling, and compute.</h3>
           <p>
             Starcloud’s paper describes modular compute containers, solar
-            arrays, radiators and optical connectivity. Within a facility,
-            closely grouped modules share a network spine. Our inter-satellite
-            journey represents a separate relay network.
+            arrays, radiators, and RF or optical terminals on a shared spine.
+            The highlighted spacecraft carries that hardware. Links between
+            spacecraft are optical hops along the shell, not the in-facility
+            spine.
           </p>
           <figure className="paper-diagram">
             <Image
@@ -127,25 +129,19 @@ export function SourcesNote({
             </figure>
           </div>
           <p className="fine-print">
-            The bright band is 8,800 illustrative access relays at 725 km. Its
-            center plane is inclined 55°, so the east-west crest crosses
-            central Canada. Cross-track width breathes around a nominal ±10°,
-            and some craft share one argument of latitude so they stack on a
-            meridian at that crest. The rest sit irregularly on the same ring.
-            A fixed fan of inclinations would pinch at the equator crossings
-            and pile up at the two crests; this ring does not. It is not the
-            compute constellation in
-            Starcloud’s white paper. That paper describes compact compute
-            containers on a shared power, cooling and network spine, in
-            dawn-dusk sun-synchronous LEO, with optical or RF terminals into
-            other constellations. The highlighted Starcloud craft uses the
-            sun-synchronous inclination for its altitude and sits one short
-            optical hop from the relay handoff. Its node follows that handoff,
-            not a live dawn-dusk sun vector. The 2026 FCC filing requests up
-            to 88,000 spacecraft in narrow 600–850 km sun-synchronous shells;
-            neither that count nor this Canada ribbon is an operating fleet.
-            Hardware size and the drawn orbital radius are enlarged; routing
-            distances use physical kilometers.
+            The line is 8,800 illustrative spacecraft at 725 km, inside the
+            600–850 km range from the 2026 FCC filing. Inclination is the
+            sun-synchronous value at that altitude. The node is chosen so the
+            orbit plane is the terminator for a sun over 20°E, matching the
+            paper’s dawn-dusk figure. That sun direction is fixed for the
+            picture; it is not a live ephemeris. Cross-track half-width is
+            0.42°, so craft stack on the terminator instead of spreading into
+            a wide band. The paper’s data center is a set of containers on one
+            spine in this orbit, with laser links to other constellations. The
+            highlighted craft is the compute node on this shell. The FCC filing
+            requests up to 88,000 spacecraft; 8,800 is not that fleet and not
+            an operating constellation. Hardware size and the drawn orbital
+            radius are enlarged; routing distances use physical kilometers.
           </p>
         </section>
         <section className="method-section">
@@ -195,13 +191,14 @@ export function SourcesNote({
             <p>
               Fiber distance follows the city graph plus a 1.15× allowance for
               local cable routing, at 200,000 km/s. The orbital request starts
-              with the ground request. It uplinks directly when a relay is at
-              least 25° above the horizon; otherwise it uses a feeder to a land
-              gateway first. Optical links run at 299,792 km/s, must clear
-              Earth, and stay within 4,000 km. Round trips add 10 ms on the
-              ground path, or 8 ms plus 1.5 ms per optical hop in orbit.
-              Animation time is unrelated to those milliseconds. Positions
-              freeze at send so the picture matches the reported distances.
+              with the ground request. It uplinks directly when a shell
+              spacecraft is at least 25° above the horizon; otherwise it uses
+              a feeder to a land gateway first. Optical links run along the
+              same shell at 299,792 km/s, must clear Earth, and stay within
+              4,000 km. Round trips add 10 ms on the ground path, or 8 ms plus
+              1.5 ms per optical hop in orbit. Animation time is unrelated to
+              those milliseconds. Positions freeze at send so the picture
+              matches the reported distances.
             </p>
             <p>
               No production AI request from this app runs in space.

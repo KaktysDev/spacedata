@@ -7,7 +7,7 @@
   color-scheme: dark;
   --muted: #969696;
   --line: #ffffff18;
-  --glass: linear-gradient(135deg, #ffffff10, #ffffff03 50%, #ffffff08);
+  --glass: #ffffff0c;
 }
 * {
   box-sizing: border-box;
@@ -182,9 +182,9 @@ textarea:focus-visible {
 .prompt-glass {
   border: 1px solid #ffffff28;
   border-radius: 26px;
-  background: linear-gradient(125deg, #33333390, #131313a0 45%, #1d1d1d80);
-  backdrop-filter: blur(32px) saturate(0);
-  -webkit-backdrop-filter: blur(32px) saturate(0);
+  background: #14141480;
+  /* Standard property only. A paired -webkit-backdrop-filter makes Lightning CSS drop this, and Chromium then computes backdrop-filter as none. */
+  backdrop-filter: blur(32px);
   box-shadow:
     0 22px 65px #0006,
     inset 0 1px 0 #ffffff18,
@@ -268,7 +268,7 @@ textarea:focus-visible {
   border: 1px solid #ffffff2b;
   border-radius: 22px;
   padding: 7px;
-  background: linear-gradient(135deg, #292929f5, #151515f5);
+  background: #161616f2;
   box-shadow:
     0 20px 60px #0009,
     inset 0 1px 0 #ffffff18;
@@ -388,7 +388,6 @@ textarea:focus-visible {
   border-radius: 12px;
   box-shadow: 0 16px 40px #000a;
   backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
   z-index: 20;
   max-height: 180px;
   overflow-y: auto;
@@ -644,18 +643,17 @@ button.location-suggestion:hover {
 }
 .label-card {
   position: relative;
-  display: block;
-  padding: 12px 14px 11px;
-  border: 1px solid #ffffff2b;
-  border-radius: 20px;
-  background: linear-gradient(135deg, #292929f2, #151515f5);
-  backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 6px;
+  border: 0;
+  border-radius: 12px;
+  background: #0c0c0c80;
+  backdrop-filter: blur(18px);
   text-align: left;
-  box-shadow:
-    0 20px 60px #0009,
-    inset 0 1px 0 #ffffff18;
-  min-width: 196px;
+  box-shadow: none;
+  min-width: 0;
   animation: card-in 0.35s ease;
 }
 .datacenter-brand {
@@ -666,37 +664,37 @@ button.location-suggestion:hover {
   color: #eee;
 }
 .datacenter-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
-  border: 1px solid #ffffff1c;
-  background: #ffffff0c;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  border: 0;
+  background: #ffffff14;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  box-shadow: inset 0 1px 0 #ffffff14;
 }
 .datacenter-mark .provider-logo {
-  width: 16px;
-  height: 16px;
+  width: 13px;
+  height: 13px;
 }
 .datacenter-id {
-  line-height: 1.25;
+  line-height: 1.15;
 }
+.datacenter-id small,
 .datacenter-brand small {
   display: block;
-  font-size: 10px;
-  color: #999;
-  margin-top: 3px;
+  font-size: 9px;
+  color: #bdbdbd;
+  margin-top: 1px;
 }
 .label-card strong {
   display: block;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid #ffffff12;
-  font-size: 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: -0.3px;
+  letter-spacing: -0.2px;
 }
 .label-caption {
   display: block;
@@ -753,7 +751,7 @@ button.location-suggestion:hover {
   transform: translateX(-50%);
   width: min(570px, calc(100% - 40px));
   text-align: center;
-  background: linear-gradient(135deg, #333333a0, #141414b5);
+  background: #141414b3;
   backdrop-filter: blur(28px);
   border: 1px solid #ffffff24;
   box-shadow:
@@ -831,7 +829,7 @@ button.location-suggestion:hover {
 .glass-dialog {
   margin: auto;
   color: #eee;
-  background: linear-gradient(130deg, #303030ed, #171717ee 45%, #202020ed);
+  background: #171717ee;
   border: 1px solid #ffffff2b;
   border-radius: 28px;
   padding: 30px;
@@ -844,7 +842,6 @@ button.location-suggestion:hover {
     0 40px 150px #0008,
     inset 0 1px 0 #ffffff16;
   backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
   animation: dialog-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .glass-dialog:has(~ .glass-dialog[open]) {
@@ -861,7 +858,6 @@ button.location-suggestion:hover {
 .glass-dialog.quiet::backdrop {
   background: #0004;
   backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
 }
 .simulator.answer-open > :not(dialog) {
   filter: none;
@@ -884,7 +880,6 @@ button.location-suggestion:hover {
 .glass-dialog::backdrop {
   background: #0008;
   backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   animation: appear 0.3s ease;
 }
 .dialog-heading {
@@ -938,7 +933,7 @@ button.location-suggestion:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: linear-gradient(135deg, #ffffff09, #ffffff02);
+  background: #ffffff0a;
   border: 1px solid #ffffff14;
   padding: 17px;
   border-radius: 17px;
@@ -1064,7 +1059,7 @@ button.location-suggestion:hover {
 .water-cup > span {
   position: absolute;
   inset: 38% 0 0;
-  background: linear-gradient(#bcbcbc9c, #8484846b);
+  background: #9a9a9a88;
   animation: fill 1.7s ease both;
 }
 .water-cup > span:before {
@@ -1118,7 +1113,7 @@ button.location-suggestion:hover {
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(180deg, #4db8ff, #1a7fd4);
+  background: #3aa0e0;
   transition: height 0.6s ease;
 }
 .water-vessel > span:before {
@@ -1148,99 +1143,94 @@ button.location-suggestion:hover {
 }
 .results-card {
   pointer-events: auto;
-  width: min(520px, calc(100% - 24px));
-  max-height: min(78dvh, 720px);
-  overflow-y: auto;
+  width: min(440px, calc(100% - 24px));
+  max-height: none;
+  overflow: hidden;
   color: #eee;
-  background: linear-gradient(145deg, #1a1a1af0, #0a0a0af5 55%, #141414f0);
-  border: 1px solid #ffffff2a;
-  border-radius: 22px;
-  padding: 22px 22px 18px;
-  box-shadow:
-    0 24px 80px #000a,
-    inset 0 1px 0 #ffffff14;
-  backdrop-filter: blur(28px) saturate(0.85);
-  -webkit-backdrop-filter: blur(28px) saturate(0.85);
+  background: #0c0c0c80;
+  border: 0;
+  border-radius: 16px;
+  padding: 14px 14px 12px;
+  box-shadow: none;
+  backdrop-filter: blur(18px);
   animation: dialog-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
-  scrollbar-width: thin;
-  scrollbar-color: #ffffff30 transparent;
 }
 .results-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .results-card-head h2 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 450;
-  letter-spacing: -0.4px;
-}
-.results-sides {
-  display: grid;
-  grid-template-columns: 72px 1fr 1fr;
-  gap: 10px 12px;
-  align-items: center;
-  margin-bottom: 18px;
-}
-.results-metric-label {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #888;
-}
-.results-col {
-  min-width: 0;
-}
-.results-col strong {
   font-size: 15px;
-  font-weight: 400;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+}
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
   font-variant-numeric: tabular-nums;
 }
-.results-col strong small {
-  margin-left: 4px;
-  font-size: 10px;
-  color: #888;
-}
-.results-side-label {
-  display: block;
+.results-table th,
+.results-table td {
+  text-align: right;
+  font-weight: 400;
   font-size: 12px;
+  padding: 5px 0 5px 10px;
+  border-bottom: 1px solid #ffffff14;
+}
+.results-table th {
   color: #ddd;
-}
-.results-col small {
-  display: block;
-  font-size: 10px;
-  color: #777;
-  margin-top: 2px;
-}
-.results-answers {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-.results-answers article {
-  border-top: 1px solid #ffffff14;
-  padding-top: 12px;
-}
-.results-answers h3 {
-  margin: 0 0 6px;
   font-size: 11px;
-  font-weight: 500;
-  color: #aaa;
-  letter-spacing: 0.02em;
+  padding-bottom: 6px;
 }
-.results-answers p {
+.results-table th small {
+  display: block;
+  color: #9a9a9a;
+  font-size: 10px;
+  margin-top: 1px;
+  font-weight: 400;
+}
+.results-table .metric {
+  text-align: left;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9a9a9a;
+  font-size: 10px;
+}
+.results-table td.metric {
+  text-align: left;
+  color: #9a9a9a;
+  padding-left: 0;
+  width: 28%;
+}
+.results-answer {
+  margin: 10px 0;
+}
+.results-answer h3 {
+  margin: 0 0 4px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9a9a9a;
+}
+.results-answer p {
   margin: 0;
   font-size: 13px;
-  line-height: 1.55;
-  color: #e8e8e8;
-  white-space: pre-wrap;
+  line-height: 1.45;
+  color: #f0f0f0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
 }
 .results-preview {
   font-size: 12px;
-  color: #888;
-  margin: 8px 0 14px;
+  color: #9a9a9a;
+  margin: 10px 0;
 }
 .results-again {
   width: 100%;
@@ -1288,8 +1278,7 @@ button.location-suggestion:hover {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 14px 0;
-  max-height: 230px;
-  overflow: auto;
+  overflow: hidden;
 }
 .answer > small {
   font-size: 9px;
@@ -1702,34 +1691,22 @@ button.location-suggestion:hover {
     height: 30px;
   }
   .label-card {
-    min-width: 168px;
-    padding: 10px 11px 9px;
-    border-radius: 16px;
+    padding: 5px 8px 5px 5px;
+    border-radius: 10px;
   }
   .label-card strong {
-    font-size: 12px;
-    margin-top: 8px;
-    padding-top: 8px;
-  }
-  .datacenter-brand {
     font-size: 11px;
-    gap: 8px;
   }
   .datacenter-mark {
-    width: 26px;
-    height: 26px;
-    border-radius: 8px;
+    width: 20px;
+    height: 20px;
   }
   .datacenter-mark .provider-logo {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
   }
-  .datacenter-brand small {
+  .datacenter-id small {
     font-size: 8px;
-  }
-  .label-caption {
-    font-size: 7px;
-    margin-top: 6px;
   }
   .journey-status {
     bottom: 70px;
