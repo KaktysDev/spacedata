@@ -24,8 +24,9 @@ export function SourcesNote({
           Today’s networks. Tomorrow’s infrastructure.
         </p>
         <p>
-          A connected model returns one real answer. The same workload is compared
-          on Earth and in orbit.
+          The selected provider answers the same prompt twice. We compare a
+          modeled ground path with a hypothetical orbital path; neither API
+          request runs in space.
         </p>
         <figure className="paper-hero">
           <Image
@@ -130,16 +131,18 @@ export function SourcesNote({
           </div>
           <p className="fine-print">
             The picture shows 8,800 illustrative spacecraft in one ring, held
-            off the globe. Altitudes run from 1,080 km to 1,520 km. Inclination
+            off the globe for clarity. Routing altitudes run from 600 km to
+            850 km around a 725 km reference plane. Inclination
             and the ascending node each wander about a dozen degrees around the
             sun-synchronous dawn-dusk plane, so the ring has thickness without
             becoming a shell. Craft are spaced all the way around that ring.
-            The 2026 FCC filing asks for narrow 600–850 km shells; this view
-            is a thicker, higher ring so it reads as a band instead of a line. A fixed
+            The 2026 FCC filing asks for narrow 600–850 km shells; this is one
+            illustrative ring with exaggerated visual distance from Earth. A fixed
             sun over 20°E still defines the reference dawn-dusk plane, matching
             the paper’s figure. That sun direction is not a live ephemeris.
             The paper’s data center is a set of containers on one spine, with
-            laser links onward. The highlighted craft is the compute node.
+            laser links onward. Five craft are designated as hypothetical
+            compute nodes, and the highlighted craft is the nearest reachable one.
             The FCC filing requests up to 88,000 spacecraft; 8,800 is not that
             fleet and not an operating constellation. Hardware size and the
             drawn orbital radius are enlarged; routing distances use physical
@@ -198,9 +201,11 @@ export function SourcesNote({
               a feeder to a land gateway first. Optical links run along the
               same shell at 299,792 km/s, must clear Earth, and stay within
               4,000 km. Round trips add 10 ms on the ground path, or 8 ms plus
-              1.5 ms per optical hop in orbit. Animation time is unrelated to
-              those milliseconds. Positions freeze at send so the picture
-              matches the reported distances.
+              1.5 ms per optical hop in orbit. The animation stretches network
+              propagation equally on both paths so the modeled finish order is
+              preserved; its seconds are not actual network delay. It waits
+              for both terrestrial API replies before showing either return.
+              Positions freeze at send so the picture matches the reported distances.
             </p>
             <p>
               No production AI request from this app runs in space.

@@ -18,6 +18,8 @@ import {
   orbitalPeriodMs,
   ORBIT_EPOCH_MS,
   opticalDistanceKm,
+  COMPUTE_SLOTS,
+  createRoutePlayback,
   RING_INCLINATION_DEG,
   RING_RAAN_DEG,
   INCLINATION_SPREAD_DEG,
@@ -89,14 +91,14 @@ function trackAngleDeg(node: { lat: number; lon: number }) {
     Math.PI
   );
 }
-test("the fleet is one high ring with thickness, not a shell or a stack", () => {
+test("the modeled fleet occupies one 600–850 km ring with thickness", () => {
   const nodes = orbitalNodes(0);
   expect(nodes).toHaveLength(NODE_COUNT);
   expect(NODE_COUNT).toBe(8800);
   const alts = nodes.map((p) => p.altitudeKm);
   const span = Math.max(...alts) - Math.min(...alts);
-  expect(span).toBeGreaterThan(350);
-  expect(span).toBeLessThan(500);
+  expect(span).toBeGreaterThan(240);
+  expect(span).toBeLessThan(260);
   expect(Math.min(...alts)).toBeGreaterThanOrEqual(SHELL_ALTITUDE_MIN_KM - 1);
   expect(Math.min(...alts)).toBeLessThan(SHELL_ALTITUDE_MIN_KM + 40);
   expect(Math.max(...alts)).toBeGreaterThan(SHELL_ALTITUDE_MAX_KM - 40);
@@ -161,12 +163,15 @@ test("ground and orbital routes leave the user independently", () => {
         expect(r.hops[0]).toBe(r.ingress);
         expect(r.hops.at(-1)).toBe(r.computeRelay);
         expect(r.computeCraft).toBe(r.nodes[r.computeRelay]);
+        expect(COMPUTE_SLOTS).toContain(r.computeRelay);
         expect(r.computeCraft.band).toBe(0);
         expect(r.carrierLinkKm).toBe(0);
-        expect(r.laserKm).toBeGreaterThan(2500);
-        expect(r.laserKm).toBeLessThan(12000);
-        expect(r.hops.length).toBeGreaterThanOrEqual(3);
-        expect(r.hops.length).toBeLessThanOrEqual(8);
+        expect(r.laserKm).toBeGreaterThanOrEqual(0);
+        expect(r.laserKm).toBeLessThan(25000);
+        expect(r.hops.length).toBeGreaterThanOrEqual(1);
+        expect(r.hops.length).toBeLessThanOrEqual(13);
+        if (r.hops.length === 1) expect(r.laserKm).toBe(0);
+        else expect(r.laserKm).toBeGreaterThan(0);
         expect(new Set(r.hops).size).toBe(r.hops.length);
         for (let i = 1; i < r.hops.length; i++) {
           expect(
@@ -177,6 +182,14 @@ test("ground and orbital routes leave the user independently", () => {
           ).toBeLessThanOrEqual(4000);
         }
         expect(r.rttMs).toBeGreaterThan(0);
+        expect(r.rttMs / 2).toBeCloseTo(
+          r.gatewayRoute.km / 200 +
+            r.uplinkKm / 299.792458 +
+            r.laserKm / 299.792458 +
+            (r.hops.length - 1) * 1.5 +
+            4,
+          8,
+        );
         expect(
           compare(provider, origin, site, null, 256, 1.11, at).space.rttMs,
         ).toBe(r.rttMs);
@@ -184,6 +197,38 @@ test("ground and orbital routes leave the user independently", () => {
           compare(provider, origin, site, null, 256, 1.11, at).ground.rttMs,
         ).toBe(r.ground.rttMs);
       }
+});
+test("parallel playback keeps modeled completion order and waits for both API replies", () => {
+  const route = routeAt(DEFAULT_LOCATION, ORBIT_EPOCH_MS, nearestSite("gemini", DEFAULT_LOCATION));
+  const initial = createRoutePlayback(route);
+  expect(initial.ground.outbound.startMs).toBe(initial.launchMs);
+  expect(initial.space.outbound.startMs).toBe(initial.launchMs);
+  expect(initial.space.feeder.startMs).toBe(initial.launchMs);
+  expect(initial.space.laser.endMs).toBe(initial.space.outbound.endMs);
+  expect(initial.ground.compute.startMs).toBe(initial.ground.outbound.endMs);
+  expect(initial.space.compute.startMs).toBe(initial.space.outbound.endMs);
+  expect(initial.ground.modeledTotalMs).toBeCloseTo(1200 + route.ground.rttMs);
+  expect(initial.space.modeledTotalMs).toBeCloseTo(1200 + route.rttMs);
+  expect(initial.firstFinished).toBe(
+    route.ground.rttMs < route.rttMs
+      ? "ground"
+      : route.ground.rttMs > route.rttMs
+        ? "space"
+        : "tie",
+  );
+  const pending = createRoutePlayback(route, { elapsedMs: 9000 });
+  expect(pending.ground.return.startMs).toBeGreaterThan(9000);
+  expect(pending.space.return.startMs).toBeGreaterThan(9000);
+  expect(pending.waitingForAnswer).toBe(true);
+  const ready = createRoutePlayback(route, { elapsedMs: 9000, answerReadyAtMs: 9000 });
+  expect(ready.ground.return.startMs).toBeGreaterThanOrEqual(9000);
+  expect(ready.space.return.startMs).toBeGreaterThanOrEqual(9000);
+  expect(ready.waitingForAnswer).toBe(false);
+  expect(ready.totalMs).toBe(Math.max(ready.ground.finishedMs, ready.space.finishedMs));
+  expect(createRoutePlayback(route, { elapsedMs: 12000, answerReadyAtMs: 9000 })).toEqual(ready);
+  expect(Math.sign(ready.ground.finishedMs - ready.space.finishedMs)).toBe(
+    Math.sign(route.ground.rttMs - route.rttMs),
+  );
 });
 test("routing uses peering cities for long trips and avoids remote detours for local traffic", () => {
   const ny = DEFAULT_LOCATION,

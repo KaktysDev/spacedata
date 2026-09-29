@@ -7,6 +7,7 @@ import {
   DEFAULT_LOCATION,
 } from "../lib/starcloud/catalog";
 import { compare } from "../lib/starcloud/comparison";
+import { imageForSite } from "../lib/starcloud/site-images";
 import {
   acceptPrompt,
   assertBrowserBotSignals,
@@ -132,6 +133,17 @@ test("pin and provider select the nearest published reference", () => {
     "Australia",
   );
   expect(nearestSite("xai", { lat: 40.7, lon: -74 }).name).toContain("East");
+});
+test("results photos follow the modeled site and label regional fallbacks", () => {
+  const chile = imageForSite("gemini", nearestSite("gemini", { lat: -33.4, lon: -70.7 }));
+  const hamina = imageForSite("gemini", nearestSite("gemini", { lat: 60.6, lon: 27.2 }));
+  const virginia = imageForSite("gemini", nearestSite("gemini", DEFAULT_LOCATION));
+  expect(chile.caption).toContain("Quilicura");
+  expect(chile.siteSpecific).toBe(true);
+  expect(hamina.caption).toContain("Hamina");
+  expect(hamina.url).not.toBe(chile.url);
+  expect(virginia.siteSpecific).toBe(false);
+  expect(virginia.regionSpecific).toBe(true);
 });
 test("matched workload energy and water have correct units and explicit assumptions", () => {
   const c = compare(

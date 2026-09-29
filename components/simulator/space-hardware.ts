@@ -192,53 +192,6 @@ export function hardwareMaterial() {
   });
 }
 
-// The wordmark belongs on the compute craft. The paper's containers carry the
-// name; stamping it on every access relay would be unreadable at 8,800 copies.
-export function satelliteBrand() {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1024;
-  canvas.height = 256;
-  const context = canvas.getContext("2d");
-  if (context) {
-    context.fillStyle = "rgba(8, 8, 8, 0.93)";
-    context.beginPath();
-    context.roundRect(8, 8, 1008, 240, 28);
-    context.fill();
-    context.strokeStyle = "#ffffff";
-    context.lineWidth = 8;
-    context.stroke();
-    context.beginPath();
-    context.ellipse(130, 128, 78, 44, -Math.PI / 4, 0, Math.PI * 2);
-    context.stroke();
-    context.fillStyle = "#ffffff";
-    context.beginPath();
-    context.moveTo(130, 38);
-    context.lineTo(143, 115);
-    context.lineTo(218, 128);
-    context.lineTo(143, 141);
-    context.lineTo(130, 218);
-    context.lineTo(117, 141);
-    context.lineTo(42, 128);
-    context.lineTo(117, 115);
-    context.closePath();
-    context.fill();
-    context.font = "bold 104px Arial, Helvetica, sans-serif";
-    context.textBaseline = "middle";
-    context.fillText("Starcloud", 255, 132);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      depthWrite: false,
-    }),
-  );
-  sprite.scale.set(0.72, 0.18, 1);
-  return sprite;
-}
-
 // Compact container cluster, separate from the access-relay mesh.
 export function orbitalComputeCraft() {
   const craft = new THREE.Group();

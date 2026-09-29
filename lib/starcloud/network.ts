@@ -1,13 +1,13 @@
 import { distanceKm, type Location } from "./catalog";
 
 export const EARTH_KM = 6371,
-  ALTITUDE_KM = 550;
+  ALTITUDE_KM = 725;
 // Reference altitude for the sun-synchronous plane used by routing and the
-// fixed dawn-dusk sun. The drawn ring sits higher than this reference so the
-// belt reads clear of the globe, with a few hundred kilometres of thickness.
+// fixed dawn-dusk sun. The drawn ring is visually raised from the globe;
+// propagation and line-of-sight calculations use these physical altitudes.
 export const SHELL_ALTITUDE_KM = 725;
-export const SHELL_ALTITUDE_MIN_KM = 1080;
-export const SHELL_ALTITUDE_MAX_KM = 1520;
+export const SHELL_ALTITUDE_MIN_KM = 600;
+export const SHELL_ALTITUDE_MAX_KM = 850;
 export const SHELL_ALTITUDES_KM = [SHELL_ALTITUDE_KM] as const;
 export const BAND_COUNT = 1,
   NODES_PER_BAND = 8800;
@@ -76,21 +76,10 @@ export type OrbitalNode = Location & {
   band: number;
   slot: number;
 };
-export const JOURNEY_MS = 14800;
 export const MIN_ELEVATION_DEG = 25;
 export const MAX_LASER_KM = 4000;
 const C_KM_PER_MS = 299.792458;
 const PROC_MS_PER_HOP = 1.5;
-export const STAGES = [
-  { at: 0, label: "Ground and orbital requests launched", short: "Launch" },
-  { at: 2200, label: "Ground route reaches the provider", short: "Ground" },
-  { at: 2800, label: "Laser links relay the orbital request", short: "Lasers" },
-  { at: 6200, label: "Processing in the orbital scenario", short: "Compute" },
-  { at: 10400, label: "Responses return to your location", short: "Return" },
-] as const;
-export function journeyStage(elapsed: number) {
-  return STAGES.reduce((best, s, i) => (elapsed >= s.at ? i : best), 0);
-}
 const rad = Math.PI / 180;
 export function interpolateLocation(
   a: Location,
@@ -394,29 +383,155 @@ export type OrbitalRoute = {
   laserKm: number;
   rttMs: number;
 };
+
+export type PlaybackWindow = { startMs: number; endMs: number };
+export type PlaybackLane = {
+  outbound: PlaybackWindow;
+  compute: PlaybackWindow;
+  return: PlaybackWindow;
+  finishedMs: number;
+  /** Shared illustrative compute proxy plus this lane's modeled RTT. */
+  modeledTotalMs: number;
+};
+export type RoutePlayback = {
+  launchMs: number;
+  ground: PlaybackLane;
+  space: PlaybackLane & {
+    feeder: PlaybackWindow;
+    uplink: PlaybackWindow;
+    laser: PlaybackWindow;
+  };
+  firstArrivalMs: number;
+  firstFinished: "ground" | "space" | "tie";
+  totalMs: number;
+  waitingForAnswer: boolean;
+};
+type PlaybackRoute = Pick<
+  OrbitalRoute,
+  "ground" | "gatewayRoute" | "uplinkKm" | "laserKm" | "hops" | "rttMs"
+>;
+const PLAYBACK_LAUNCH_MS = 700;
+const PLAYBACK_TRAVEL_BASE_MS = 1250;
+const PLAYBACK_PROPAGATION_STRETCH = 12;
+const PLAYBACK_COMPUTE_PROXY_MS = 1200;
+const PLAYBACK_RELEASE_MARGIN_MS = 100;
+const window = (startMs: number, endMs: number): PlaybackWindow => ({
+  startMs,
+  endMs,
+});
+
 /**
- * Optical ISLs along the ring. The compute craft sits several
- * thousand kilometres from the uplink, and each hop is the Earth-clear step
- * inside 4,000 km that closes the most of that gap.
+ * Educational playback for two parallel paths. Every physical propagation
+ * interval receives the same visual time transform. This makes a millisecond
+ * network hop visible while preserving which modeled route would finish first
+ * under an identical compute workload. The API calls are both served on Earth;
+ * their measured durations must not be presented as orbital service times.
+ *
+ * The compute window holds until both API responses are available because the
+ * client receives them together. No return packet is drawn before that point.
  */
+export function createRoutePlayback(
+  route: PlaybackRoute,
+  {
+    elapsedMs = 0,
+    answerReadyAtMs = null,
+  }: { elapsedMs?: number; answerReadyAtMs?: number | null } = {},
+): RoutePlayback {
+  const positive = (value: number) =>
+    Number.isFinite(value) ? Math.max(0, value) : 0;
+  const groundOneWayMs = positive(route.ground.rttMs) / 2;
+  const spaceOneWayMs = positive(route.rttMs) / 2;
+  const travelVisualMs = (oneWayMs: number) =>
+    PLAYBACK_TRAVEL_BASE_MS +
+    oneWayMs * PLAYBACK_PROPAGATION_STRETCH;
+  const launchMs = PLAYBACK_LAUNCH_MS;
+  const groundOutEnd = launchMs + travelVisualMs(groundOneWayMs);
+  const spaceOutEnd = launchMs + travelVisualMs(spaceOneWayMs);
+  const firstArrivalMs = Math.min(groundOutEnd, spaceOutEnd);
+  const releaseAtMs =
+    answerReadyAtMs === null
+      ? positive(elapsedMs) + PLAYBACK_RELEASE_MARGIN_MS
+      : positive(answerReadyAtMs) + PLAYBACK_RELEASE_MARGIN_MS;
+  const computeVisualMs = Math.max(
+    PLAYBACK_COMPUTE_PROXY_MS,
+    releaseAtMs - firstArrivalMs,
+  );
+  const lane = (outEnd: number, oneWayMs: number): PlaybackLane => {
+    const computeEnd = outEnd + computeVisualMs;
+    const finishedMs = computeEnd + travelVisualMs(oneWayMs);
+    return {
+      outbound: window(launchMs, outEnd),
+      compute: window(outEnd, computeEnd),
+      return: window(computeEnd, finishedMs),
+      finishedMs,
+      modeledTotalMs: PLAYBACK_COMPUTE_PROXY_MS + 2 * oneWayMs,
+    };
+  };
+  const ground = lane(groundOutEnd, groundOneWayMs);
+  const spaceBase = lane(spaceOutEnd, spaceOneWayMs);
+
+  // A feeder is zero-length for direct user uplinks. The terminal delay is
+  // assigned to the uplink and optical relay processing to the laser leg.
+  const feederMs = positive(route.gatewayRoute.km) / 200;
+  const uplinkMs = positive(route.uplinkKm) / C_KM_PER_MS + 4;
+  const laserMs =
+    positive(route.laserKm) / C_KM_PER_MS +
+    Math.max(0, route.hops.length - 1) * PROC_MS_PER_HOP;
+  const physicalLegTotal = feederMs + uplinkMs + laserMs;
+  const visualOutboundMs = spaceOutEnd - launchMs;
+  const feederEnd =
+    launchMs + (visualOutboundMs * feederMs) / physicalLegTotal;
+  const uplinkEnd =
+    feederEnd + (visualOutboundMs * uplinkMs) / physicalLegTotal;
+  const space = {
+    ...spaceBase,
+    feeder: window(launchMs, feederEnd),
+    uplink: window(feederEnd, uplinkEnd),
+    laser: window(uplinkEnd, spaceOutEnd),
+  };
+  const difference = route.ground.rttMs - route.rttMs;
+  return {
+    launchMs,
+    ground,
+    space,
+    firstArrivalMs,
+    firstFinished:
+      Math.abs(difference) < 1e-9
+        ? "tie"
+        : difference < 0
+          ? "ground"
+          : "space",
+    totalMs: Math.max(ground.finishedMs, space.finishedMs),
+    waitingForAnswer: answerReadyAtMs === null,
+  };
+}
+// Five sparse compute-capable craft are designated on the illustrative ring.
+// Their spacing is an architecture assumption, not a deployed Starcloud fleet.
+export const COMPUTE_SLOTS = [0, 1760, 3520, 5280, 7040] as const;
+/** Return the nearest reachable compute craft by direct distance. */
 function laserRelayToCompute(nodes: OrbitalNode[], ingress: number) {
-  let goal = -1,
-    goalScore = Infinity;
-  for (let i = 0; i < nodes.length; i++) {
-    if (i === ingress) continue;
-    const dist = opticalDistanceKm(nodes[ingress], nodes[i]);
-    if (dist < 5500 || dist > 9500) continue;
-    const score = Math.abs(dist - 7200);
-    if (score < goalScore) {
-      goalScore = score;
-      goal = i;
-    }
+  const candidates = COMPUTE_SLOTS.slice().sort(
+    (a, b) =>
+      opticalDistanceKm(nodes[ingress], nodes[a]) -
+      opticalDistanceKm(nodes[ingress], nodes[b]),
+  );
+  for (const goal of candidates) {
+    const path = laserPathToGoal(nodes, ingress, goal);
+    if (path) return path;
   }
-  if (goal < 0) throw new Error("No optical path to compute");
+  throw new Error("No optical path to compute");
+}
+/** Greedy Earth-clear laser path with a bounded number of relay terminals. */
+function laserPathToGoal(
+  nodes: OrbitalNode[],
+  ingress: number,
+  goal: number,
+): { hops: number[]; km: number; compute: number } | null {
+  if (goal === ingress) return { hops: [ingress], km: 0, compute: goal };
   const hops = [ingress];
   let km = 0;
   const seen = new Set<number>([ingress]);
-  for (let guard = 0; guard < 8 && hops[hops.length - 1] !== goal; guard++) {
+  for (let guard = 0; guard < 12 && hops[hops.length - 1] !== goal; guard++) {
     const cur = hops[hops.length - 1];
     const goalDist = opticalDistanceKm(nodes[cur], nodes[goal]);
     if (
@@ -441,12 +556,12 @@ function laserRelayToCompute(nodes: OrbitalNode[], ingress: number) {
         pick = i;
       }
     }
-    if (pick < 0) throw new Error("No optical path to compute");
+    if (pick < 0) return null;
     km += opticalDistanceKm(nodes[cur], nodes[pick]);
     seen.add(pick);
     hops.push(pick);
   }
-  if (hops[hops.length - 1] !== goal) throw new Error("No optical path to compute");
+  if (hops[hops.length - 1] !== goal) return null;
   return { hops, km, compute: goal };
 }
 
@@ -455,7 +570,7 @@ function laserRelayToCompute(nodes: OrbitalNode[], ingress: number) {
  * Ground: fiber to the provider, then back along that path.
  * Orbit: RF uplink when a shell spacecraft is above the elevation mask;
  * otherwise a feeder to a land gateway, then the uplink. Optical links then
- * cross the volumetric shell to a compute spacecraft a few thousand kilometres away.
+ * cross the ring to the nearest reachable designated compute spacecraft.
  * The reply retraces that path and stops at the user.
  */
 export function routeAt(
@@ -478,8 +593,9 @@ export function routeAt(
   if (visibleFromUser.length) {
     const ingressEntry = visibleFromUser.reduce((best, entry) => {
       if (entry.elev !== best.elev) return entry.elev > best.elev ? entry : best;
-      return opticalDistanceKm(origin, entry.node) <
-        opticalDistanceKm(origin, best.node)
+      const groundPoint = { ...origin, altitudeKm: 0 };
+      return opticalDistanceKm(groundPoint, entry.node) <
+        opticalDistanceKm(groundPoint, best.node)
         ? entry
         : best;
     });

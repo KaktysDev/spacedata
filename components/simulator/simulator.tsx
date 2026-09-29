@@ -15,10 +15,11 @@ import {
   type ChatSuccessBody,
 } from "@/lib/starcloud/chat-types";
 import {
-  JOURNEY_MS,
+  createRoutePlayback,
   NODE_COUNT,
-  STAGES,
-  journeyStage,
+  routeAt,
+  type OrbitalRoute,
+  type PlaybackLane,
 } from "@/lib/starcloud/network";
 import { type Flight } from "./orbital-scene";
 import { InferenceComparison, preloadComparisonImages } from "./inference-comparison";
@@ -32,6 +33,14 @@ const OrbitalScene = dynamic(
 
 type Place = Location & { name: string };
 
+function routePhase(lane: PlaybackLane, elapsed: number, answerReady: boolean) {
+  if (elapsed < lane.outbound.startMs) return "Starting";
+  if (elapsed < lane.outbound.endMs) return "Outbound";
+  if (!answerReady || elapsed < lane.return.startMs) return "Waiting";
+  if (elapsed < lane.finishedMs) return "Returning";
+  return "Arrived";
+}
+
 export function Simulator({ available }: { available: ProviderId[] }) {
   const [provider, setProvider] = useState<ProviderId>(
       available[0] ?? "gemini",
@@ -44,6 +53,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     [ready, setReady] = useState(false),
     [prompt, setPrompt] = useState(""),
     [flight, setFlight] = useState<Flight | null>(null),
+    [routeSnapshot, setRouteSnapshot] = useState<OrbitalRoute | null>(null),
     [elapsed, setElapsed] = useState(0),
     [answerReady, setAnswerReady] = useState(false),
     [answerReadyAt, setAnswerReadyAt] = useState<number | null>(null),
@@ -102,12 +112,13 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     request.current = null;
     active.current = false;
     setFlight(null);
+    setRouteSnapshot(null);
     setError("Request canceled. A provider may still bill work already started.");
   }
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (active.current || !prompt.trim()) return;
-    preloadComparisonImages(provider);
+    preloadComparisonImages(provider, site);
     active.current = true;
     const controller = new AbortController();
     request.current = controller;
@@ -121,8 +132,10 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     setAnswerReadyAt(null);
     const at = Date.now();
     setSnapshotAt(at);
-    setFlight({ id: at, started, reduced });
     try {
+      const modeledRoute = routeAt(origin, at, site);
+      setRouteSnapshot(modeledRoute);
+      setFlight({ id: at, started, reduced });
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -144,13 +157,14 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       const responseElapsed = performance.now() - started;
       setAnswerReady(true);
       setAnswerReadyAt(responseElapsed);
+      const playback = createRoutePlayback(modeledRoute, {
+        elapsedMs: responseElapsed,
+        answerReadyAtMs: responseElapsed,
+      });
       await new Promise<void>((resolve, reject) => {
         const wait = Math.max(
           0,
-          (reduced
-            ? 300
-            : Math.max(JOURNEY_MS, responseElapsed + 4400)) -
-            (performance.now() - started),
+          (reduced ? 300 : playback.totalMs) - (performance.now() - started),
         );
         const timer = setTimeout(() => {
           controller.signal.removeEventListener("abort", abort);
@@ -165,10 +179,12 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       if (controller.signal.aborted) return;
       setResult(answer);
       setFlight(null);
+      setRouteSnapshot(null);
       setResults(true);
     } catch (e) {
       if (!controller.signal.aborted) {
         setFlight(null);
+        setRouteSnapshot(null);
         setError(
           e instanceof Error
             ? e.message
@@ -182,21 +198,32 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       }
     }
   }
-  const visualElapsed =
-    answerReadyAt === null
-      ? Math.min(elapsed, 10399)
-      : Math.min(
-          JOURNEY_MS,
-          elapsed - Math.max(0, answerReadyAt - 10400),
-        );
-  const stage = journeyStage(visualElapsed);
+  const playback = flight && routeSnapshot
+    ? createRoutePlayback(routeSnapshot, {
+        elapsedMs: elapsed,
+        answerReadyAtMs: answerReadyAt,
+      })
+    : null;
+  const groundDone = Boolean(playback && elapsed >= playback.ground.finishedMs);
+  const spaceDone = Boolean(playback && elapsed >= playback.space.finishedMs);
   const progress = flight?.reduced
     ? "Comparing the two paths"
-    : !answerReady && elapsed >= 10400
-      ? "Waiting for the AI response"
-      : visualElapsed >= JOURNEY_MS
-        ? "Your comparison is ready"
-        : STAGES[stage].label;
+    : !playback || elapsed < playback.launchMs
+      ? "Sending both requests"
+      : elapsed < Math.max(playback.ground.outbound.endMs, playback.space.outbound.endMs)
+        ? "Following both routes"
+        : !answerReady
+          ? "Waiting for replies"
+          : elapsed < Math.min(playback.ground.return.startMs, playback.space.return.startMs)
+            ? "Preparing return paths"
+            : groundDone && spaceDone
+              ? "Comparison ready"
+              : groundDone || spaceDone
+                ? "One route complete"
+                : "Replies returning";
+  const progressPercent = playback
+    ? Math.min(answerReady ? 100 : 90, (elapsed / playback.totalMs) * 100)
+    : 0;
   return (
     <main
       className={`simulator ${flight ? "in-flight" : ""} ${sources ? "modal-open" : ""} ${results ? "answer-open" : ""}`}
@@ -207,6 +234,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         provider={provider}
         site={site}
         flight={flight}
+        resultsOpen={results}
         answerReady={answerReady}
         answerReadyAt={answerReadyAt}
         onLocation={(p) => {
@@ -247,25 +275,17 @@ export function Simulator({ available }: { available: ProviderId[] }) {
           <h1 aria-live="polite">{progress}</h1>
           <p>
             {answerReady
-              ? "AI responses received · finishing the visual journey"
-              : `${PROVIDERS[provider].name} is writing`}
+              ? "Provider replies received · route motion is illustrative"
+              : `${PROVIDERS[provider].name} is answering both requests`}
           </p>
-          <div className="journey-stages" aria-label="Route stages">
-            {STAGES.map((s, i) => (
-              <span
-                key={s.short}
-                className={
-                  i === stage ? "current" : i < stage ? "complete" : ""
-                }
-              >
-                {s.short}
-              </span>
-            ))}
+          <div className="journey-stages" aria-label="Modeled route progress">
+            <span>Ground · {playback ? routePhase(playback.ground, elapsed, answerReady) : "Starting"}</span>
+            <span>Orbit · {playback ? routePhase(playback.space, elapsed, answerReady) : "Starting"}</span>
           </div>
           <div className="journey-track">
             <span
               style={{
-                width: `${Math.min(100, visualElapsed / (JOURNEY_MS / 100))}%`,
+                width: `${progressPercent}%`,
               }}
             />
           </div>

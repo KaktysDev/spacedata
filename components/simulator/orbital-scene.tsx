@@ -12,6 +12,7 @@ import {
 import {
   orbitalNodes,
   routeAt,
+  createRoutePlayback,
   NODE_COUNT,
   RING_INCLINATION_DEG,
   RING_RAAN_DEG,
@@ -24,7 +25,6 @@ import {
 import {
   satelliteGeometry,
   satelliteOverviewGeometry,
-  satelliteBrand,
   orbitalComputeCraft,
   hardwareMaterial,
   datacenter,
@@ -36,6 +36,7 @@ type Props = {
   site: Site;
   provider: ProviderId;
   flight: Flight | null;
+  resultsOpen: boolean;
   answerReady: boolean;
   answerReadyAt: number | null;
   onLocation: (p: Location) => void;
@@ -136,6 +137,11 @@ function surface(locations: Location[]) {
   return points;
 }
 function follow(points: THREE.Vector3[], t: number, target: THREE.Vector3) {
+  if (!points.length) return;
+  if (points.length === 1) {
+    target.copy(points[0]);
+    return;
+  }
   t = THREE.MathUtils.clamp(t, 0, 1);
   const lengths = [0];
   for (let i = 1; i < points.length; i++)
@@ -149,6 +155,18 @@ function follow(points: THREE.Vector3[], t: number, target: THREE.Vector3) {
       points[i],
       (wanted - lengths[i - 1]) / (lengths[i] - lengths[i - 1] || 1),
     );
+}
+function windowProgress(
+  window: { startMs: number; endMs: number },
+  elapsedMs: number,
+) {
+  if (window.endMs <= window.startMs)
+    return elapsedMs < window.startMs ? 0 : 1;
+  return THREE.MathUtils.clamp(
+    (elapsedMs - window.startMs) / (window.endMs - window.startMs),
+    0,
+    1,
+  );
 }
 const smooth = (t: number) => {
   t = THREE.MathUtils.clamp(t, 0, 1);
@@ -203,11 +221,15 @@ export function OrbitalScene(props: Props) {
     spaceLabel = useRef<HTMLDivElement>(null),
     relayLabel = useRef<HTMLDivElement>(null),
     gatewayLabel = useRef<HTMLDivElement>(null),
+    resumeFrame = useRef<() => void>(() => {}),
     latest = useRef(props);
   const [error, setError] = useState("");
   useEffect(() => {
     latest.current = props;
   }, [props]);
+  useEffect(() => {
+    if (!props.resultsOpen) resumeFrame.current();
+  }, [props.resultsOpen]);
   useEffect(() => {
     const el = host.current;
     if (!el) return;
@@ -376,17 +398,17 @@ export function OrbitalScene(props: Props) {
     const routeHardwareMat = hardwareMat.clone();
     routeHardwareMat.emissive.setHex(0xffffff);
     routeHardwareMat.emissiveIntensity = 0.3;
-    const selected = new THREE.InstancedMesh(hardware, routeHardwareMat, 16);
+    const selected = new THREE.InstancedMesh(hardware, routeHardwareMat, 64);
     selected.frustumCulled = false;
     selected.count = 0;
     scene.add(selected);
-    const odcCraft = orbitalComputeCraft(),
-      computeBrand = satelliteBrand();
-    scene.add(odcCraft, computeBrand);
-    odcCraft.visible = computeBrand.visible = false;
+    const odcCraft = orbitalComputeCraft();
+    odcCraft.scale.setScalar(0.45);
+    scene.add(odcCraft);
+    odcCraft.visible = false;
     selected.visible = false;
     const carrier = new THREE.Mesh(hardware, routeHardwareMat);
-    carrier.scale.setScalar(0.36);
+    carrier.scale.setScalar(0.2);
     scene.add(carrier);
     const matrix = new THREE.Object3D();
     const radialAxis = new THREE.Vector3(),
@@ -409,16 +431,25 @@ export function OrbitalScene(props: Props) {
       orbitalGroup = new THREE.Group();
     routes.add(fiberGroup, orbitalGroup);
     const dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const groundDot = new THREE.Mesh(
-        new THREE.SphereGeometry(0.035, 12, 8),
-        dotMat,
-      ),
-      spaceDot = groundDot.clone();
-    spaceDot.material = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      depthTest: false,
-    });
-    spaceDot.renderOrder = 200;
+    function packetMarker() {
+      const packet = new THREE.Group();
+      packet.add(
+        new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), dotMat),
+        new THREE.Mesh(
+          new THREE.RingGeometry(0.021, 0.023, 28),
+          new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.62,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          }),
+        ),
+      );
+      return packet;
+    }
+    const groundDot = packetMarker(),
+      spaceDot = packetMarker();
     scene.add(groundDot, spaceDot);
     const gateway = new THREE.Mesh(
       new THREE.ConeGeometry(0.034, 0.055, 16, 1, true),
@@ -435,7 +466,9 @@ export function OrbitalScene(props: Props) {
       feederPath: THREE.Vector3[] = [],
       laserPath: THREE.Vector3[] = [],
       uplink: THREE.Vector3[] = [],
-      returnPath: THREE.Vector3[] = [],
+      downlinkPath: THREE.Vector3[] = [],
+      returnLaserPath: THREE.Vector3[] = [],
+      returnFeederPath: THREE.Vector3[] = [],
       computeVector = new THREE.Vector3();
     let routeKey = "",
       providerKey = "",
@@ -445,9 +478,7 @@ export function OrbitalScene(props: Props) {
       lastFocus = latest.current.focusId,
       lastZoom = latest.current.zoom;
     const routeTarget = new THREE.Vector3();
-    let routeCamera = new THREE.Vector3(),
-      riseTarget = new THREE.Vector3(),
-      riseCamera = new THREE.Vector3();
+    const routeCamera = new THREE.Vector3();
     const idleCamera = camera.position.clone(),
       idleTarget = new THREE.Vector3(),
       // Preserve the follow camera's lateral side as the packet turns around.
@@ -460,12 +491,18 @@ export function OrbitalScene(props: Props) {
       camera: THREE.Vector3;
       target: THREE.Vector3;
     } | null = null;
+    let groundHandoff: {
+      at: number;
+      camera: THREE.Vector3;
+      target: THREE.Vector3;
+    } | null = null;
     let focusing: {
       at: number;
       camera: THREE.Vector3;
       to: THREE.Vector3;
     } | null = null;
-    let width = 1,
+    let pauseTimer = 0,
+      width = 1,
       height = 1,
       frame = 0,
       drag = false,
@@ -636,12 +673,7 @@ export function OrbitalScene(props: Props) {
         }
       }
     }
-    function orient(
-      instance: THREE.InstancedMesh,
-      index: number,
-      v: THREE.Vector3,
-      scale: number,
-    ) {
+    function hardwareRotation(v: THREE.Vector3, out: THREE.Quaternion) {
       // Dawn-dusk: panel normal (local Z) faces the sun, which is the orbit
       // normal. The array span (local X) lies in the orbital plane, so the
       // shell stays a thin terminator line instead of a wide cross-track band.
@@ -652,7 +684,15 @@ export function OrbitalScene(props: Props) {
       alongAxis.normalize();
       radialAxis.crossVectors(alongAxis, acrossAxis).normalize();
       craftBasis.makeBasis(alongAxis, radialAxis, acrossAxis);
-      matrix.quaternion.setFromRotationMatrix(craftBasis);
+      out.setFromRotationMatrix(craftBasis);
+    }
+    function orient(
+      instance: THREE.InstancedMesh,
+      index: number,
+      v: THREE.Vector3,
+      scale: number,
+    ) {
+      hardwareRotation(v, matrix.quaternion);
       matrix.position.copy(v);
       matrix.scale.setScalar(scale);
       matrix.updateMatrix();
@@ -758,21 +798,30 @@ export function OrbitalScene(props: Props) {
       if (sideReference.lengthSq() > 0.25 && lateral.dot(sideReference) < 0)
         lateral.negate();
       sideReference.copy(lateral);
-      // Keep the packet at the center throughout ingress, relay, compute,
-      // and return. Radial clearance keeps Earth from occluding the target.
+      // Move in close to orbital hardware, while staying above the shell
+      // when the packet is still on a surface feeder or on its way home.
+      const radialDistance = Math.max(
+        2.6,
+        BELT_OUTER + 0.85 - point.length(),
+      );
       const cameraPos = point
         .clone()
-        .addScaledVector(radial, 5.2)
-        .addScaledVector(lateral, 1.6);
-      if (cameraPos.length() < R + 1.7) cameraPos.setLength(R + 1.7);
+        .addScaledVector(radial, radialDistance)
+        .addScaledVector(lateral, 1.45);
       return { camera: cameraPos, target: point.clone() };
     }
     function render(now: number) {
       if (disposed) return;
+      const p = latest.current;
+      if (p.resultsOpen) {
+        pauseTimer = window.setTimeout(() => {
+          frame = requestAnimationFrame(render);
+        }, 400);
+        return;
+      }
       frame = requestAnimationFrame(render);
-      const p = latest.current,
-        active = !!p.flight;
-      hardwareMat.color.setScalar(active ? 0.28 : 1);
+      const active = !!p.flight;
+      hardwareMat.color.setScalar(active ? 0.16 : 1);
       const networkTime =
         p.flight?.id ?? (motion.matches ? epoch : epoch + now - clockStart);
       const nextRoute = `${p.provider},${p.origin.lat},${p.origin.lon},${p.site.name},${p.flight?.id ?? 0}`;
@@ -849,41 +898,20 @@ export function OrbitalScene(props: Props) {
               ? surface(network.gatewayRoute.points)
               : [];
           carrier.position.copy(vectors[network.ingress].clone());
-          carrier.quaternion.setFromUnitVectors(
-            new THREE.Vector3(0, 0, 1),
-            vectors[network.ingress].clone().normalize(),
-          );
+          hardwareRotation(carrier.position, carrier.quaternion);
           uplink = [
             position(network.uplinkAnchor, R + 0.016),
             vectors[network.ingress].clone(),
           ];
           laserPath = network.hops.map((i) => vectors[i].clone());
           computeVector = laserPath[laserPath.length - 1].clone();
-          returnPath = [
-            ...laserPath.slice().reverse(),
-            ...uplink.slice().reverse().slice(1),
-            ...feederPath.slice().reverse().slice(1),
-          ];
+          returnLaserPath = laserPath.slice().reverse();
+          downlinkPath = uplink.slice().reverse();
+          returnFeederPath = feederPath.slice().reverse();
           fiberGroup.add(line(groundPath, 0.8, true));
           if (feederPath.length) orbitalGroup.add(line(feederPath, 0.65, true));
-          orbitalGroup.add(line(uplink, 0.65), line(laserPath, 0.85));
-          for (const segment of [uplink, laserPath])
-            for (let i = 1; i < segment.length; i++) {
-              const a = segment[i - 1],
-                b = segment[i],
-                delta = b.clone().sub(a);
-              const beam = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.009, 0.009, delta.length(), 6),
-                new THREE.MeshBasicMaterial({
-                  color: 0xffffff,
-                  transparent: true,
-                  opacity: 0.7,
-                }),
-              );
-              beam.position.copy(a).lerp(b, 0.5);
-              beam.quaternion.setFromUnitVectors(UP, delta.normalize());
-              orbitalGroup.add(beam);
-            }
+          orbitalGroup.add(line(uplink, 0.65));
+          if (laserPath.length > 1) orbitalGroup.add(line(laserPath, 0.85));
           for (const stop of network.ground.stops) {
             const node = new THREE.Mesh(
               new THREE.SphereGeometry(0.017, 8, 6),
@@ -897,58 +925,32 @@ export function OrbitalScene(props: Props) {
             UP,
             gateway.position.clone().normalize(),
           );
-          const relayHops = network.hops.slice(0, -1);
-          const hopCount = Math.min(relayHops.length, 16);
+          // The ingress craft has its own mesh and callout. Do not draw a
+          // second instanced craft at the same position.
+          const relayHops = network.hops.slice(1, -1);
+          const hopCount = Math.min(relayHops.length, 64);
           relayHops.slice(0, hopCount).forEach((index, i) =>
-            orient(selected, i, vectors[index], 0.39),
+            orient(selected, i, vectors[index], 0.2),
           );
           selected.count = hopCount;
           selected.instanceMatrix.needsUpdate = true;
           odcCraft.position.copy(computeVector);
-          radialAxis.copy(computeVector).normalize();
-          acrossAxis.copy(ringNormal);
-          alongAxis.crossVectors(acrossAxis, radialAxis);
-          if (alongAxis.lengthSq() < 1e-8) alongAxis.crossVectors(acrossAxis, UP);
-          alongAxis.normalize();
-          radialAxis.crossVectors(alongAxis, acrossAxis).normalize();
-          craftBasis.makeBasis(alongAxis, radialAxis, acrossAxis);
-          odcCraft.quaternion.setFromRotationMatrix(craftBasis);
-          computeBrand.position
-            .copy(computeVector)
-            .addScaledVector(computeVector.clone().normalize(), 0.28);
+          hardwareRotation(computeVector, odcCraft.quaternion);
           const originDir = position(p.origin, 1);
           const siteDir = position(p.site, 1);
           const routeDir = originDir.clone().lerp(siteDir, 0.24);
           if (routeDir.lengthSq() < 0.01) routeDir.copy(originDir);
-          routeCamera = routeDir.normalize().multiplyScalar(homeDistance);
+          routeCamera.copy(routeDir.normalize().multiplyScalar(homeDistance));
           routeTarget.set(0, 0, 0);
-          const anchor = position(network.uplinkAnchor, R);
-          const radial = anchor.clone().normalize();
-          const riseSide = ringNormal.clone().addScaledVector(radial, -ringNormal.dot(radial));
-          if (riseSide.lengthSq() < 1e-6) riseSide.crossVectors(radial, UP);
-          if (riseSide.lengthSq() < 1e-6) riseSide.set(1, 0, 0);
-          riseSide.normalize();
-          const uplinkHeight = Math.max(
-            0.9,
-            vectors[network.ingress].length() - R,
-          );
-          riseCamera = radial
-            .clone()
-            .multiplyScalar(R + uplinkHeight + 2.4)
-            .addScaledVector(riseSide, 1.5);
-          riseTarget = anchor.clone().lerp(vectors[network.ingress], 0.62);
         }
       }
       if (now - lastDetailTime > 400) {
         // Pixel-based detail preserves the hardware up close without drawing
         // thousands of subpixel solar cells in the overview.
         const activeIds = new Set(active ? network?.hops : []);
-        // 0.11 × the 0.56 array span is 0.062. At the display radius a
-        // half-degree of cross-track is about 0.05, so neighbors still read
-        // as separate craft where the band is ragged.
-        // Keep the selected route craft legible during a journey. Nearby
-        // background instances otherwise fill the follow camera's foreground.
-        const scale = active ? 0.065 : 0.2;
+        // Route craft retain the same physical display size as the fleet.
+        // Camera distance and light identify the path, not enlarged geometry.
+        const scale = 0.2;
         const focal = height / (2 * Math.tan((43 * Math.PI) / 360));
         const candidates = active ? [] : vectors
           .map((v, i) => ({ i, distance: v.distanceTo(camera.position) }))
@@ -964,7 +966,10 @@ export function OrbitalScene(props: Props) {
             distant,
             i,
             v,
-            activeIds.has(i) || detailIds.has(i) ? 0 : scale,
+            activeIds.has(i) || detailIds.has(i) ||
+              (active && v.distanceToSquared(spaceDot.position) < 0.35)
+              ? 0
+              : scale,
           ),
         );
         candidates.forEach(({ i }, slot) =>
@@ -995,45 +1000,67 @@ export function OrbitalScene(props: Props) {
       }
       const offset = height > 2 ? -(width < 700 ? 20 : 72) / height : 0;
       const rawElapsed = p.flight ? Math.max(0, now - p.flight.started) : 0;
-      const answerAt = p.answerReadyAt;
-      const visualElapsed = p.flight?.reduced
-        ? answerAt === null
-          ? 10399
-          : 10400
-        : answerAt === null
-          ? Math.min(rawElapsed, 10399)
-          : Math.max(0, rawElapsed - Math.max(0, answerAt - 10400));
-      let spacePath = laserPath;
-      if (active && network) {
-        const ms = visualElapsed;
-        if (ms < 2200) follow(groundPath, ms / 2200, groundDot.position);
-        else if (ms < 10400) groundDot.position.copy(groundPath.at(-1)!);
-        else follow(groundPath, 1 - (ms - 10400) / 4400, groundDot.position);
-        if (ms < 2800) {
-          const feederMs = feederPath.length ? 900 : 0;
-          if (feederMs && ms < feederMs) {
-            spacePath = feederPath;
-            follow(feederPath, ms / feederMs, spaceDot.position);
-          } else {
-            spacePath = uplink;
+      const playback =
+        active && network
+          ? createRoutePlayback(network, {
+              elapsedMs: rawElapsed,
+              answerReadyAtMs: p.answerReadyAt,
+            })
+          : null;
+      if (playback) {
+        const ms = rawElapsed,
+          ground = playback.ground,
+          space = playback.space;
+        if (ms < ground.outbound.endMs)
+          follow(groundPath, windowProgress(ground.outbound, ms), groundDot.position);
+        else if (ms < ground.return.startMs)
+          groundDot.position.copy(groundPath.at(-1)!);
+        else
+          follow(
+            groundPath,
+            1 - windowProgress(ground.return, ms),
+            groundDot.position,
+          );
+        if (feederPath.length && ms < space.feeder.endMs)
+          follow(feederPath, windowProgress(space.feeder, ms), spaceDot.position);
+        else if (ms < space.uplink.endMs)
+          follow(uplink, windowProgress(space.uplink, ms), spaceDot.position);
+        else if (ms < space.laser.endMs)
+          follow(laserPath, windowProgress(space.laser, ms), spaceDot.position);
+        else if (ms < space.return.startMs)
+          spaceDot.position.copy(computeVector);
+        else {
+          // Return traverses the same links in reverse order. Give each leg
+          // the same share of the return window as its outbound animation.
+          const feederShare = feederPath.length
+              ? space.feeder.endMs - space.feeder.startMs
+              : 0,
+            uplinkShare = space.uplink.endMs - space.uplink.startMs,
+            laserShare = space.laser.endMs - space.laser.startMs,
+            shareTotal = Math.max(1, feederShare + uplinkShare + laserShare),
+            t = windowProgress(space.return, ms),
+            laserEnd = laserShare / shareTotal,
+            uplinkEnd = (laserShare + uplinkShare) / shareTotal;
+          if (t < laserEnd)
+            follow(returnLaserPath, t / Math.max(laserEnd, 1e-6), spaceDot.position);
+          else if (t < uplinkEnd)
             follow(
-              uplink,
-              (ms - feederMs) / (2800 - feederMs),
+              downlinkPath,
+              (t - laserEnd) / Math.max(uplinkEnd - laserEnd, 1e-6),
               spaceDot.position,
             );
-          }
-        } else if (ms < 6200) {
-          spacePath = laserPath;
-          follow(laserPath, (ms - 2800) / 3400, spaceDot.position);
-        } else if (ms < 10400) {
-          spacePath = laserPath;
-          spaceDot.position.copy(laserPath.at(-1)!);
-        } else {
-          spacePath = returnPath;
-          follow(returnPath, (ms - 10400) / 4400, spaceDot.position);
+          else if (feederPath.length)
+            follow(
+              returnFeederPath,
+              (t - uplinkEnd) / Math.max(1 - uplinkEnd, 1e-6),
+              spaceDot.position,
+            );
+          else spaceDot.position.copy(downlinkPath.at(-1)!);
         }
         spaceDot.scale.setScalar(
-          ms >= 6200 && ms < 10400 ? 1.45 + Math.sin(now / 160) * 0.2 : 1.45,
+          ms >= space.compute.startMs && ms < space.return.startMs
+            ? 1 + Math.sin(now / 170) * 0.08
+            : 1,
         );
       }
       if (p.flight) {
@@ -1043,32 +1070,48 @@ export function OrbitalScene(props: Props) {
           idleTarget.copy(controls.target);
           sideReference.set(0, 0, 0);
           returning = null;
+          groundHandoff = null;
           focusing = null;
         }
-        if (!p.flight.reduced) {
-          if (visualElapsed < 1600) {
+        if (!p.flight.reduced && playback) {
+          const overviewEnd = playback.launchMs;
+          const trackBlendMs = 560;
+          if (rawElapsed < overviewEnd) {
             blendPose(
               idleCamera,
               idleTarget,
               routeCamera,
               routeTarget,
-              visualElapsed / 1600,
+              rawElapsed / Math.max(overviewEnd, 1),
             );
-          } else if (visualElapsed < 2800) {
+          } else if (
+            rawElapsed >= playback.space.finishedMs &&
+            rawElapsed < playback.ground.finishedMs
+          ) {
+            if (!groundHandoff)
+              groundHandoff = {
+                at: now,
+                camera: camera.position.clone(),
+                target: controls.target.clone(),
+              };
+            const pose = trackedPose(groundDot.position);
             blendPose(
-              routeCamera,
-              routeTarget,
-              riseCamera,
-              riseTarget,
-              (visualElapsed - 1600) / 1200,
+              groundHandoff.camera,
+              groundHandoff.target,
+              pose.camera,
+              pose.target,
+              (now - groundHandoff.at) / 900,
             );
-          } else if (network && spacePath.length > 1) {
+          } else if (
+            rawElapsed < playback.space.finishedMs ||
+            rawElapsed < playback.ground.finishedMs
+          ) {
             const pose = trackedPose(spaceDot.position);
-            const followBlend = (visualElapsed - 2800) / 650;
+            const followBlend = (rawElapsed - overviewEnd) / trackBlendMs;
             if (followBlend < 1)
               blendPose(
-                riseCamera,
-                riseTarget,
+                routeCamera,
+                routeTarget,
                 pose.camera,
                 pose.target,
                 followBlend,
@@ -1114,47 +1157,83 @@ export function OrbitalScene(props: Props) {
       camera.updateMatrixWorld();
       routes.visible = active;
       selected.visible = active;
-      odcCraft.visible = computeBrand.visible = active;
+      odcCraft.visible = active;
       gateway.visible = active && feederPath.length > 0;
-      carrier.visible = active;
-      groundDot.visible = spaceDot.visible = active;
+      carrier.visible = active && Boolean(network && network.hops.length > 1);
+      groundDot.visible = Boolean(
+        playback && !p.flight?.reduced && rawElapsed < playback.ground.finishedMs,
+      );
+      spaceDot.visible = Boolean(
+        playback && !p.flight?.reduced && rawElapsed < playback.space.finishedMs,
+      );
       if (active) orbitalGroup.visible = true;
       occupied.length = 0;
-      const labelTime = p.flight ? visualElapsed : 0;
       project(pin.current, originMarker.position, !active, 0, 0);
       project(
         groundLabel.current,
         dc.position,
-        !active || labelTime < 2200,
+        !active || Boolean(playback && rawElapsed < playback.ground.outbound.endMs),
         width < 700 ? -70 : -96,
         -30,
       );
-      if (network) {
+      if (network && playback) {
         // One stage callout at a time leaves the actual links unobstructed.
-        const ms = labelTime;
-        project(gatewayLabel.current, gateway.position, false, 80, -15);
+        const ms = rawElapsed;
+        const craftDistance = Math.max(
+          0.1,
+          camera.position.distanceTo(computeVector),
+        );
+        const projectedCraftWidth =
+          (0.75 * odcCraft.scale.x * height) /
+          (2 * Math.tan((43 * Math.PI) / 360) * craftDistance);
+        const computeScreenX =
+          (computeVector.clone().project(camera).x * 0.5 + 0.5) * width;
+        const labelSide = computeScreenX > width / 2 ? -1 : 1;
+        project(
+          gatewayLabel.current,
+          gateway.position,
+          active && feederPath.length > 0 && ms < playback.space.uplink.endMs,
+          80,
+          -15,
+        );
         project(
           relayLabel.current,
           carrier.position,
-          active && ms < 2800,
+          active &&
+            network.hops.length > 1 &&
+            ms >= playback.space.uplink.startMs &&
+            ms < playback.space.laser.endMs,
           -70,
           -25,
         );
         project(
           spaceLabel.current,
           computeVector,
-          active && ms >= 2800 && ms < 10400,
-          70,
-          -30,
+          active &&
+            ms >= playback.space.laser.startMs &&
+            ms < playback.space.return.startMs,
+          width < 700
+            ? 0
+            : labelSide * Math.max(50, projectedCraftWidth * 0.45 + 15),
+          width < 700 ? -projectedCraftWidth * 0.55 - 35 : -30,
         );
       }
+      groundDot.quaternion.copy(camera.quaternion);
+      spaceDot.quaternion.copy(camera.quaternion);
       renderer.render(scene, camera);
     }
+    resumeFrame.current = () => {
+      clearTimeout(pauseTimer);
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(render);
+    };
     frame = requestAnimationFrame(render);
     return () => {
       disposed = true;
+      resumeFrame.current = () => {};
       abort.abort();
       cancelAnimationFrame(frame);
+      clearTimeout(pauseTimer);
       resizeObserver.disconnect();
       controls.dispose();
       button?.removeEventListener("pointerdown", down);
