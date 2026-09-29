@@ -414,6 +414,11 @@ export function OrbitalScene(props: Props) {
         dotMat,
       ),
       spaceDot = groundDot.clone();
+    spaceDot.material = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      depthTest: false,
+    });
+    spaceDot.renderOrder = 200;
     scene.add(groundDot, spaceDot);
     const gateway = new THREE.Mesh(
       new THREE.ConeGeometry(0.034, 0.055, 16, 1, true),
@@ -439,26 +444,18 @@ export function OrbitalScene(props: Props) {
       lastFlight = 0,
       lastFocus = latest.current.focusId,
       lastZoom = latest.current.zoom;
-    let routeTarget = new THREE.Vector3(),
-      routeCamera = new THREE.Vector3(),
+    const routeTarget = new THREE.Vector3();
+    let routeCamera = new THREE.Vector3(),
       riseTarget = new THREE.Vector3(),
       riseCamera = new THREE.Vector3();
     const idleCamera = camera.position.clone(),
       idleTarget = new THREE.Vector3(),
-      // Abeam side chosen on the way up. Kept so the reversed return path
-      // does not swap the camera to the other side of the shell.
+      // Preserve the follow camera's lateral side as the packet turns around.
       sideReference = new THREE.Vector3();
     const motion = matchMedia("(prefers-reduced-motion: reduce)"),
       epoch = Date.now(),
       clockStart = performance.now();
     let returning: {
-      at: number;
-      camera: THREE.Vector3;
-      target: THREE.Vector3;
-    } | null = null;
-    // Pose the follow camera held when the reply turned around. Blended into
-    // the live return pose so the look direction does not pop 180°.
-    let returnHandoff: {
       at: number;
       camera: THREE.Vector3;
       target: THREE.Vector3;
@@ -749,92 +746,26 @@ export function OrbitalScene(props: Props) {
       camera.position.copy(samplePath(fromCamera, toCamera, k));
       controls.target.lerpVectors(fromTarget, toTarget, k);
     }
-    function pathTangent(points: THREE.Vector3[], point: THREE.Vector3) {
-      if (points.length < 2) return new THREE.Vector3(1, 0, 0);
-      let best = -1,
-        bestD = Infinity;
-      const scratch = new THREE.Vector3();
-      for (let i = 1; i < points.length; i++) {
-        const a = points[i - 1],
-          b = points[i],
-          ab = b.clone().sub(a);
-        const len2 = ab.lengthSq();
-        // A repeated waypoint is a vertex. Using it would flip the tangent 180°.
-        if (len2 < 1e-8) continue;
-        const span = THREE.MathUtils.clamp(
-          scratch.copy(point).sub(a).dot(ab) / len2,
-          0,
-          1,
-        );
-        const d = scratch.copy(a).lerp(b, span).distanceToSquared(point);
-        if (d < bestD) {
-          bestD = d;
-          best = i;
-        }
-      }
-      if (best < 1) return new THREE.Vector3(1, 0, 0);
-      return points[best].clone().sub(points[best - 1]).normalize();
-    }
-    function sidePose(point: THREE.Vector3, points: THREE.Vector3[]) {
+    function trackedPose(point: THREE.Vector3) {
       const radial = point.clone().normalize();
-      const tangent = pathTangent(points.length > 1 ? points : [point, point.clone().add(UP)], point);
-      tangent.addScaledVector(radial, -tangent.dot(radial));
-      if (tangent.lengthSq() < 1e-8) tangent.crossVectors(UP, radial);
-      if (tangent.lengthSq() < 1e-8) tangent.set(1, 0, 0);
-      tangent.normalize();
-      const side = new THREE.Vector3().crossVectors(radial, tangent);
-      if (side.lengthSq() < 1e-6) side.crossVectors(radial, UP);
-      side.normalize();
-      if (sideReference.lengthSq() > 0.25 && side.dot(sideReference) < 0)
-        side.negate();
-      sideReference.copy(side);
-      // Look stays in the local horizontal plane, so Earth stays outside the frame.
-      const radialOffset = 0.55;
-      return {
-        camera: point
-          .clone()
-          .addScaledVector(side, 2.4)
-          .addScaledVector(radial, radialOffset),
-        target: point
-          .clone()
-          .addScaledVector(tangent, 2.2)
-          .addScaledVector(radial, radialOffset),
-      };
-    }
-    function outwardPose(point: THREE.Vector3) {
-      const radial = point.clone().normalize();
-      const lateral = new THREE.Vector3().crossVectors(radial, UP);
+      const lateral = ringNormal
+        .clone()
+        .addScaledVector(radial, -ringNormal.dot(radial));
+      if (lateral.lengthSq() < 1e-6)
+        lateral.crossVectors(radial, UP);
       if (lateral.lengthSq() < 1e-6) lateral.set(1, 0, 0);
-      else lateral.normalize();
+      lateral.normalize();
       if (sideReference.lengthSq() > 0.25 && lateral.dot(sideReference) < 0)
         lateral.negate();
+      sideReference.copy(lateral);
+      // Keep the packet at the center throughout ingress, relay, compute,
+      // and return. Radial clearance keeps Earth from occluding the target.
       const cameraPos = point
         .clone()
-        .addScaledVector(radial, 4.4)
-        .addScaledVector(lateral, 2.2);
-      if (cameraPos.length() < R + 1.45) cameraPos.setLength(R + 1.45);
+        .addScaledVector(radial, 5.2)
+        .addScaledVector(lateral, 1.6);
+      if (cameraPos.length() < R + 1.7) cameraPos.setLength(R + 1.7);
       return { camera: cameraPos, target: point.clone() };
-    }
-    function trackedPose(
-      point: THREE.Vector3,
-      points: THREE.Vector3[],
-      elapsed: number,
-    ) {
-      const side = sidePose(point, points);
-      // The abeam pose is for the shell. Once the reply is back near the
-      // surface, pull outward and look at the dot itself.
-      if (elapsed < 10400) return side;
-      const inner = R + 0.8,
-        outer = R + 1.6;
-      const alt = point.length();
-      if (alt >= outer) return side;
-      const pulled = outwardPose(point);
-      if (alt <= inner) return pulled;
-      const k = smooth((outer - alt) / (outer - inner));
-      return {
-        camera: samplePath(side.camera, pulled.camera, k),
-        target: side.target.clone().lerp(pulled.target, k),
-      };
     }
     function render(now: number) {
       if (disposed) return;
@@ -985,49 +916,16 @@ export function OrbitalScene(props: Props) {
           computeBrand.position
             .copy(computeVector)
             .addScaledVector(computeVector.clone().normalize(), 0.28);
-          const pathPoints = [
-            position(p.origin, R),
-            position(p.site, R),
-            position(network.uplinkAnchor, R),
-            ...network.hops.map((i) => vectors[i]),
-            computeVector,
-          ];
-          const box = new THREE.Box3().setFromPoints(pathPoints);
-          const center = box.getCenter(new THREE.Vector3());
           const originDir = position(p.origin, 1);
-          const focusCenter =
-            center.length() < R * 0.35
-              ? position(p.origin, R).lerp(computeVector, 0.45)
-              : center;
-          const viewDir = focusCenter
-            .clone()
-            .normalize()
-            .addScaledVector(originDir, 0.22)
-            .normalize();
-          const side = new THREE.Vector3().crossVectors(viewDir, UP);
-          if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
-          side.normalize();
-          routeTarget = focusCenter.clone();
-          const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
-          const verticalFov = (camera.fov * Math.PI) / 180;
-          const horizontalFov =
-            2 *
-            Math.atan(Math.tan(verticalFov / 2) * Math.max(width / height, 0.5));
-          const fitted =
-            (radius / Math.sin(Math.min(verticalFov, horizontalFov) / 2)) * 1.4;
-          const dist = THREE.MathUtils.clamp(
-            Math.max(fitted, homeDistance * 0.78),
-            6,
-            homeDistance,
-          );
-          routeCamera = focusCenter
-            .clone()
-            .addScaledVector(viewDir, dist)
-            .addScaledVector(side, dist * 0.06);
-          if (routeCamera.length() < R + 1.4) routeCamera.setLength(R + 1.4);
+          const siteDir = position(p.site, 1);
+          const routeDir = originDir.clone().lerp(siteDir, 0.24);
+          if (routeDir.lengthSq() < 0.01) routeDir.copy(originDir);
+          routeCamera = routeDir.normalize().multiplyScalar(homeDistance);
+          routeTarget.set(0, 0, 0);
           const anchor = position(network.uplinkAnchor, R);
           const radial = anchor.clone().normalize();
-          const riseSide = new THREE.Vector3().crossVectors(radial, UP);
+          const riseSide = ringNormal.clone().addScaledVector(radial, -ringNormal.dot(radial));
+          if (riseSide.lengthSq() < 1e-6) riseSide.crossVectors(radial, UP);
           if (riseSide.lengthSq() < 1e-6) riseSide.set(1, 0, 0);
           riseSide.normalize();
           const uplinkHeight = Math.max(
@@ -1036,8 +934,8 @@ export function OrbitalScene(props: Props) {
           );
           riseCamera = radial
             .clone()
-            .multiplyScalar(R + uplinkHeight * 0.72)
-            .addScaledVector(riseSide, Math.min(2.4, uplinkHeight * 0.9));
+            .multiplyScalar(R + uplinkHeight + 2.4)
+            .addScaledVector(riseSide, 1.5);
           riseTarget = anchor.clone().lerp(vectors[network.ingress], 0.62);
         }
       }
@@ -1048,9 +946,11 @@ export function OrbitalScene(props: Props) {
         // 0.11 × the 0.56 array span is 0.062. At the display radius a
         // half-degree of cross-track is about 0.05, so neighbors still read
         // as separate craft where the band is ragged.
-        const scale = 0.2;
+        // Keep the selected route craft legible during a journey. Nearby
+        // background instances otherwise fill the follow camera's foreground.
+        const scale = active ? 0.065 : 0.2;
         const focal = height / (2 * Math.tan((43 * Math.PI) / 360));
-        const candidates = vectors
+        const candidates = active ? [] : vectors
           .map((v, i) => ({ i, distance: v.distanceTo(camera.position) }))
           .filter(
             ({ i, distance }) =>
@@ -1133,7 +1033,7 @@ export function OrbitalScene(props: Props) {
           follow(returnPath, (ms - 10400) / 4400, spaceDot.position);
         }
         spaceDot.scale.setScalar(
-          ms >= 6200 && ms < 10400 ? 1 + Math.sin(now / 160) * 0.25 : 1,
+          ms >= 6200 && ms < 10400 ? 1.45 + Math.sin(now / 160) * 0.2 : 1.45,
         );
       }
       if (p.flight) {
@@ -1144,32 +1044,27 @@ export function OrbitalScene(props: Props) {
           sideReference.set(0, 0, 0);
           returning = null;
           focusing = null;
-          returnHandoff = null;
         }
         if (!p.flight.reduced) {
-          if (visualElapsed < 2400) {
+          if (visualElapsed < 1600) {
             blendPose(
               idleCamera,
               idleTarget,
               routeCamera,
               routeTarget,
-              visualElapsed / 2400,
+              visualElapsed / 1600,
             );
-          } else if (visualElapsed < 4800) {
+          } else if (visualElapsed < 2800) {
             blendPose(
               routeCamera,
               routeTarget,
               riseCamera,
               riseTarget,
-              (visualElapsed - 2400) / 2400,
+              (visualElapsed - 1600) / 1200,
             );
           } else if (network && spacePath.length > 1) {
-            const pose = trackedPose(
-              spaceDot.position,
-              spacePath,
-              visualElapsed,
-            );
-            const followBlend = (visualElapsed - 4800) / 2000;
+            const pose = trackedPose(spaceDot.position);
+            const followBlend = (visualElapsed - 2800) / 650;
             if (followBlend < 1)
               blendPose(
                 riseCamera,
@@ -1178,27 +1073,7 @@ export function OrbitalScene(props: Props) {
                 pose.target,
                 followBlend,
               );
-            else if (visualElapsed >= 10400) {
-              if (!returnHandoff)
-                returnHandoff = {
-                  at: now,
-                  camera: camera.position.clone(),
-                  target: controls.target.clone(),
-                };
-              const handoff = (now - returnHandoff.at) / 700;
-              if (handoff < 1)
-                blendPose(
-                  returnHandoff.camera,
-                  returnHandoff.target,
-                  pose.camera,
-                  pose.target,
-                  handoff,
-                );
-              else {
-                camera.position.copy(pose.camera);
-                controls.target.copy(pose.target);
-              }
-            } else {
+            else {
               camera.position.copy(pose.camera);
               controls.target.copy(pose.target);
             }
@@ -1206,7 +1081,6 @@ export function OrbitalScene(props: Props) {
         }
       } else if (lastFlight) {
         lastFlight = 0;
-        returnHandoff = null;
         if (
           camera.position.distanceTo(idleCamera) > 0.01 ||
           controls.target.distanceTo(idleTarget) > 0.01

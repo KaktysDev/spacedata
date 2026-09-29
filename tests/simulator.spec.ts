@@ -503,6 +503,8 @@ test("Gemini makes two capped requests (ground + space), keeps keys server-side 
     maxTokens.push(b.generationConfig.maxOutputTokens);
     expect(b.generationConfig.thinkingConfig).toEqual({ thinkingLevel: "low" });
     expect(b.contents[0].parts[0].text).toBe("Why is the sky blue?");
+    expect(b.systemInstruction.parts[0].text).toContain("Answer the user's message directly");
+    expect(b.systemInstruction.parts[0].text).not.toMatch(/You are answering from|orbital uplink active/i);
     expect(b.tools).toBeUndefined();
     expect(init?.signal).toBeDefined();
     return gemini();

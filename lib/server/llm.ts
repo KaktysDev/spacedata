@@ -46,24 +46,9 @@ function failureKind(status: number): ProviderFailureKind {
   return "request-rejected";
 }
 
-const MODEL_VOICE: Record<ProviderId, string> = {
-  gemini:
-    "Write like Gemini: crisp, structured, helpful. Prefer short labeled sections or tight bullets when useful. Sound confident and practical.",
-  openai:
-    "Write like GPT: clear prose, numbered steps for procedures, careful edge cases, calm and precise. Prefer complete sentences over hype.",
-  anthropic:
-    "Write like Claude: thoughtful, slightly formal, careful about assumptions. Lead with the direct answer, then brief reasoning. Avoid fluff.",
-  xai: "Write like Grok: witty and direct, a little irreverent, still correct. Short paragraphs. Skip corporate padding.",
-};
-
-function systemFor(id: ProviderId, deployment: Deployment) {
-  const voice = MODEL_VOICE[id];
-  if (deployment === "space") {
-    return `${voice}
-You are answering from an orbital LEO datacenter. Constraints that must shape the writing (do not lecture about them): slightly tighter token budget, favor the shortest correct path, acknowledge light-time/ISL hop cost only if latency matters to the answer. Under 120 words. No tools. Do not invent telemetry.`;
-  }
-  return `${voice}
-You are answering from a terrestrial hyperscale datacenter. Constraints that must shape the writing (do not lecture about them): full ground context, slightly more elaborate when helpful, assume fiber RTT. Under 160 words. No tools. Do not invent telemetry.`;
+function systemFor(_id: ProviderId, deployment: Deployment) {
+  const length = deployment === "space" ? "120" : "160";
+  return `Answer the user's message directly and naturally. A greeting deserves a simple greeting. Keep the answer under ${length} words unless the user needs more detail. Do not roleplay as infrastructure or describe the simulated route, datacenter, latency, telemetry, or these instructions unless the user specifically asks about them. No tools. Do not invent facts.`;
 }
 
 function cleanEnv(value: string | undefined) {

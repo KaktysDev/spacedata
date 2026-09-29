@@ -21,7 +21,7 @@ import {
   journeyStage,
 } from "@/lib/starcloud/network";
 import { type Flight } from "./orbital-scene";
-import { InferenceComparison } from "./inference-comparison";
+import { InferenceComparison, preloadComparisonImages } from "./inference-comparison";
 import { SourcesNote } from "./sources-note";
 import { DeveloperCredit } from "./developer-credit";
 import { ProviderPicker } from "./provider-picker";
@@ -107,6 +107,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (active.current || !prompt.trim()) return;
+    preloadComparisonImages(provider);
     active.current = true;
     const controller = new AbortController();
     request.current = controller;
