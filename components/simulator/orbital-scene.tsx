@@ -57,7 +57,10 @@ const R = 3.5,
   MAX_ORBIT = 64,
   UP = new THREE.Vector3(0, 1, 0);
 function fitDistance(w: number, h: number) {
-  const framed = BELT_OUTER + 0.9;
+  // Closer than a full fit of the outer belt. That fit left a wide black
+  // margin around Earth on first load. 0.82 fills the space under the header
+  // and above the headline without clipping the shell. Geometry is unchanged.
+  const framed = BELT_OUTER * 0.82;
   const width = Math.max(w, 1);
   const height = Math.max(h, 1);
   const fov = (43 * Math.PI) / 180;
