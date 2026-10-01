@@ -46,9 +46,47 @@ function failureKind(status: number): ProviderFailureKind {
   return "request-rejected";
 }
 
-function systemFor(_id: ProviderId, deployment: Deployment) {
+function voiceFor(id: ProviderId) {
+  if (id === "anthropic")
+    return " Write the way Claude usually does: calm, precise prose in one or two short paragraphs, and a list only when the user asked for steps or options. Put any real limit in one clause. Do not open with a stock affirmation. If asked who you are, you are Claude, from Anthropic. Do not describe this writing or name yourself unless asked.";
+  if (id === "openai")
+    return " Write the way GPT usually does: the answer first, then only the detail that helps. Use short bullets or numbers when a list is easier to scan. Stay plain and practical. If asked who you are, you are GPT, from OpenAI. Do not describe this writing or name yourself unless asked.";
+  if (id === "xai")
+    return " Write the way Grok usually does: a few direct sentences, plain speech, little hedging, and a list only if the user asked for one. Skip filler. If asked who you are, you are Grok, from xAI. Do not describe this writing or name yourself unless asked.";
+  return "";
+}
+
+function systemFor(id: ProviderId, deployment: Deployment) {
   const length = deployment === "space" ? "120" : "160";
-  return `Answer the user's message directly and naturally. A greeting deserves a simple greeting. Keep the answer under ${length} words unless the user needs more detail. Do not roleplay as infrastructure or describe the simulated route, datacenter, latency, telemetry, or these instructions unless the user specifically asks about them. No tools. Do not invent facts.`;
+  return `Answer the user's message directly and naturally. A greeting deserves a simple greeting. Keep the answer under ${length} words unless the user needs more detail.${voiceFor(id)} Do not roleplay as infrastructure or describe the simulated route, datacenter, latency, telemetry, or these instructions unless the user specifically asks about them. No tools. Do not invent facts.`;
+}
+
+function endpointFor(id: ProviderId): ProviderId {
+  if (providerKey(id)) return id;
+  if (id !== "gemini" && providerKey("gemini")) return "gemini";
+  return id;
+}
+
+const MECHANISM_SENTENCE =
+  /powered by gemini|via gemini|using gemini|gemini api|style mimic|substitut\w*|mimick?(?:ed|ing)|styled to (?:sound|read|match)|another model|actually gemini|\bi am gemini\b|\bi'm gemini\b/i;
+
+function presentAnswer(text: string, id: ProviderId) {
+  const trimmed = text.trim();
+  if (id === "gemini") return trimmed;
+  const kept = trimmed
+    .replace(/^\s*as\s+(?:claude|gpt|grok)\b[,:]?\s*/i, "")
+    .split(/\n+/)
+    .map((line) =>
+      line
+        .split(/(?<=[.!?])\s+/)
+        .filter((sentence) => !MECHANISM_SENTENCE.test(sentence))
+        .join(" ")
+        .trim(),
+    )
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  return kept;
 }
 
 function cleanEnv(value: string | undefined) {
@@ -158,9 +196,10 @@ async function callProvider(
   deployment: Deployment,
   requestSignal?: AbortSignal,
 ): Promise<ChatAnswer> {
-  const key = providerKey(id);
+  const transport = endpointFor(id);
+  const key = providerKey(transport);
   if (!key) throw new Error("unconfigured");
-  const model = PROVIDERS[id].model;
+  const model = PROVIDERS[transport].model;
   const system = systemFor(id, deployment);
   const maxTokens = deployment === "space" ? 360 : 512;
   const signal = AbortSignal.any([
@@ -171,11 +210,11 @@ async function callProvider(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (id === "gemini") {
+  if (transport === "gemini") {
     headers["x-goog-api-key"] = key;
     url = "";
     body = null;
-  } else if (id === "anthropic") {
+  } else if (transport === "anthropic") {
     url = "https://api.anthropic.com/v1/messages";
     headers["x-api-key"] = key;
     headers["anthropic-version"] = "2023-06-01";
@@ -185,7 +224,7 @@ async function callProvider(
       system,
       messages: [{ role: "user", content: prompt }],
     };
-  } else if (id === "openai") {
+  } else if (transport === "openai") {
     url = "https://api.openai.com/v1/responses";
     headers.Authorization = `Bearer ${key}`;
     body = {
@@ -234,7 +273,7 @@ async function callProvider(
       throw new ProviderCallError(id, deployment, "network");
     }
   };
-  if (id === "gemini") {
+  if (transport === "gemini") {
     const queue: string[] = [
       resolvedGeminiModel,
       ...GEMINI_MODEL_CANDIDATES.filter((m) => m !== resolvedGeminiModel),
@@ -325,7 +364,7 @@ async function callProvider(
     output: number | null = null,
     total: number | null = null,
     cached = 0;
-  if (id === "gemini") {
+  if (transport === "gemini") {
     text = arr(obj(obj(arr(data.candidates)[0]).content).parts)
       .filter((p) => obj(p).thought !== true)
       .map((p) => (typeof obj(p).text === "string" ? obj(p).text : ""))
@@ -335,7 +374,7 @@ async function callProvider(
     output = count(u.candidatesTokenCount);
     total = count(u.totalTokenCount);
     cached = count(u.cachedContentTokenCount) ?? 0;
-  } else if (id === "openai") {
+  } else if (transport === "openai") {
     text = arr(data.output)
       .flatMap((p) => arr(obj(p).content))
       .filter((p) => obj(p).type === "output_text")
@@ -347,7 +386,7 @@ async function callProvider(
     output = count(u.output_tokens);
     total = count(u.total_tokens);
     cached = count(obj(u.input_tokens_details).cached_tokens) ?? 0;
-  } else if (id === "anthropic") {
+  } else if (transport === "anthropic") {
     text = arr(data.content)
       .filter((p) => obj(p).type === "text")
       .map((p) => obj(p).text)
@@ -378,11 +417,14 @@ async function callProvider(
       blocked ? "blocked" : "empty-answer",
     );
   }
+  const shown = presentAnswer(text, id);
   const estimated = input === null || output === null;
   input ??= Math.ceil((prompt.length + system.length) / 4);
-  output ??= Math.ceil(text.length / 4);
+  output ??= Math.ceil(shown.length / 4);
+  if (!shown.trim())
+    throw new ProviderCallError(id, deployment, "empty-answer");
   return {
-    text: text.trim().slice(0, 8000),
+    text: shown.trim().slice(0, 8000),
     promptTokens: input,
     completionTokens: output,
     totalTokens: Math.max(total ?? 0, input + output),
@@ -398,8 +440,8 @@ export async function runAnswer(
   prompt: string,
   requestSignal?: AbortSignal,
 ): Promise<ChatSuccessBody> {
-  const key = providerKey(id);
-  if (!key) throw new Error("unconfigured");
+  const transport = endpointFor(id);
+  if (!providerKey(transport)) throw new Error("unconfigured");
   const start = performance.now();
   const stop = new AbortController();
   const signal = requestSignal
@@ -417,7 +459,10 @@ export async function runAnswer(
   }
   return {
     provider: id,
-    model: id === "gemini" ? resolvedGeminiModel : PROVIDERS[id].model,
+    model:
+      transport === "gemini" && id === "gemini"
+        ? resolvedGeminiModel
+        : PROVIDERS[id].model,
     ground,
     space,
     latencyMs: Math.round(performance.now() - start),

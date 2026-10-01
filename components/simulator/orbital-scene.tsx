@@ -1272,7 +1272,7 @@ export function OrbitalScene(props: Props) {
           </span>
           <span className="datacenter-id">
             <strong>{props.site.name}</strong>
-            <small>{PROVIDERS[props.provider].company}</small>
+            <small>{PROVIDERS[props.provider].company} · modeled</small>
           </span>
         </div>
       </div>
@@ -1289,13 +1289,13 @@ export function OrbitalScene(props: Props) {
         />
       </svg>
       <div ref={spaceLabel} className="scene-label route-label">
-        Starcloud<small>COMPUTE</small>
+        Starcloud-2<small>MODELED</small>
       </div>
       <div ref={relayLabel} className="scene-label route-label">
-        LEO ingress<small>USER UPLINK</small>
+        Ingress<small>RF</small>
       </div>
       <div ref={gatewayLabel} className="scene-label route-label">
-        Ground gateway<small>BACKHAUL</small>
+        Gateway<small>MODELED</small>
       </div>
       {error && (
         <p className="scene-error" role="status">

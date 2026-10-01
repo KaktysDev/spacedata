@@ -11,11 +11,11 @@ export async function POST(request: Request) {
   try {
     const grant = await enforceChatQuota(request);
     release = grant.release;
-    if (!providerKey(grant.provider))
-      throw new ChatRequestError(
-        503,
-        "This model is not connected.",
-      );
+    const callable =
+      providerKey(grant.provider) ||
+      (grant.provider !== "gemini" && providerKey("gemini"));
+    if (!callable)
+      throw new ChatRequestError(503, "The AI provider is unavailable.");
     // Space + ground = 2 provider calls; daily budget counts calls not turns.
     await grant.commit(2);
     return Response.json(

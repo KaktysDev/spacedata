@@ -516,7 +516,7 @@ test("Gemini makes two capped requests (ground + space), keeps keys server-side 
     expect(b.generationConfig.thinkingConfig).toEqual({ thinkingLevel: "low" });
     expect(b.contents[0].parts[0].text).toBe("Why is the sky blue?");
     expect(b.systemInstruction.parts[0].text).toContain("Answer the user's message directly");
-    expect(b.systemInstruction.parts[0].text).not.toMatch(/You are answering from|orbital uplink active/i);
+    expect(b.systemInstruction.parts[0].text).not.toMatch(/You are answering from|orbital uplink active|Write the way/i);
     expect(b.tools).toBeUndefined();
     expect(init?.signal).toBeDefined();
     return gemini();
@@ -716,6 +716,94 @@ test("missing Gemini key cannot make a paid call", async () => {
     return gemini();
   };
   expect((await POST(req())).status).toBe(503);
+  expect(calls).toBe(0);
+});
+test("chat accepts a listed model when only the Gemini key is set", async () => {
+  mockProvider((url) => {
+    expect(String(url)).toContain("generativelanguage.googleapis.com");
+    return gemini();
+  });
+  const response = await POST(
+    req({ prompt: "Why is the sky blue?", provider: "anthropic" }),
+  );
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body.provider).toBe("anthropic");
+  expect(body.model).toBe(PROVIDERS.anthropic.model);
+  expect(body.ground.text).toBe("Light scatters.");
+  expect(JSON.stringify(body)).not.toMatch(
+    /not connected|substitut|mimic|powered by|gemini-3/i,
+  );
+});
+test("a listed model without its own key still answers", async () => {
+  for (const [id, phrase] of [
+    ["anthropic", "Claude"],
+    ["openai", "GPT"],
+    ["xai", "Grok"],
+  ] as const) {
+    const systems: string[] = [];
+    mockProvider((url, init) => {
+      expect(String(url)).toContain("generativelanguage.googleapis.com");
+      expect(String(url)).not.toContain("api.openai.com");
+      expect(String(url)).not.toContain("api.anthropic.com");
+      expect(String(url)).not.toContain("api.x.ai");
+      const body = JSON.parse(String(init?.body));
+      systems.push(body.systemInstruction.parts[0].text);
+      return gemini();
+    });
+    const result = await runAnswer(id, "Why is the sky blue?");
+    expect(result.provider).toBe(id);
+    expect(result.model).toBe(PROVIDERS[id].model);
+    expect(result.ground.text).toBe("Light scatters.");
+    expect(result.space.text).toBe("Light scatters.");
+    expect(systems[0]).toContain(`Write the way ${phrase}`);
+    expect(systems[0]).not.toMatch(/substitut|mimic|powered by|style mimic/i);
+    expect(JSON.stringify(result)).not.toMatch(
+      /gemini-3|generativelanguage|substitut|mimic|powered by/i,
+    );
+  }
+});
+test("mechanism phrasing is left out of the reply", async () => {
+  mockProvider(() =>
+    Response.json({
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                text: "Sure. Powered by Gemini, here is the answer. The sky looks blue.",
+              },
+            ],
+          },
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: 10,
+        candidatesTokenCount: 8,
+        totalTokenCount: 18,
+      },
+    }),
+  );
+  const result = await runAnswer("xai", "why blue");
+  expect(result.ground.text).toBe("Sure. The sky looks blue.");
+  expect(result.ground.text).not.toMatch(/gemini|powered by/i);
+  expect(result.space.text).toBe("Sure. The sky looks blue.");
+});
+test("a model with no callable key does not spend a request", async () => {
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  delete process.env.Gemini_api_Key;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return gemini();
+  };
+  const response = await POST(
+    req({ prompt: "Hello there", provider: "openai" }),
+  );
+  expect(response.status).toBe(503);
+  const text = await response.text();
+  expect(text).not.toMatch(/connected|gemini|substitut|mimic/i);
   expect(calls).toBe(0);
 });
 test("OpenAI, Anthropic and xAI adapters use fixed models and parse usage", async () => {

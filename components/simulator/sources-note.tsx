@@ -64,18 +64,17 @@ export function SourcesNote({
               <strong>In orbit</strong>
               <ol>
                 <li>You</li>
-                <li>RF uplink to the shell, or a land gateway first</li>
-                <li>Optical links along the shell</li>
-                <li>Compute spacecraft on that shell</li>
-                <li>Relay, then you</li>
+                <li>RF uplink, or a land gateway first</li>
+                <li>Optical links across the relay shell</li>
+                <li>Starcloud-2</li>
+                <li>Back to you</li>
               </ol>
               <p>
-                The request leaves your location at the same time as the ground
-                route. A shell spacecraft at least 25° up takes the RF uplink.
-                If none is visible, a land gateway provides it. Optical links
-                then hop across the shell to a compute spacecraft.
-                The reply retraces that path and stops at you. It does not
-                visit the ground provider.
+                The request leaves with the ground route. A relay at least 25°
+                up takes the RF uplink. If none is visible, a land gateway
+                provides it. Optical links then cross the relay shell to a craft
+                standing in for Starcloud-2. The reply returns across that shell
+                and stops at you.
               </p>
             </div>
           </div>
@@ -141,8 +140,10 @@ export function SourcesNote({
             sun over 20°E still defines the reference dawn-dusk plane, matching
             the paper’s figure. That sun direction is not a live ephemeris.
             The paper’s data center is a set of containers on one spine, with
-            laser links onward. Five craft are designated as hypothetical
-            compute nodes, and the highlighted craft is the nearest reachable one.
+            laser links onward. The highlighted craft stands in for Starcloud-2,
+            one commercial GPU smallsat planned for sun-synchronous orbit in
+            2027. The ring is a modeled relay shell, not that satellite.
+            Starcloud-1 is a demonstration spacecraft, not this path.
             The FCC filing requests up to 88,000 spacecraft; 8,800 is not that
             fleet and not an operating constellation. Hardware size and the
             drawn orbital radius are enlarged; routing distances use physical
@@ -209,10 +210,10 @@ export function SourcesNote({
             </p>
             <p>
               No production AI request from this app runs in space.
-              Starcloud-1’s H100 demonstration is a milestone, not evidence that
-              this modeled fleet operates today. API cost uses stored standard
-              rates and reported cache discounts; it is not an invoice. Prompts
-              go to the selected provider under its data policy. This app
+              Starcloud-2 is the commercial mission those routes stand in for.
+              Starcloud-1 is a separate demonstration spacecraft. API cost uses stored standard
+              rates and reported cache discounts; it is not an invoice. The
+              answering API's data policy applies to the prompt. This app
               retains only short-lived hashed rate-limit counters.
             </p>
           </details>
@@ -240,6 +241,10 @@ export function SourcesNote({
               [
                 "Starcloud-1 hardware demonstration",
                 "https://www.starcloud.com/starcloud-1",
+              ],
+              [
+                "Starcloud-2 commercial mission",
+                "https://www.starcloud.com/starcloud-2",
               ],
               [
                 "Internet routing · Cloudflare",

@@ -140,7 +140,7 @@ const regionalImages: Partial<Record<ProviderId, Record<string, SiteImage>>> = {
 
 export const orbitImage: SiteImage = {
   url: "https://techcrunch.com/wp-content/uploads/2026/03/Starcloud-1-deployment-virtical-e1774655359557.png?w=549",
-  caption: "Starcloud-1 deployment photo",
+  caption: "Starcloud-1",
   source: "https://techcrunch.com/2026/03/30/starcloud-raises-170-million-series-ato-build-data-centers-in-space/",
   siteSpecific: false,
 };

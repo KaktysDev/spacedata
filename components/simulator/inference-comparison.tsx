@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { compare } from "@/lib/starcloud/comparison";
-import { PROVIDERS, SITES, type ProviderId, type Location, type Site } from "@/lib/starcloud/catalog";
+import { SITES, type ProviderId, type Location, type Site } from "@/lib/starcloud/catalog";
 import { imageForSite, orbitImage, type SiteImage } from "@/lib/starcloud/site-images";
 import type { ChatSuccessBody } from "@/lib/starcloud/chat-types";
 
@@ -24,11 +24,6 @@ function formatWater(ml: number) {
   if (ml >= 1000) return `${number(ml / 1000)} L`;
   return `${number(ml)} mL`;
 }
-function formatTime(ms: number) {
-  if (!ms) return "—";
-  return ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${Math.round(ms)} ms`;
-}
-
 function inline(text: string) {
   return text.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`]+`)/g).map((part, i) => {
     if (part.startsWith("**") && part.endsWith("**")) return <strong key={i}>{part.slice(2, -2)}</strong>;
@@ -69,54 +64,35 @@ function FacilityImage({ image, className = "" }: { image: SiteImage; className?
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   return (
-    <div className={`results-path-image ${className}`}>
-      {(!loaded || failed) && (
-        <div className="results-image-fallback" aria-label={failed ? "Photo unavailable" : "Loading photo"}>
-          <span aria-hidden="true">▤</span>{failed ? "Photo unavailable" : "Loading photo"}
-        </div>
-      )}
-      {!failed && (
-        <Image src={image.url} alt="" fill unoptimized sizes="(max-width: 650px) 100vw, 45vw" onLoad={() => setLoaded(true)} onError={() => setFailed(true)} />
-      )}
-      <a className="results-image-caption" href={image.source} target="_blank" rel="noreferrer">
+    <figure className={`results-photo ${className}`}>
+      <div className="results-photo-media">
+        {(!loaded || failed) && (
+          <div className="results-photo-fallback" aria-label={failed ? "Photo unavailable" : "Loading photo"}>
+            {failed ? "Photo unavailable" : "Loading photo"}
+          </div>
+        )}
+        {!failed && (
+          <Image src={image.url} alt="" fill unoptimized sizes="(max-width: 650px) 100vw, 45vw" onLoad={() => setLoaded(true)} onError={() => setFailed(true)} />
+        )}
+      </div>
+      <a className="results-photo-credit" href={image.source} target="_blank" rel="noreferrer">
         {image.caption} <span aria-hidden="true">↗</span>
       </a>
-    </div>
+    </figure>
   );
 }
 
-type MetricKind = "time" | "network" | "energy" | "water" | "cost";
-function MetricSymbol({ kind }: { kind: MetricKind }) {
-  const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.55, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+type Metric = { label: string; ground: number; space: number; format: (value: number) => string };
+function PathMetrics({ metrics, side }: { metrics: Metric[]; side: "ground" | "space" }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" {...common}>
-      {kind === "time" && <><circle cx="12" cy="12" r="8" /><path d="M12 7v5l3 2" /></>}
-      {kind === "network" && <><circle cx="4" cy="12" r="2" /><circle cx="20" cy="6" r="2" /><circle cx="20" cy="18" r="2" /><path d="m6 11 12-4M6 13l12 4" /></>}
-      {kind === "energy" && <path d="m13 2-8 11h6l-1 9 9-12h-6z" />}
-      {kind === "water" && <path d="M12 3C9 7 6 10.5 6 14a6 6 0 0 0 12 0c0-3.5-3-7-6-11Z" />}
-      {kind === "cost" && <><circle cx="12" cy="12" r="8" /><path d="M15 8.5c-1-.9-5-.9-5 1.1 0 2.6 5 1.4 5 4.2 0 2.1-4 2.4-6 1.2M12 6v12" /></>}
-    </svg>
-  );
-}
-type Metric = { kind: MetricKind; label: string; detail: string; ground: number; space: number; format: (value: number) => string };
-function MetricRow({ metric }: { metric: Metric }) {
-  const max = Math.max(metric.ground, metric.space);
-  const width = (value: number) => max && value ? `${Math.max(5, (value / max) * 100)}%` : "0%";
-  return (
-    <div className="results-metric-row">
-      <div className="results-metric-title">
-        <span className="results-metric-icon"><MetricSymbol kind={metric.kind} /></span>
-        <span><strong>{metric.label}</strong><small>{metric.detail}</small></span>
-      </div>
-      <div className="results-metric-value">
-        <strong>{metric.format(metric.ground)}</strong>
-        <span className="results-metric-track" aria-hidden="true"><i className="ground" style={{ width: width(metric.ground) }} /></span>
-      </div>
-      <div className="results-metric-value">
-        <strong>{metric.format(metric.space)}</strong>
-        <span className="results-metric-track" aria-hidden="true"><i className="orbit" style={{ width: width(metric.space) }} /></span>
-      </div>
-    </div>
+    <dl className="results-path-metrics">
+      {metrics.map((metric) => (
+        <div key={metric.label}>
+          <dd>{metric.format(metric[side])}</dd>
+          <dt>{metric.label}</dt>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -151,61 +127,50 @@ export function InferenceComparison({ result, provider, origin, site, prompt, on
   }, [onClose]);
 
   const c = compare(provider, origin, site, result, Math.ceil(prompt.length / 4) + 256, joules, snapshotAt);
-  const name = PROVIDERS[provider].name;
   const facility = imageForSite(provider, site);
   const metrics: Metric[] = [
-    ...(result ? [{ kind: "time" as const, label: "Reply time", detail: "Measured API call", ground: c.ground.timeMs, space: c.space.timeMs, format: formatTime }] : []),
-    { kind: "network", label: "Network delay", detail: "Modeled round trip", ground: c.ground.rttMs, space: c.space.rttMs, format: (value) => `${Math.round(value)} ms` },
-    { kind: "energy", label: "Energy", detail: "Estimated for each reply", ground: c.ground.energyWh, space: c.space.energyWh, format: (value) => `${number(value)} Wh` },
-    { kind: "water", label: "Cooling water", detail: "Estimated use", ground: c.ground.waterMl, space: c.space.waterMl, format: formatWater },
-    { kind: "cost", label: "Power cost", detail: "Estimated electricity only", ground: c.ground.powerCostUsd, space: c.space.powerCostUsd, format: money },
+    { label: "Network", ground: c.ground.rttMs, space: c.space.rttMs, format: (value) => `${Math.round(value)} ms` },
+    { label: "Energy", ground: c.ground.energyWh, space: c.space.energyWh, format: (value) => `${number(value)} Wh` },
+    { label: "Water", ground: c.ground.waterMl, space: c.space.waterMl, format: formatWater },
+    { label: "Power", ground: c.ground.powerCostUsd, space: c.space.powerCostUsd, format: money },
   ];
 
   return (
     <div className="results-shell" role="presentation">
       <section ref={card} tabIndex={-1} className="results-card" role="dialog" aria-modal="true" aria-labelledby="results-title">
         <div className="results-card-head">
-          <div><h2 id="results-title">Results</h2><p>Ground and orbit, side by side</p></div>
+          <h2 id="results-title">Results</h2>
           <button className="icon-button" onClick={onClose} aria-label="Close results">×</button>
         </div>
         <p className="results-question"><span>You asked</span><strong>{prompt}</strong></p>
 
         <div className="results-paths" aria-label="Compared routes">
           <article className="results-path">
-            <FacilityImage image={facility} />
-            <div className="results-path-summary">
+            <div className="results-path-copy">
               <span className="results-route-label">Ground</span>
-              <h3>{name} via {provider === "anthropic" ? "AWS" : PROVIDERS[provider].company}</h3>
-              <p>Modeled near {site.name}</p>
-              {!facility.siteSpecific && <small>{facility.regionSpecific ? "Regional photo · exact campus unknown" : "Provider reference photo · site image unavailable"}</small>}
+              <h3>{site.name}</h3>
+              <p>Modeled</p>
+            </div>
+            <FacilityImage image={facility} />
+            <PathMetrics metrics={metrics} side="ground" />
+            <div className="results-answer">
+              {result?.ground.text ? <Answer text={result.ground.text} /> : <p className="results-preview">Send a prompt to see a reply.</p>}
             </div>
           </article>
           <article className="results-path">
-            <FacilityImage image={orbitImage} className="results-orbit-image" />
-            <div className="results-path-summary">
-              <span className="results-route-label orbit">Orbit</span>
-              <h3>{name} · orbital scenario</h3>
-              <p>Starcloud-inspired route · modeled</p>
-              <small>Starcloud-1 photo shows a demonstration satellite</small>
+            <div className="results-path-copy">
+              <span className="results-route-label">Orbit</span>
+              <h3>Starcloud-2</h3>
+              <p>SSO · modeled</p>
+            </div>
+            <FacilityImage image={orbitImage} className="orbit" />
+            <PathMetrics metrics={metrics} side="space" />
+            <div className="results-answer">
+              {result?.space.text ? <Answer text={result.space.text} /> : <p className="results-preview">Send a prompt to see a reply.</p>}
             </div>
           </article>
         </div>
 
-        <section className="results-metrics" aria-labelledby="results-metrics-title">
-          <div className="results-section-heading"><h3 id="results-metrics-title">At a glance</h3><span>Shorter bars mean less</span></div>
-          <div className="results-metric-head"><span>Measure</span><span>Ground</span><span>Orbit</span></div>
-          <div className="results-metric-list">{metrics.map((metric) => <MetricRow key={metric.kind} metric={metric} />)}</div>
-        </section>
-
-        <section className="results-answers" aria-labelledby="results-answers-title">
-          <div className="results-section-heading"><h3 id="results-answers-title">Answers</h3><span>Two separate {name} calls</span></div>
-          <div className="results-answer-grid">
-            <article className="results-answer"><h4><span className="results-answer-dot ground" />Ground</h4>{result?.ground.text ? <Answer text={result.ground.text} /> : <p className="results-preview">Send a prompt to see a reply.</p>}</article>
-            <article className="results-answer"><h4><span className="results-answer-dot orbit" />Orbit</h4>{result?.space.text ? <Answer text={result.space.text} /> : <p className="results-preview">Send a prompt to see a reply.</p>}</article>
-          </div>
-        </section>
-
-        <p className="results-footnote">Locations and the orbital route are modeled; the provider API does not reveal the server that handled your request. Both measured reply times used ordinary provider API calls, not the illustrated orbital transport. Network, energy, water, and power cost are estimates.</p>
         <button className="primary-button results-again" onClick={onClose}>Ask another question <span aria-hidden="true">↗</span></button>
       </section>
     </div>

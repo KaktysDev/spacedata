@@ -505,8 +505,8 @@ export function createRoutePlayback(
     waitingForAnswer: answerReadyAtMs === null,
   };
 }
-// Five sparse compute-capable craft are designated on the illustrative ring.
-// Their spacing is an architecture assumption, not a deployed Starcloud fleet.
+// The chosen craft stands in for Starcloud-2, one commercial smallsat.
+// Extra slots keep a reachable stand-in; they are not a commercial fleet.
 export const COMPUTE_SLOTS = [0, 1760, 3520, 5280, 7040] as const;
 /** Return the nearest reachable compute craft by direct distance. */
 function laserRelayToCompute(nodes: OrbitalNode[], ingress: number) {
@@ -567,11 +567,13 @@ function laserPathToGoal(
 
 /**
  * Two independent requests leave the user at the same time.
- * Ground: fiber to the provider, then back along that path.
- * Orbit: RF uplink when a shell spacecraft is above the elevation mask;
- * otherwise a feeder to a land gateway, then the uplink. Optical links then
- * cross the ring to the nearest reachable designated compute spacecraft.
- * The reply retraces that path and stops at the user.
+ * Ground: fiber to the nearest public reference site, then back. That site is
+ * not a location returned by the provider.
+ * Orbit: RF uplink when a relay is above the elevation mask; otherwise a
+ * feeder to a land gateway, then the uplink. Optical links cross the relay
+ * shell to the nearest reachable craft standing in for Starcloud-2. The reply
+ * returns across that shell to the user. The shell is not Starcloud-2, and
+ * Starcloud-1 is a separate demonstration spacecraft.
  */
 export function routeAt(
   origin: Location,

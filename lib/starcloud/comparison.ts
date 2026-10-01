@@ -17,6 +17,7 @@ export type Scenario = {
   rttMs: number;
   pue: number;
   tokens: number;
+  /** Provider-call wall time. Not a measured ground or orbital route. */
   timeMs: number;
   costUsd: number | null;
 };

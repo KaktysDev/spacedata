@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
   DEFAULT_LOCATION,
-  isProvider,
   nearestSite,
   PROVIDERS,
   type ProviderId,
@@ -45,7 +44,6 @@ export function Simulator({ available }: { available: ProviderId[] }) {
   const [provider, setProvider] = useState<ProviderId>(
       available[0] ?? "gemini",
     ),
-    [connected, setConnected] = useState<ProviderId[]>(available),
     [origin, setOrigin] = useState<Location>(DEFAULT_LOCATION),
     [placeName, setPlaceName] = useState("Location"),
     [focusId, setFocusId] = useState(0),
@@ -70,22 +68,6 @@ export function Simulator({ available }: { available: ProviderId[] }) {
   const site = nearestSite(provider, origin);
   const onReady = useCallback(() => setReady(true), []);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/providers", { cache: "no-store", signal: controller.signal })
-      .then((response) => response.json())
-      .then((body: { providers?: { id?: unknown; configured?: unknown }[] }) => {
-        const ids = (body.providers ?? [])
-          .filter(
-            (item): item is { id: ProviderId; configured: true } =>
-              item.configured === true && isProvider(item.id),
-          )
-          .map((item) => item.id);
-        setConnected(ids);
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, []);
   useEffect(() => {
     const root = document.documentElement;
     const body = document.body;
@@ -322,11 +304,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
               }}
             />
             <div className="composer-toolbar">
-              <ProviderPicker
-                value={provider}
-                onChange={setProvider}
-                connected={connected}
-              />
+              <ProviderPicker value={provider} onChange={setProvider} />
               <LocationChip
                 label={placeName}
                 disabled={Boolean(flight)}
@@ -374,7 +352,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       </div>
       <footer className="site-footer">
         <span className="constellation-count">
-          {NODE_COUNT.toLocaleString()} satellites
+          {NODE_COUNT.toLocaleString()} relays
         </span>
         <DeveloperCredit />
       </footer>
