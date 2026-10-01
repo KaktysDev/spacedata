@@ -141,14 +141,14 @@ export function SourcesNote({
             one.
           </p>
           <p className="fine-print">
-            The other dots are seven planes of eight craft, altitudes 600–850
-            km, spread 80° in node longitude around a dawn-dusk center. That
-            spacing is so each craft stays separate. It is not the 88,000
-            filing and not extra Starcloud-2 satellites. The drawing lifts the
-            band off Earth and stretches it radially; routing distances use
-            physical kilometres. A fixed sun over 20°E sets the center plane,
-            matching the paper’s figure. That sun direction is not a live
-            ephemeris. Hardware size is enlarged.
+            The other dots share one dawn-dusk ring. Seven altitude lanes run
+            from 600 km to 850 km, so the band has height, and each lane is
+            spaced so the craft stay apart. It is not the 88,000 filing and
+            not extra Starcloud-2 satellites. The drawing lifts the ring off
+            Earth and stretches that altitude band; routing distances use
+            physical kilometres. A fixed sun over 20°E sets the plane, matching
+            the paper’s figure. That sun direction is not a live ephemeris.
+            Hardware size is enlarged.
           </p>
         </section>
         <section className="method-section">
