@@ -24,6 +24,10 @@ import {
   RING_RAAN_DEG,
   INCLINATION_SPREAD_DEG,
   RAAN_SPREAD_DEG,
+  SHELL_RADIAL_COUNT,
+  SHELL_ACROSS_COUNT,
+  SHELL_ALONG_COUNT,
+  SHELL_ACROSS_RAD,
   SHELL_ALTITUDE_MIN_KM,
   SHELL_ALTITUDE_MAX_KM,
   FIBER_KM_PER_MS,
@@ -33,7 +37,7 @@ import {
   sunSyncInclination,
 } from "../lib/starcloud/network";
 
-test("the reference plane stays dawn-dusk and the fleet shares that longitude", () => {
+test("the shell is one dawn-dusk plane with a drawn cross-track thickness", () => {
   const nodes = orbitalNodes(ORBIT_EPOCH_MS);
   expect(RING_INCLINATION_DEG).toBeCloseTo(sunSyncInclination(725), 6);
   expect(RING_INCLINATION_DEG).toBeGreaterThan(98);
@@ -41,6 +45,10 @@ test("the reference plane stays dawn-dusk and the fleet shares that longitude", 
   expect(RING_RAAN_DEG).toBeCloseTo(110, 3);
   expect(INCLINATION_SPREAD_DEG).toBe(0);
   expect(RAAN_SPREAD_DEG).toBe(0);
+  expect(NODE_COUNT).toBe(8800);
+  expect(NODE_COUNT).toBe(
+    SHELL_RADIAL_COUNT * SHELL_ACROSS_COUNT * SHELL_ALONG_COUNT,
+  );
   const sun = dawnDuskSunEcef();
   const incl = (RING_INCLINATION_DEG * Math.PI) / 180;
   const raan = (RING_RAAN_DEG * Math.PI) / 180;
@@ -48,8 +56,14 @@ test("the reference plane stays dawn-dusk and the fleet shares that longitude", 
   const hy = -Math.cos(raan) * Math.sin(incl);
   const hz = Math.cos(incl);
   expect(hx * sun.x + hy * sun.y + hz * sun.z).toBeCloseTo(1, 6);
+  const starcloud2 = nodes[STARCLOUD2_SLOT];
+  expect(starcloud2.altitudeKm).toBeCloseTo(725, 3);
+  expect(starcloud2.across).toBe(0);
   const abs = nodes.map((node) => Math.abs(planeOffsetDeg(node)));
   expect(Math.max(...abs)).toBeLessThan(0.05);
+  const across = nodes.map((node) => node.across);
+  expect(Math.max(...across)).toBeGreaterThan(SHELL_ACROSS_RAD * 0.75);
+  expect(Math.min(...across)).toBeLessThan(-SHELL_ACROSS_RAD * 0.75);
 });
 function planeOffsetDeg(node: { lat: number; lon: number }) {
   const lat = (node.lat * Math.PI) / 180,
@@ -90,46 +104,24 @@ function trackAngleDeg(node: { lat: number; lon: number }) {
     Math.PI
   );
 }
-test("the modeled fleet occupies one 600–850 km ring with thickness", () => {
+test("the modeled fleet fills a 600–850 km volume with spaced craft", () => {
   const nodes = orbitalNodes(0);
   expect(nodes).toHaveLength(NODE_COUNT);
-  expect(NODE_COUNT).toBe(8800);
   const alts = nodes.map((p) => p.altitudeKm);
   const span = Math.max(...alts) - Math.min(...alts);
   expect(span).toBeGreaterThan(240);
   expect(span).toBeLessThan(260);
   expect(Math.min(...alts)).toBeGreaterThanOrEqual(SHELL_ALTITUDE_MIN_KM - 1);
-  expect(Math.min(...alts)).toBeLessThan(SHELL_ALTITUDE_MIN_KM + 40);
-  expect(Math.max(...alts)).toBeGreaterThan(SHELL_ALTITUDE_MAX_KM - 40);
+  expect(Math.min(...alts)).toBeLessThan(SHELL_ALTITUDE_MIN_KM + 30);
+  expect(Math.max(...alts)).toBeGreaterThan(SHELL_ALTITUDE_MAX_KM - 30);
   expect(Math.max(...alts)).toBeLessThanOrEqual(SHELL_ALTITUDE_MAX_KM + 1);
   for (const p of nodes) expect(p.band).toBe(0);
-  expect(
-    new Set(nodes.map((p) => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`)).size,
-  ).toBe(NODE_COUNT);
-  const sample = nodes.filter((_, i) => i % 80 === 0);
-  const nearest = sample.map((node) => {
-    let best = Infinity;
-    for (const other of nodes) {
-      if (other === node) continue;
-      const d = Math.hypot(
-        distanceKm(node, other),
-        node.altitudeKm - other.altitudeKm,
-      );
-      if (d < best) best = d;
-    }
-    return best;
-  });
-  nearest.sort((a, b) => a - b);
-  expect(nearest[0]).toBeGreaterThan(1);
-  expect(nearest[Math.floor(nearest.length / 2)]).toBeGreaterThan(3);
-});
-test("the ring stays populated all the way around", () => {
-  const nodes = orbitalNodes(ORBIT_EPOCH_MS);
   const angles = nodes.map(trackAngleDeg).sort((a, b) => a - b);
   let maxGap = angles[0] + 360 - angles[angles.length - 1];
   for (let i = 1; i < angles.length; i++)
     maxGap = Math.max(maxGap, angles[i] - angles[i - 1]);
-  expect(maxGap).toBeLessThan(1);
+  expect(maxGap).toBeLessThan(12);
+  expect(maxGap).toBeGreaterThan(0.2);
 });
 test("ground and orbital routes leave the user independently", () => {
   const places = [

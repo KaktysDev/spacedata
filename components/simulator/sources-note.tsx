@@ -72,10 +72,10 @@ export function SourcesNote({
                 The request leaves with the ground route. Starcloud-2’s diagram
                 sends an end user over RF to a third-party backhaul, then over
                 one optical link to Starcloud-2. That backhaul orbit is not
-                published, so the RF satellite is the other craft in the filed
-                600–850 km dawn-dusk shell with the highest elevation. The
-                optical leg is the straight path when it clears Earth, otherwise
-                the shorter arc on that shell.
+                published, so the RF satellite is the other drawn craft in the
+                600–850 km shell with the highest elevation. The optical leg is
+                the straight path when it clears Earth, otherwise the shorter
+                arc on that shell.
               </p>
             </div>
           </div>
@@ -128,19 +128,28 @@ export function SourcesNote({
             </figure>
           </div>
           <p className="fine-print">
-            The picture is one dawn-dusk plane, the orbit in the whitepaper and
-            the 2026 FCC filing. Altitudes run from 600 km to 850 km. The
-            drawing lifts that band farther from Earth and stretches it radially
-            so the shell stays readable; routing distances use physical
-            kilometres. Craft share that plane instead of spreading into other
-            longitudes. A fixed sun over 20°E defines the reference plane,
-            matching the paper’s figure. That sun direction is not a live
-            ephemeris. The highlighted craft is Starcloud-2, one commercial
-            GPU smallsat planned for sun-synchronous orbit in 2027. The other
-            dots illustrate the filed shell. The filing’s ceiling is 88,000
-            spacecraft across narrow shells; this is not that fleet and not an
-            operating constellation. Starcloud-1 is a demonstration spacecraft,
-            not this path. Hardware size is enlarged.
+            The highlighted craft is Starcloud-2, the first commercial GPU
+            smallsat, planned for sun-synchronous orbit in 2027. Starcloud-1
+            already flew in November 2025 with one H100; the results photo is
+            that demonstration spacecraft, not this path. Public descriptions
+            put Starcloud-3 on a later, much larger spacecraft and tie the
+            February 2026 filing for up to 88,000 satellites to that
+            constellation. Starcloud-4 is the far-future multi-gigawatt concept,
+            the same idea as the whitepaper’s 5 GW array, not a mission this
+            route uses.
+            Interview figures for 3 and 4 disagree, so this app does not pick
+            one.
+          </p>
+          <p className="fine-print">
+            The other dots are about 8,800 craft in one dawn-dusk shell, a
+            spacing picture rather than the 88,000 filing and not extra
+            Starcloud-2 satellites. They fill a volume: along the ring, from
+            600 km to 850 km, and a cross-track thickness, with a gap between
+            neighbors. The drawing pulls that volume inward toward Earth and
+            outward past the old band; routing distances stay in physical
+            kilometres on the dawn-dusk plane. A fixed sun over 20°E sets that
+            plane, matching the paper’s figure. That sun direction is not a
+            live ephemeris. Hardware size is enlarged.
           </p>
         </section>
         <section className="method-section">
@@ -201,9 +210,10 @@ export function SourcesNote({
             <p>
               No production AI request from this app runs in space.
               Starcloud-2 is the commercial mission those routes stand in for.
-              Starcloud-1 is a separate demonstration spacecraft. API cost uses stored standard
-              rates and reported cache discounts; it is not an invoice. The
-              answering API's data policy applies to the prompt. This app
+              Starcloud-1 is the flown demonstration. Starcloud-3 and
+              Starcloud-4 are later designs, not this path. API cost uses stored
+              standard rates and reported cache discounts; it is not an invoice.
+              The answering API’s data policy applies to the prompt. This app
               retains only short-lived hashed rate-limit counters.
             </p>
           </details>

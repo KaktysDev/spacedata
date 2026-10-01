@@ -10,14 +10,23 @@ export const SHELL_ALTITUDE_KM = 725;
 export const SHELL_ALTITUDE_MIN_KM = 600;
 export const SHELL_ALTITUDE_MAX_KM = 850;
 export const SHELL_ALTITUDES_KM = [SHELL_ALTITUDE_KM] as const;
-export const BAND_COUNT = 1,
-  NODES_PER_BAND = 8800;
-export const NODE_COUNT = BAND_COUNT * NODES_PER_BAND;
+// A spacing picture of the dawn-dusk shell: about a tenth of the filing's
+// 88,000 ceiling. Craft fill a volume — along the ring, across 600–850 km of
+// altitude, and a cross-track offset — with a gap between neighbors. This
+// count is not that fleet and not a set of extra Starcloud-2 satellites.
+export const SHELL_RADIAL_COUNT = 10;
+export const SHELL_ACROSS_COUNT = 8;
+export const SHELL_ALONG_COUNT = 110;
+/** Half-angle of the drawn shell off the dawn-dusk plane, in radians. */
+export const SHELL_ACROSS_RAD = 0.22;
+export const BAND_COUNT = 1;
+export const NODE_COUNT =
+  SHELL_RADIAL_COUNT * SHELL_ACROSS_COUNT * SHELL_ALONG_COUNT;
 const MU = 398600.4418,
   J2 = 0.00108262668;
 // Sun-synchronous inclination at the reference altitude. Retrograde, so the
-// reference plane can stay perpendicular to the sun. Craft stay on this one
-// plane: the filing describes narrow shells, not a spread of longitudes.
+// reference plane can stay perpendicular to the sun. Geographic positions
+// stay on that one plane. Cross-track thickness is a drawing offset.
 export const RING_INCLINATION_DEG = sunSyncInclination(SHELL_ALTITUDE_KM);
 export const INCLINATION_SPREAD_DEG = 0;
 export const RAAN_SPREAD_DEG = 0;
@@ -34,10 +43,6 @@ export const orbitalPeriodMs = (altitudeKm: number) =>
   2 * Math.PI * Math.sqrt((EARTH_KM + altitudeKm) ** 3 / MU) * 1000;
 export const ORBIT_PERIOD_MS = orbitalPeriodMs(SHELL_ALTITUDES_KM[0]);
 export const ORBIT_EPOCH_MS = Date.UTC(2026, 8, 25, 12);
-const orbitalSeed = (i: number, salt: number) => {
-  const x = Math.sin((i + 1) * 127.1 + salt * 311.7) * 43758.5453123;
-  return x - Math.floor(x);
-};
 export function sunSyncInclination(altitudeKm: number) {
   const a = EARTH_KM + altitudeKm,
     meanMotion = Math.sqrt(MU / a ** 3);
@@ -72,9 +77,18 @@ export function dawnDuskSunEcef() {
 }
 export type OrbitalNode = Location & {
   altitudeKm: number;
+  /** Drawing offset off the dawn-dusk plane, in radians. Routing ignores it. */
+  across: number;
   band: number;
   slot: number;
 };
+function shellHash(i: number, salt: number) {
+  let x = Math.imul(i + 1, 0x9e3779b1) ^ Math.imul(salt + 1, 0x85ebca6b);
+  x = Math.imul(x ^ (x >>> 16), 0x7feb352d);
+  x = Math.imul(x ^ (x >>> 15), 0x846ca68b);
+  x ^= x >>> 16;
+  return (x >>> 0) / 4294967296;
+}
 // Whitepaper: the speed of light in vacuum is 35% faster than in typical glass fiber.
 export const C_KM_PER_MS = 299.792458;
 export const VACUUM_OVER_FIBER = 1.35;
@@ -177,33 +191,35 @@ function ribbonPoint(u: number, inclination: number, raan: number, across: numbe
 }
 export function orbitalNodes(at: number): OrbitalNode[] {
   const altSpan = SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM;
+  let turns = ((at - ORBIT_EPOCH_MS) % ORBIT_PERIOD_MS) / ORBIT_PERIOD_MS;
+  if (turns < 0) turns += 1;
   return Array.from({ length: NODE_COUNT }, (_, i) => {
-    // Even stations on one plane. Altitude is the only spread, across the
-    // filed 600–850 km band, so the shell stays one longitude.
-    const inclT = ((i * 17) % 48) / 47;
-    const raanT = ((i * 29) % 40) / 39;
-    const altT = ((i * 13) % 32) / 31;
-    const inclinationDeg =
-      RING_INCLINATION_DEG +
-      (inclT - 0.5 + (orbitalSeed(i, 2) - 0.5) * 0.08) *
-        INCLINATION_SPREAD_DEG;
-    const raanDeg =
-      RING_RAAN_DEG +
-      (raanT - 0.5 + (orbitalSeed(i, 4) - 0.5) * 0.08) * RAAN_SPREAD_DEG;
-    const altitudeKm =
-      SHELL_ALTITUDE_MIN_KM +
-      Math.min(
-        0.999,
-        Math.max(0, altT + (orbitalSeed(i, 1) - 0.5) * 0.04),
-      ) *
-        altSpan;
-    const period = orbitalPeriodMs(altitudeKm);
-    let turns = ((at - ORBIT_EPOCH_MS) % period) / period;
-    if (turns < 0) turns += 1;
-    const u = (turns + (i + 0.5) / NODE_COUNT) * Math.PI * 2;
+    // One shared period keeps the shell from shearing into arms. Slot 0 is
+    // the middle of the volume, so Starcloud-2 sits in the dawn-dusk shell.
+    // Other craft jitter inside a radial × cross-track × along-track cell.
+    const along = i % SHELL_ALONG_COUNT;
+    const rest = Math.floor(i / SHELL_ALONG_COUNT);
+    const radial = rest % SHELL_RADIAL_COUNT;
+    const acrossBin = Math.floor(rest / SHELL_RADIAL_COUNT);
+    const altT =
+      i === STARCLOUD2_SLOT
+        ? 0.5
+        : (radial + shellHash(i, 1)) / SHELL_RADIAL_COUNT;
+    const acrossT =
+      i === STARCLOUD2_SLOT
+        ? 0.5
+        : (acrossBin + shellHash(i, 2)) / SHELL_ACROSS_COUNT;
+    const alongT =
+      i === STARCLOUD2_SLOT
+        ? 0.5
+        : (along + shellHash(i, 3)) / SHELL_ALONG_COUNT;
+    const altitudeKm = SHELL_ALTITUDE_MIN_KM + altT * altSpan;
+    const across = (acrossT - 0.5) * 2 * SHELL_ACROSS_RAD;
+    const u = (turns + alongT) * Math.PI * 2;
     return {
-      ...ribbonPoint(u, inclinationDeg * rad, raanDeg * rad, 0),
+      ...ribbonPoint(u, RING_INCLINATION_DEG * rad, RING_RAAN_DEG * rad, 0),
       altitudeKm,
+      across,
       band: 0,
       slot: i,
     };
@@ -398,6 +414,7 @@ function opticalLeg(from: OrbitalNode, to: OrbitalNode) {
     points.push({
       ...loc,
       altitudeKm: from.altitudeKm + (to.altitudeKm - from.altitudeKm) * t,
+      across: from.across + (to.across - from.across) * t,
       band: 0,
       slot: -1,
     });
@@ -412,9 +429,10 @@ function opticalLeg(from: OrbitalNode, to: OrbitalNode) {
  * Orbit, from the Starcloud-2 diagram: RF from the end user to a backhaul
  * spacecraft, then one optical link to Starcloud-2, then the same path home.
  * The third-party backhaul orbit is not published. The RF satellite is the
- * other craft in the filed 600–850 km dawn-dusk shell with the highest
- * elevation. The optical leg is the straight vacuum path when it clears
- * Earth, otherwise the shorter arc on that shell. Starcloud-1 is not this path.
+ * other drawn craft in the 600–850 km shell with the highest elevation. The
+ * optical leg is the straight vacuum path when it clears Earth, otherwise the
+ * shorter arc on that shell. Starcloud-1 is not this path. The drawn shell
+ * is a spacing picture, not the 88,000-spacecraft filing.
  */
 export function routeAt(
   origin: Location,

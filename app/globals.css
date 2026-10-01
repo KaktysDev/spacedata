@@ -1211,8 +1211,16 @@ button.location-suggestion:hover {
   background: transparent;
   border: 0;
   border-radius: 0;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%);
-  mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%);
+  --fade-x: linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%);
+  --fade-y: linear-gradient(180deg, transparent 0%, #000 18%, #000 82%, transparent 100%);
+  -webkit-mask-image: var(--fade-x), var(--fade-y);
+  mask-image: var(--fade-x), var(--fade-y);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
 }
 .results-photo-media img { object-fit: cover; }
 .results-photo.orbit img { object-position: center 78%; }
@@ -1223,8 +1231,18 @@ button.location-suggestion:hover {
   z-index: 1;
   pointer-events: none;
   backdrop-filter: blur(18px);
-  -webkit-mask-image: linear-gradient(90deg, #000 0%, transparent 22%, transparent 78%, #000 100%);
-  mask-image: linear-gradient(90deg, #000 0%, transparent 22%, transparent 78%, #000 100%);
+  -webkit-mask-image:
+    linear-gradient(90deg, #000 0%, transparent 22%, transparent 78%, #000 100%),
+    linear-gradient(180deg, #000 0%, transparent 26%, transparent 74%, #000 100%);
+  mask-image:
+    linear-gradient(90deg, #000 0%, transparent 22%, transparent 78%, #000 100%),
+    linear-gradient(180deg, #000 0%, transparent 26%, transparent 74%, #000 100%);
+  -webkit-mask-composite: source-over;
+  mask-composite: add;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
 }
 .results-photo-credit {
   display: block;

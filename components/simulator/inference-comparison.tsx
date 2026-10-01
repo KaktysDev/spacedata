@@ -161,7 +161,7 @@ export function InferenceComparison({ result, provider, origin, site, prompt, on
             <div className="results-path-copy">
               <span className="results-route-label">Orbit</span>
               <h3>Starcloud-2</h3>
-              <p>SSO · modeled</p>
+              <p>First commercial · SSO</p>
             </div>
             <FacilityImage image={orbitImage} className="orbit" />
             <PathMetrics metrics={metrics} side="space" />

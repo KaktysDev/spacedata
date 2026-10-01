@@ -45,17 +45,22 @@ type Props = {
   onReady: () => void;
 };
 const R = 3.5,
-  // One dawn-dusk plane, drawn well clear of Earth. The radial span is the
-  // filed 600–850 km band, stretched so the ring reads as a wide annulus
-  // instead of a tight halo on the globe.
-  BELT_INNER = 9.4,
-  BELT_OUTER = 13.2,
+  // Visual shell only. Inner is closer to Earth and outer is farther than the
+  // old annulus, so the band fills the volume the sketch marked. Routing still
+  // uses physical kilometres.
+  BELT_INNER = 4.9,
+  BELT_OUTER = 12.2,
+  // Grains on the shell: visible, with a gap to the next craft.
+  CRAFT_SCALE = 0.26,
   // Close enough for the land dots to fill the frame, still outside Earth.
   MIN_ORBIT = 4.22,
   MAX_ORBIT = 64,
   UP = new THREE.Vector3(0, 1, 0);
 function fitDistance(w: number, h: number) {
-  const framed = BELT_OUTER + 0.9;
+  // Closer than a full fit of the outer belt. That fit left a wide black
+  // margin around Earth on first load. 0.82 fills the space under the header
+  // and above the headline without clipping the shell. Geometry is unchanged.
+  const framed = BELT_OUTER * 0.82;
   const width = Math.max(w, 1);
   const height = Math.max(h, 1);
   const fov = (43 * Math.PI) / 180;
@@ -80,6 +85,19 @@ function displayRadius(altitudeKm: number) {
   const span = SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM;
   const t = (altitudeKm - SHELL_ALTITUDE_MIN_KM) / span;
   return BELT_INNER + Math.min(1, Math.max(0, t)) * (BELT_OUTER - BELT_INNER);
+}
+function shellPosition(
+  p: OrbitalNode,
+  ringNormal: THREE.Vector3,
+  radius = displayRadius(p.altitudeKm),
+) {
+  const across = p.across ?? 0;
+  const base = position(p, 1);
+  if (Math.abs(across) < 1e-8) return base.multiplyScalar(radius);
+  const lifted = base
+    .multiplyScalar(Math.cos(across))
+    .addScaledVector(ringNormal, Math.sin(across));
+  return lifted.multiplyScalar(radius / (lifted.length() || 1));
 }
 function position(p: Location, r = R) {
   const lat = (p.lat * Math.PI) / 180,
@@ -440,7 +458,7 @@ export function OrbitalScene(props: Props) {
     odcCraft.visible = false;
     selected.visible = false;
     const carrier = new THREE.Mesh(hardware, routeHardwareMat);
-    carrier.scale.setScalar(0.2);
+    carrier.scale.setScalar(CRAFT_SCALE);
     scene.add(carrier);
     const matrix = new THREE.Object3D();
     const radialAxis = new THREE.Vector3(),
@@ -865,9 +883,9 @@ export function OrbitalScene(props: Props) {
         } else {
           nodes = orbitalNodes(networkTime);
         }
-        // Display radius only. Routing still uses each node's altitude in km.
-        // The base is farther out than the previous shell so the ring clears Earth.
-        vectors = nodes.map((n) => position(n, displayRadius(n.altitudeKm)));
+        // Display position only. Routing still uses each node's altitude in km
+        // and its place on the dawn-dusk plane.
+        vectors = nodes.map((n) => shellPosition(n, ringNormal));
         lastNodeTime = now;
         lastDetailTime = -Infinity;
       }
@@ -936,7 +954,7 @@ export function OrbitalScene(props: Props) {
             vectors[network.ingress].clone(),
           );
           laserPath = network.opticalPoints.map((p) =>
-            position(p, displayRadius(p.altitudeKm)),
+            shellPosition(p, ringNormal),
           );
           computeVector = laserPath[laserPath.length - 1].clone();
           returnLaserPath = laserPath.slice().reverse();
@@ -964,7 +982,7 @@ export function OrbitalScene(props: Props) {
           const relayHops = network.hops.slice(1, -1);
           const hopCount = Math.min(relayHops.length, 64);
           relayHops.slice(0, hopCount).forEach((index, i) =>
-            orient(selected, i, vectors[index], 0.2),
+            orient(selected, i, vectors[index], CRAFT_SCALE),
           );
           selected.count = hopCount;
           selected.instanceMatrix.needsUpdate = true;
@@ -984,7 +1002,7 @@ export function OrbitalScene(props: Props) {
         const activeIds = new Set(active ? network?.hops : []);
         // Route craft retain the same physical display size as the fleet.
         // Camera distance and light identify the path, not enlarged geometry.
-        const scale = 0.2;
+        const scale = CRAFT_SCALE;
         const focal = height / (2 * Math.tan((43 * Math.PI) / 360));
         const candidates = active ? [] : vectors
           .map((v, i) => ({ i, distance: v.distanceTo(camera.position) }))
