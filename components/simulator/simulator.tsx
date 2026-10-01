@@ -65,9 +65,22 @@ export function Simulator({ available }: { available: ProviderId[] }) {
   const request = useRef<AbortController | null>(null),
     active = useRef(false),
     textarea = useRef<HTMLTextAreaElement>(null);
+  const fitPrompt = useCallback((el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = "0px";
+    const max = parseFloat(getComputedStyle(el).maxHeight);
+    const next = Number.isFinite(max)
+      ? Math.min(el.scrollHeight, max)
+      : el.scrollHeight;
+    el.style.height = `${next}px`;
+    el.style.overflowY = el.scrollHeight > max + 1 ? "auto" : "hidden";
+  }, []);
   const site = nearestSite(provider, origin);
   const onReady = useCallback(() => setReady(true), []);
 
+  useEffect(() => {
+    if (!flight) fitPrompt(textarea.current);
+  }, [flight, prompt, fitPrompt]);
   useEffect(() => {
     const root = document.documentElement;
     const body = document.body;
@@ -291,6 +304,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
               onChange={(e) => {
                 setPrompt(e.target.value);
                 setError("");
+                fitPrompt(e.currentTarget);
               }}
               onKeyDown={(e) => {
                 if (
@@ -351,9 +365,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         </div>
       </div>
       <footer className="site-footer">
-        <span className="constellation-count">
-          {NODE_COUNT.toLocaleString()} relays
-        </span>
+        <span className="constellation-count">SSO · 600–850 km</span>
         <DeveloperCredit />
       </footer>
       {results && (

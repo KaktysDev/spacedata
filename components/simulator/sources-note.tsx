@@ -64,26 +64,26 @@ export function SourcesNote({
               <strong>In orbit</strong>
               <ol>
                 <li>You</li>
-                <li>RF uplink, or a land gateway first</li>
-                <li>Optical links across the relay shell</li>
-                <li>Starcloud-2</li>
+                <li>Backhaul satellite · RF</li>
+                <li>Optical link to Starcloud-2</li>
                 <li>Back to you</li>
               </ol>
               <p>
-                The request leaves with the ground route. A relay at least 25°
-                up takes the RF uplink. If none is visible, a land gateway
-                provides it. Optical links then cross the relay shell to a craft
-                standing in for Starcloud-2. The reply returns across that shell
-                and stops at you.
+                The request leaves with the ground route. Starcloud-2’s diagram
+                sends an end user over RF to a third-party backhaul, then over
+                one optical link to Starcloud-2. That backhaul orbit is not
+                published, so the RF satellite is the other craft in the filed
+                600–850 km dawn-dusk shell with the highest elevation. The
+                optical leg is the straight path when it clears Earth, otherwise
+                the shorter arc on that shell.
               </p>
             </div>
           </div>
           <p className="fine-print">
-            Both routes start together. They are modeled, not traceroutes. City connections
-            approximate fiber corridors; real ISP policies and return paths
-            vary. Provider markers are public infrastructure references, not a
-            promise about where an API call runs. Gateway coverage, weather,
-            carrier capacity and available laser terminals are not simulated.
+            Both routes start together. They are modeled, not traceroutes.
+            Provider markers are public infrastructure references, not a
+            promise about where an API call runs. Weather, carrier capacity,
+            and which backhaul satellite is actually in view are not simulated.
           </p>
         </section>
         <section className="method-section">
@@ -92,9 +92,8 @@ export function SourcesNote({
           <p>
             Starcloud’s paper describes modular compute containers, solar
             arrays, radiators, and RF or optical terminals on a shared spine.
-            The highlighted spacecraft carries that hardware. Links between
-            spacecraft are optical hops along the shell, not the in-facility
-            spine.
+            The highlighted spacecraft carries that hardware. The link to it is
+            the optical connection in the filing, not the in-facility spine.
           </p>
           <figure className="paper-diagram">
             <Image
@@ -129,25 +128,19 @@ export function SourcesNote({
             </figure>
           </div>
           <p className="fine-print">
-            The picture shows 8,800 illustrative spacecraft in one ring, held
-            off the globe for clarity. Routing altitudes run from 600 km to
-            850 km around a 725 km reference plane. Inclination
-            and the ascending node each wander about a dozen degrees around the
-            sun-synchronous dawn-dusk plane, so the ring has thickness without
-            becoming a shell. Craft are spaced all the way around that ring.
-            The 2026 FCC filing asks for narrow 600–850 km shells; this is one
-            illustrative ring with exaggerated visual distance from Earth. A fixed
-            sun over 20°E still defines the reference dawn-dusk plane, matching
-            the paper’s figure. That sun direction is not a live ephemeris.
-            The paper’s data center is a set of containers on one spine, with
-            laser links onward. The highlighted craft stands in for Starcloud-2,
-            one commercial GPU smallsat planned for sun-synchronous orbit in
-            2027. The ring is a modeled relay shell, not that satellite.
-            Starcloud-1 is a demonstration spacecraft, not this path.
-            The FCC filing requests up to 88,000 spacecraft; 8,800 is not that
-            fleet and not an operating constellation. Hardware size and the
-            drawn orbital radius are enlarged; routing distances use physical
-            kilometers.
+            The picture is one dawn-dusk plane, the orbit in the whitepaper and
+            the 2026 FCC filing. Altitudes run from 600 km to 850 km. The
+            drawing lifts that band farther from Earth and stretches it radially
+            so the shell stays readable; routing distances use physical
+            kilometres. Craft share that plane instead of spreading into other
+            longitudes. A fixed sun over 20°E defines the reference plane,
+            matching the paper’s figure. That sun direction is not a live
+            ephemeris. The highlighted craft is Starcloud-2, one commercial
+            GPU smallsat planned for sun-synchronous orbit in 2027. The other
+            dots illustrate the filed shell. The filing’s ceiling is 88,000
+            spacecraft across narrow shells; this is not that fleet and not an
+            operating constellation. Starcloud-1 is a demonstration spacecraft,
+            not this path. Hardware size is enlarged.
           </p>
         </section>
         <section className="method-section">
@@ -195,18 +188,15 @@ export function SourcesNote({
               Distance, timing & limitations <span>+</span>
             </summary>
             <p>
-              Fiber distance follows the city graph plus a 1.15× allowance for
-              local cable routing, at 200,000 km/s. The orbital request starts
-              with the ground request. It uplinks directly when a shell
-              spacecraft is at least 25° above the horizon; otherwise it uses
-              a feeder to a land gateway first. Optical links run along the
-              same shell at 299,792 km/s, must clear Earth, and stay within
-              4,000 km. Round trips add 10 ms on the ground path, or 8 ms plus
-              1.5 ms per optical hop in orbit. The animation stretches network
-              propagation equally on both paths so the modeled finish order is
-              preserved; its seconds are not actual network delay. It waits
-              for both terrestrial API replies before showing either return.
-              Positions freeze at send so the picture matches the reported distances.
+              Ground distance is the surface path from you to the public site.
+              The whitepaper says vacuum is 35% faster than typical glass
+              fiber, so that path uses c/1.35. The orbital request starts with
+              it. RF runs from you to the backhaul satellite at c, then the
+              optical link runs to Starcloud-2 at c. The animation multiplies
+              those light-times by the same factor, so a longer path takes
+              proportionally longer. It waits for both terrestrial API replies
+              before showing either return. Positions freeze at send so the
+              picture matches the reported distances.
             </p>
             <p>
               No production AI request from this app runs in space.
