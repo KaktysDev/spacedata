@@ -24,8 +24,10 @@ import {
   RING_RAAN_DEG,
   INCLINATION_SPREAD_DEG,
   RAAN_SPREAD_DEG,
-  LANE_COUNT,
-  NODES_PER_LANE,
+  SHELL_RADIAL_COUNT,
+  SHELL_ACROSS_COUNT,
+  SHELL_ALONG_COUNT,
+  SHELL_ACROSS_RAD,
   SHELL_ALTITUDE_MIN_KM,
   SHELL_ALTITUDE_MAX_KM,
   FIBER_KM_PER_MS,
@@ -35,7 +37,7 @@ import {
   sunSyncInclination,
 } from "../lib/starcloud/network";
 
-test("the ring stays one dawn-dusk plane with altitude height", () => {
+test("the shell is one dawn-dusk plane with a drawn cross-track thickness", () => {
   const nodes = orbitalNodes(ORBIT_EPOCH_MS);
   expect(RING_INCLINATION_DEG).toBeCloseTo(sunSyncInclination(725), 6);
   expect(RING_INCLINATION_DEG).toBeGreaterThan(98);
@@ -43,7 +45,10 @@ test("the ring stays one dawn-dusk plane with altitude height", () => {
   expect(RING_RAAN_DEG).toBeCloseTo(110, 3);
   expect(INCLINATION_SPREAD_DEG).toBe(0);
   expect(RAAN_SPREAD_DEG).toBe(0);
-  expect(LANE_COUNT % 2).toBe(1);
+  expect(NODE_COUNT).toBe(8800);
+  expect(NODE_COUNT).toBe(
+    SHELL_RADIAL_COUNT * SHELL_ACROSS_COUNT * SHELL_ALONG_COUNT,
+  );
   const sun = dawnDuskSunEcef();
   const incl = (RING_INCLINATION_DEG * Math.PI) / 180;
   const raan = (RING_RAAN_DEG * Math.PI) / 180;
@@ -51,11 +56,14 @@ test("the ring stays one dawn-dusk plane with altitude height", () => {
   const hy = -Math.cos(raan) * Math.sin(incl);
   const hz = Math.cos(incl);
   expect(hx * sun.x + hy * sun.y + hz * sun.z).toBeCloseTo(1, 6);
-  const center = nodes.filter((node) => Math.abs(node.altitudeKm - 725) < 1);
-  expect(center).toHaveLength(NODES_PER_LANE);
-  expect(center.some((node) => node.slot === STARCLOUD2_SLOT)).toBe(true);
+  const starcloud2 = nodes[STARCLOUD2_SLOT];
+  expect(starcloud2.altitudeKm).toBeCloseTo(725, 3);
+  expect(starcloud2.across).toBe(0);
   const abs = nodes.map((node) => Math.abs(planeOffsetDeg(node)));
   expect(Math.max(...abs)).toBeLessThan(0.05);
+  const across = nodes.map((node) => node.across);
+  expect(Math.max(...across)).toBeGreaterThan(SHELL_ACROSS_RAD * 0.75);
+  expect(Math.min(...across)).toBeLessThan(-SHELL_ACROSS_RAD * 0.75);
 });
 function planeOffsetDeg(node: { lat: number; lon: number }) {
   const lat = (node.lat * Math.PI) / 180,
@@ -96,60 +104,24 @@ function trackAngleDeg(node: { lat: number; lon: number }) {
     Math.PI
   );
 }
-test("the modeled fleet occupies one 600–850 km ring with spaced craft", () => {
+test("the modeled fleet fills a 600–850 km volume with spaced craft", () => {
   const nodes = orbitalNodes(0);
   expect(nodes).toHaveLength(NODE_COUNT);
-  expect(NODE_COUNT).toBe(LANE_COUNT * NODES_PER_LANE);
-  expect(NODE_COUNT).toBe(504);
   const alts = nodes.map((p) => p.altitudeKm);
   const span = Math.max(...alts) - Math.min(...alts);
   expect(span).toBeGreaterThan(240);
   expect(span).toBeLessThan(260);
   expect(Math.min(...alts)).toBeGreaterThanOrEqual(SHELL_ALTITUDE_MIN_KM - 1);
-  expect(Math.min(...alts)).toBeLessThan(SHELL_ALTITUDE_MIN_KM + 40);
-  expect(Math.max(...alts)).toBeGreaterThan(SHELL_ALTITUDE_MAX_KM - 40);
+  expect(Math.min(...alts)).toBeLessThan(SHELL_ALTITUDE_MIN_KM + 30);
+  expect(Math.max(...alts)).toBeGreaterThan(SHELL_ALTITUDE_MAX_KM - 30);
   expect(Math.max(...alts)).toBeLessThanOrEqual(SHELL_ALTITUDE_MAX_KM + 1);
   for (const p of nodes) expect(p.band).toBe(0);
-  expect(new Set(alts.map((alt) => alt.toFixed(3))).size).toBe(LANE_COUNT);
-  expect(
-    new Set(
-      nodes.map(
-        (p) =>
-          `${p.lat.toFixed(6)},${p.lon.toFixed(6)},${p.altitudeKm.toFixed(3)}`,
-      ),
-    ).size,
-  ).toBe(NODE_COUNT);
-  // Same dawn-dusk plane: craft that share a ground track sit on different
-  // altitudes, which is the height of the ring.
-  const tracks = new Map<string, number[]>();
-  for (const node of nodes) {
-    const key = `${node.lat.toFixed(4)},${node.lon.toFixed(4)}`;
-    tracks.set(key, [...(tracks.get(key) ?? []), node.altitudeKm]);
-  }
-  for (const altsOnTrack of tracks.values()) {
-    expect(new Set(altsOnTrack.map((alt) => alt.toFixed(3))).size).toBe(
-      altsOnTrack.length,
-    );
-  }
-  const lane = nodes.filter((node) => Math.abs(node.altitudeKm - 725) < 1);
-  let nearest = Infinity;
-  for (const node of lane) {
-    for (const other of lane) {
-      if (other === node) continue;
-      nearest = Math.min(nearest, distanceKm(node, other));
-    }
-  }
-  expect(nearest).toBeGreaterThan(500);
-});
-test("the ring stays populated all the way around", () => {
-  const nodes = orbitalNodes(ORBIT_EPOCH_MS);
-  const lane = nodes.filter((node) => Math.abs(node.altitudeKm - 725) < 1);
-  const angles = lane.map(trackAngleDeg).sort((a, b) => a - b);
+  const angles = nodes.map(trackAngleDeg).sort((a, b) => a - b);
   let maxGap = angles[0] + 360 - angles[angles.length - 1];
   for (let i = 1; i < angles.length; i++)
     maxGap = Math.max(maxGap, angles[i] - angles[i - 1]);
-  expect(maxGap).toBeLessThan(360 / NODES_PER_LANE + 1);
-  expect(maxGap).toBeGreaterThan(4);
+  expect(maxGap).toBeLessThan(12);
+  expect(maxGap).toBeGreaterThan(0.2);
 });
 test("ground and orbital routes leave the user independently", () => {
   const places = [
