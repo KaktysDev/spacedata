@@ -10,17 +10,28 @@ export const SHELL_ALTITUDE_KM = 725;
 export const SHELL_ALTITUDE_MIN_KM = 600;
 export const SHELL_ALTITUDE_MAX_KM = 850;
 export const SHELL_ALTITUDES_KM = [SHELL_ALTITUDE_KM] as const;
+// A thinned picture of the 600–850 km shell. Seven planes across 80° of node
+// longitude, eight craft on each, phased so neighbors stay hundreds of
+// kilometres apart. The filing's ceiling is 88,000 spacecraft in narrow
+// shells; this count is not that fleet.
+export const PLANE_COUNT = 7;
+export const NODES_PER_PLANE = 8;
+/** Fraction of an orbit added per plane so crossings near the poles stay apart. */
+export const PLANE_PHASE = 0.15;
 export const BAND_COUNT = 1,
-  NODES_PER_BAND = 8800;
+  NODES_PER_BAND = PLANE_COUNT * NODES_PER_PLANE;
 export const NODE_COUNT = BAND_COUNT * NODES_PER_BAND;
 const MU = 398600.4418,
   J2 = 0.00108262668;
 // Sun-synchronous inclination at the reference altitude. Retrograde, so the
-// reference plane can stay perpendicular to the sun. Craft stay on this one
-// plane: the filing describes narrow shells, not a spread of longitudes.
+// center plane can stay perpendicular to the sun. Other planes step away in
+// node longitude. Inclination follows the sun-synchronous value at each
+// plane's altitude, which changes by about a degree across 600–850 km.
 export const RING_INCLINATION_DEG = sunSyncInclination(SHELL_ALTITUDE_KM);
-export const INCLINATION_SPREAD_DEG = 0;
-export const RAAN_SPREAD_DEG = 0;
+export const INCLINATION_SPREAD_DEG =
+  sunSyncInclination(SHELL_ALTITUDE_MAX_KM) -
+  sunSyncInclination(SHELL_ALTITUDE_MIN_KM);
+export const RAAN_SPREAD_DEG = 80;
 // Dawn-dusk means the orbit normal is the sun direction, so the plane is the
 // terminator. 20°E is a fixed subsolar longitude chosen so the lit hemisphere
 // matches the white-paper figure (Africa and Europe in daylight). It is not a
@@ -34,10 +45,6 @@ export const orbitalPeriodMs = (altitudeKm: number) =>
   2 * Math.PI * Math.sqrt((EARTH_KM + altitudeKm) ** 3 / MU) * 1000;
 export const ORBIT_PERIOD_MS = orbitalPeriodMs(SHELL_ALTITUDES_KM[0]);
 export const ORBIT_EPOCH_MS = Date.UTC(2026, 8, 25, 12);
-const orbitalSeed = (i: number, salt: number) => {
-  const x = Math.sin((i + 1) * 127.1 + salt * 311.7) * 43758.5453123;
-  return x - Math.floor(x);
-};
 export function sunSyncInclination(altitudeKm: number) {
   const a = EARTH_KM + altitudeKm,
     meanMotion = Math.sqrt(MU / a ** 3);
@@ -177,30 +184,30 @@ function ribbonPoint(u: number, inclination: number, raan: number, across: numbe
 }
 export function orbitalNodes(at: number): OrbitalNode[] {
   const altSpan = SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM;
+  const center = (PLANE_COUNT - 1) / 2;
   return Array.from({ length: NODE_COUNT }, (_, i) => {
-    // Even stations on one plane. Altitude is the only spread, across the
-    // filed 600–850 km band, so the shell stays one longitude.
-    const inclT = ((i * 17) % 48) / 47;
-    const raanT = ((i * 29) % 40) / 39;
-    const altT = ((i * 13) % 32) / 31;
-    const inclinationDeg =
-      RING_INCLINATION_DEG +
-      (inclT - 0.5 + (orbitalSeed(i, 2) - 0.5) * 0.08) *
-        INCLINATION_SPREAD_DEG;
+    // Slot 0 is the center plane: Starcloud-2 stays on the dawn-dusk reference.
+    // Other planes step in node longitude and in altitude across 600–850 km.
+    // Each plane is shifted by a different fraction of the orbit so craft on
+    // neighboring planes do not meet where the planes cross near the poles.
+    const plane = i % PLANE_COUNT;
+    const along = Math.floor(i / PLANE_COUNT);
+    const planeIndex = (plane + center) % PLANE_COUNT;
+    const altitudeKm =
+      SHELL_ALTITUDE_MIN_KM + (planeIndex / (PLANE_COUNT - 1)) * altSpan;
+    const inclinationDeg = sunSyncInclination(altitudeKm);
     const raanDeg =
       RING_RAAN_DEG +
-      (raanT - 0.5 + (orbitalSeed(i, 4) - 0.5) * 0.08) * RAAN_SPREAD_DEG;
-    const altitudeKm =
-      SHELL_ALTITUDE_MIN_KM +
-      Math.min(
-        0.999,
-        Math.max(0, altT + (orbitalSeed(i, 1) - 0.5) * 0.04),
-      ) *
-        altSpan;
-    const period = orbitalPeriodMs(altitudeKm);
+      ((planeIndex - center) / center) * (RAAN_SPREAD_DEG / 2);
+    // One period for the whole shell. Different altitudes would drift and
+    // meet near the poles; the picture keeps the gaps.
+    const period = ORBIT_PERIOD_MS;
     let turns = ((at - ORBIT_EPOCH_MS) % period) / period;
     if (turns < 0) turns += 1;
-    const u = (turns + (i + 0.5) / NODE_COUNT) * Math.PI * 2;
+    const u =
+      (turns + (along + 0.5) / NODES_PER_PLANE + planeIndex * PLANE_PHASE) *
+      Math.PI *
+      2;
     return {
       ...ribbonPoint(u, inclinationDeg * rad, raanDeg * rad, 0),
       altitudeKm,
@@ -412,9 +419,10 @@ function opticalLeg(from: OrbitalNode, to: OrbitalNode) {
  * Orbit, from the Starcloud-2 diagram: RF from the end user to a backhaul
  * spacecraft, then one optical link to Starcloud-2, then the same path home.
  * The third-party backhaul orbit is not published. The RF satellite is the
- * other craft in the filed 600–850 km dawn-dusk shell with the highest
- * elevation. The optical leg is the straight vacuum path when it clears
- * Earth, otherwise the shorter arc on that shell. Starcloud-1 is not this path.
+ * other drawn craft in the 600–850 km shell with the highest elevation. The
+ * optical leg is the straight vacuum path when it clears Earth, otherwise the
+ * shorter arc on that shell. Starcloud-1 is not this path. The drawn planes
+ * are a spacing picture, not the 88,000-spacecraft filing.
  */
 export function routeAt(
   origin: Location,

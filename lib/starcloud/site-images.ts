@@ -28,9 +28,9 @@ const googleImages: Record<string, SiteImage> = {
     siteSpecific: true,
   },
   "Ashburn, Virginia": {
-    url: "https://www.gstatic.com/marketing-cms/assets/images/20/42/4494a4aa43d79ec4d1eb227c34ba/dc-location-page-header-imagery-virginia.webp",
-    caption: "Google · Virginia location image",
-    source: "https://datacenters.google/locations/virginia/",
+    url: "/photos/ashburn-data-centers.jpg",
+    caption: "Data centers near Ashburn, Virginia",
+    source: "https://commons.wikimedia.org/wiki/File:Data_centers_in_Ashburn.jpg",
     siteSpecific: false,
     regionSpecific: true,
   },
@@ -53,7 +53,7 @@ const googleImages: Record<string, SiteImage> = {
     siteSpecific: true,
   },
   "Eemshaven, Netherlands": {
-    url: "https://www.gstatic.com/marketing-cms/assets/images/ce/62/13a746d5412293a94454261d0169/eemshaven-exterior.jpg",
+    url: "https://www.gstatic.com/marketing-cms/assets/images/d2/a8/10f6a703472d9a7d05bc37a5e6dc/eemshaven-wind-turbines.jpg",
     caption: "Google · Eemshaven campus",
     source: googleGallery,
     siteSpecific: true,
@@ -93,9 +93,9 @@ const googleImages: Record<string, SiteImage> = {
 const providerReferences: Record<ProviderId, SiteImage> = {
   gemini: googleImages["The Dalles, Oregon"],
   anthropic: {
-    url: "https://amazon-blogs-brightspot.s3.amazonaws.com/2d/e2/b31eea534918a828f5853b789759/inline-003-employee-final-color-mix-v2-uncompressed-mov-00-03-44-12-still024-copy.JPG",
-    caption: "AWS facility reference · Oregon",
-    source: "https://www.aboutamazon.com/news/aws/aws-data-center-inside",
+    url: "https://assets.aboutamazon.com/dims4/default/64ba77c/2147483647/strip/true/crop/2000x1125%2B0%2B0/resize/1320x743%21/quality/90/?url=https%3A%2F%2Fassets.aboutamazon.com%2F12%2F24%2Fc0f4127a4831a2497c507bc2aa7c%2Faws-virginia-hero-1.jpg",
+    caption: "AWS data center reference",
+    source: "https://www.aboutamazon.com/news/aws/aws-commitment-to-virginia",
     siteSpecific: false,
   },
   openai: {
@@ -119,11 +119,6 @@ const regionalImages: Partial<Record<ProviderId, Record<string, SiteImage>>> = {
       caption: "AWS · Northern Virginia data center",
       source: "https://www.aboutamazon.com/news/aws/aws-commitment-to-virginia",
       siteSpecific: false,
-      regionSpecific: true,
-    },
-    Oregon: {
-      ...providerReferences.anthropic,
-      caption: "AWS · eastern Oregon data center",
       regionSpecific: true,
     },
   },

@@ -17,6 +17,7 @@ import {
   interpolateLocation,
   orbitalPeriodMs,
   ORBIT_EPOCH_MS,
+  ORBIT_PERIOD_MS,
   opticalDistanceKm,
   STARCLOUD2_SLOT,
   createRoutePlayback,
@@ -24,6 +25,9 @@ import {
   RING_RAAN_DEG,
   INCLINATION_SPREAD_DEG,
   RAAN_SPREAD_DEG,
+  PLANE_COUNT,
+  NODES_PER_PLANE,
+  PLANE_PHASE,
   SHELL_ALTITUDE_MIN_KM,
   SHELL_ALTITUDE_MAX_KM,
   FIBER_KM_PER_MS,
@@ -33,14 +37,18 @@ import {
   sunSyncInclination,
 } from "../lib/starcloud/network";
 
-test("the reference plane stays dawn-dusk and the fleet shares that longitude", () => {
+test("the center plane stays dawn-dusk and the shell spreads across longitudes", () => {
   const nodes = orbitalNodes(ORBIT_EPOCH_MS);
   expect(RING_INCLINATION_DEG).toBeCloseTo(sunSyncInclination(725), 6);
   expect(RING_INCLINATION_DEG).toBeGreaterThan(98);
   expect(RING_INCLINATION_DEG).toBeLessThan(99);
   expect(RING_RAAN_DEG).toBeCloseTo(110, 3);
-  expect(INCLINATION_SPREAD_DEG).toBe(0);
-  expect(RAAN_SPREAD_DEG).toBe(0);
+  expect(INCLINATION_SPREAD_DEG).toBeCloseTo(
+    sunSyncInclination(850) - sunSyncInclination(600),
+    6,
+  );
+  expect(RAAN_SPREAD_DEG).toBe(80);
+  expect(PLANE_COUNT % 2).toBe(1);
   const sun = dawnDuskSunEcef();
   const incl = (RING_INCLINATION_DEG * Math.PI) / 180;
   const raan = (RING_RAAN_DEG * Math.PI) / 180;
@@ -48,8 +56,13 @@ test("the reference plane stays dawn-dusk and the fleet shares that longitude", 
   const hy = -Math.cos(raan) * Math.sin(incl);
   const hz = Math.cos(incl);
   expect(hx * sun.x + hy * sun.y + hz * sun.z).toBeCloseTo(1, 6);
+  const center = nodes.filter((node) => Math.abs(node.altitudeKm - 725) < 1);
+  expect(center).toHaveLength(NODES_PER_PLANE);
+  expect(center.some((node) => node.slot === STARCLOUD2_SLOT)).toBe(true);
+  expect(Math.abs(planeOffsetDeg(nodes[STARCLOUD2_SLOT]))).toBeLessThan(0.2);
   const abs = nodes.map((node) => Math.abs(planeOffsetDeg(node)));
-  expect(Math.max(...abs)).toBeLessThan(0.05);
+  expect(Math.max(...abs)).toBeGreaterThan(25);
+  expect(Math.max(...abs)).toBeLessThan(50);
 });
 function planeOffsetDeg(node: { lat: number; lon: number }) {
   const lat = (node.lat * Math.PI) / 180,
@@ -90,10 +103,12 @@ function trackAngleDeg(node: { lat: number; lon: number }) {
     Math.PI
   );
 }
-test("the modeled fleet occupies one 600–850 km ring with thickness", () => {
+test("the modeled fleet occupies a 600–850 km shell with separated craft", () => {
   const nodes = orbitalNodes(0);
   expect(nodes).toHaveLength(NODE_COUNT);
-  expect(NODE_COUNT).toBe(8800);
+  expect(NODE_COUNT).toBe(PLANE_COUNT * NODES_PER_PLANE);
+  expect(NODE_COUNT).toBe(56);
+  expect(PLANE_PHASE).toBe(0.15);
   const alts = nodes.map((p) => p.altitudeKm);
   const span = Math.max(...alts) - Math.min(...alts);
   expect(span).toBeGreaterThan(240);
@@ -106,30 +121,31 @@ test("the modeled fleet occupies one 600–850 km ring with thickness", () => {
   expect(
     new Set(nodes.map((p) => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`)).size,
   ).toBe(NODE_COUNT);
-  const sample = nodes.filter((_, i) => i % 80 === 0);
-  const nearest = sample.map((node) => {
-    let best = Infinity;
-    for (const other of nodes) {
-      if (other === node) continue;
-      const d = Math.hypot(
-        distanceKm(node, other),
-        node.altitudeKm - other.altitudeKm,
-      );
-      if (d < best) best = d;
+  let nearest = Infinity;
+  for (let step = 0; step < 8; step++) {
+    const sample = orbitalNodes(step * ORBIT_PERIOD_MS / 8);
+    for (const node of sample) {
+      for (const other of sample) {
+        if (other === node) continue;
+        const d = Math.hypot(
+          distanceKm(node, other),
+          node.altitudeKm - other.altitudeKm,
+        );
+        if (d < nearest) nearest = d;
+      }
     }
-    return best;
-  });
-  nearest.sort((a, b) => a - b);
-  expect(nearest[0]).toBeGreaterThan(1);
-  expect(nearest[Math.floor(nearest.length / 2)]).toBeGreaterThan(3);
+  }
+  expect(nearest).toBeGreaterThan(600);
 });
-test("the ring stays populated all the way around", () => {
+test("each plane stays populated all the way around", () => {
   const nodes = orbitalNodes(ORBIT_EPOCH_MS);
-  const angles = nodes.map(trackAngleDeg).sort((a, b) => a - b);
+  const center = nodes.filter((node) => Math.abs(node.altitudeKm - 725) < 1);
+  const angles = center.map(trackAngleDeg).sort((a, b) => a - b);
   let maxGap = angles[0] + 360 - angles[angles.length - 1];
   for (let i = 1; i < angles.length; i++)
     maxGap = Math.max(maxGap, angles[i] - angles[i - 1]);
-  expect(maxGap).toBeLessThan(1);
+  expect(maxGap).toBeLessThan(360 / NODES_PER_PLANE + 1);
+  expect(maxGap).toBeGreaterThan(20);
 });
 test("ground and orbital routes leave the user independently", () => {
   const places = [

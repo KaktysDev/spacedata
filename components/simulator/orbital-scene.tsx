@@ -45,11 +45,10 @@ type Props = {
   onReady: () => void;
 };
 const R = 3.5,
-  // One dawn-dusk plane, drawn well clear of Earth. The radial span is the
-  // filed 600–850 km band, stretched so the ring reads as a wide annulus
-  // instead of a tight halo on the globe.
-  BELT_INNER = 9.4,
-  BELT_OUTER = 13.2,
+  // The 600–850 km shell, clear of Earth and thick enough to read as a
+  // band. Routing still uses physical kilometres.
+  BELT_INNER = 5.8,
+  BELT_OUTER = 8.8,
   // Close enough for the land dots to fill the frame, still outside Earth.
   MIN_ORBIT = 4.22,
   MAX_ORBIT = 64,
@@ -440,7 +439,7 @@ export function OrbitalScene(props: Props) {
     odcCraft.visible = false;
     selected.visible = false;
     const carrier = new THREE.Mesh(hardware, routeHardwareMat);
-    carrier.scale.setScalar(0.2);
+    carrier.scale.setScalar(0.5);
     scene.add(carrier);
     const matrix = new THREE.Object3D();
     const radialAxis = new THREE.Vector3(),
@@ -964,7 +963,7 @@ export function OrbitalScene(props: Props) {
           const relayHops = network.hops.slice(1, -1);
           const hopCount = Math.min(relayHops.length, 64);
           relayHops.slice(0, hopCount).forEach((index, i) =>
-            orient(selected, i, vectors[index], 0.2),
+            orient(selected, i, vectors[index], 0.5),
           );
           selected.count = hopCount;
           selected.instanceMatrix.needsUpdate = true;
@@ -984,7 +983,7 @@ export function OrbitalScene(props: Props) {
         const activeIds = new Set(active ? network?.hops : []);
         // Route craft retain the same physical display size as the fleet.
         // Camera distance and light identify the path, not enlarged geometry.
-        const scale = 0.2;
+        const scale = 0.5;
         const focal = height / (2 * Math.tan((43 * Math.PI) / 360));
         const candidates = active ? [] : vectors
           .map((v, i) => ({ i, distance: v.distanceTo(camera.position) }))

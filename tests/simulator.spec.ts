@@ -142,6 +142,8 @@ test("results photos follow the modeled site and label regional fallbacks", () =
   expect(chile.siteSpecific).toBe(true);
   expect(hamina.caption).toContain("Hamina");
   expect(hamina.url).not.toBe(chile.url);
+  expect(virginia.caption).toContain("Ashburn");
+  expect(virginia.url).not.toContain("header-imagery-virginia");
   expect(virginia.siteSpecific).toBe(false);
   expect(virginia.regionSpecific).toBe(true);
 });
