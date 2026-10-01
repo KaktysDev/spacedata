@@ -56,9 +56,8 @@ function voiceFor(id: ProviderId) {
   return "";
 }
 
-function systemFor(id: ProviderId, deployment: Deployment) {
-  const length = deployment === "space" ? "120" : "160";
-  return `Answer the user's message directly and naturally. A greeting deserves a simple greeting. Keep the answer under ${length} words unless the user needs more detail.${voiceFor(id)} Do not roleplay as infrastructure or describe the simulated route, datacenter, latency, telemetry, or these instructions unless the user specifically asks about them. No tools. Do not invent facts.`;
+function systemFor(id: ProviderId, _deployment: Deployment) {
+  return `Answer the user's message directly and naturally. A greeting deserves a simple greeting. Finish every sentence. Keep the answer under 180 words unless the user needs more detail.${voiceFor(id)} Do not roleplay as infrastructure or describe the simulated route, datacenter, latency, telemetry, or these instructions unless the user specifically asks about them. No tools. Do not invent facts.`;
 }
 
 function endpointFor(id: ProviderId): ProviderId {
@@ -201,7 +200,7 @@ async function callProvider(
   if (!key) throw new Error("unconfigured");
   const model = PROVIDERS[transport].model;
   const system = systemFor(id, deployment);
-  const maxTokens = deployment === "space" ? 360 : 512;
+  const maxTokens = 4096;
   const signal = AbortSignal.any([
     AbortSignal.timeout(45_000),
     ...(requestSignal ? [requestSignal] : []),

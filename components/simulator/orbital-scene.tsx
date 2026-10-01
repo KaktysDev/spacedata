@@ -45,10 +45,11 @@ type Props = {
   onReady: () => void;
 };
 const R = 3.5,
-  // Formed ring, enlarged and held off the globe. Earth is 3.5; the belt
-  // starts past 6 so the gap stays empty.
-  BELT_INNER = 6.15,
-  BELT_OUTER = 7.35,
+  // One dawn-dusk plane, drawn well clear of Earth. The radial span is the
+  // filed 600–850 km band, stretched so the ring reads as a wide annulus
+  // instead of a tight halo on the globe.
+  BELT_INNER = 9.4,
+  BELT_OUTER = 13.2,
   // Close enough for the land dots to fill the frame, still outside Earth.
   MIN_ORBIT = 4.22,
   MAX_ORBIT = 64,
@@ -134,6 +135,37 @@ function surface(locations: Location[]) {
           R + 0.008,
         ),
       );
+  return points;
+}
+function directionLerp(a: THREE.Vector3, b: THREE.Vector3, t: number) {
+  const qa = a.clone().normalize();
+  const qb = b.clone().normalize();
+  const omega = Math.acos(THREE.MathUtils.clamp(qa.dot(qb), -1, 1));
+  if (omega < 1e-4) return qa.lerp(qb, t).normalize();
+  if (Math.PI - omega < 1e-3) {
+    const axis = Math.abs(qa.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+    const side = new THREE.Vector3().crossVectors(qa, axis).normalize();
+    return qa.clone().applyAxisAngle(side, t * Math.PI);
+  }
+  const s = Math.sin(omega);
+  return qa
+    .clone()
+    .multiplyScalar(Math.sin((1 - t) * omega) / s)
+    .addScaledVector(qb, Math.sin(t * omega) / s);
+}
+/** Radius grows from the surface to the craft, so the link never chords through Earth. */
+function outsideLink(from: THREE.Vector3, to: THREE.Vector3, steps = 32) {
+  const points: THREE.Vector3[] = [];
+  const ra = from.length();
+  const rb = to.length();
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    points.push(
+      directionLerp(from, to, t).multiplyScalar(
+        Math.max(ra + (rb - ra) * t, R + 0.02),
+      ),
+    );
+  }
   return points;
 }
 function follow(points: THREE.Vector3[], t: number, target: THREE.Vector3) {
@@ -899,11 +931,13 @@ export function OrbitalScene(props: Props) {
               : [];
           carrier.position.copy(vectors[network.ingress].clone());
           hardwareRotation(carrier.position, carrier.quaternion);
-          uplink = [
+          uplink = outsideLink(
             position(network.uplinkAnchor, R + 0.016),
             vectors[network.ingress].clone(),
-          ];
-          laserPath = network.hops.map((i) => vectors[i].clone());
+          );
+          laserPath = network.opticalPoints.map((p) =>
+            position(p, displayRadius(p.altitudeKm)),
+          );
           computeVector = laserPath[laserPath.length - 1].clone();
           returnLaserPath = laserPath.slice().reverse();
           downlinkPath = uplink.slice().reverse();
@@ -1292,7 +1326,7 @@ export function OrbitalScene(props: Props) {
         Starcloud-2<small>MODELED</small>
       </div>
       <div ref={relayLabel} className="scene-label route-label">
-        Ingress<small>RF</small>
+        Backhaul<small>RF</small>
       </div>
       <div ref={gatewayLabel} className="scene-label route-label">
         Gateway<small>MODELED</small>

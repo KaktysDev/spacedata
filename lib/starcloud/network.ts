@@ -2,9 +2,10 @@ import { distanceKm, type Location } from "./catalog";
 
 export const EARTH_KM = 6371,
   ALTITUDE_KM = 725;
-// Reference altitude for the sun-synchronous plane used by routing and the
-// fixed dawn-dusk sun. The drawn ring is visually raised from the globe;
-// propagation and line-of-sight calculations use these physical altitudes.
+// Starcloud's FCC application (SAT-LOA-20260202-00073) proposes sun-synchronous
+// shells between 600 and 850 km. 725 km is the midpoint of that published band,
+// used only where a single reference altitude is required. The drawn ring is
+// raised off the globe; propagation uses these physical altitudes.
 export const SHELL_ALTITUDE_KM = 725;
 export const SHELL_ALTITUDE_MIN_KM = 600;
 export const SHELL_ALTITUDE_MAX_KM = 850;
@@ -15,13 +16,11 @@ export const NODE_COUNT = BAND_COUNT * NODES_PER_BAND;
 const MU = 398600.4418,
   J2 = 0.00108262668;
 // Sun-synchronous inclination at the reference altitude. Retrograde, so the
-// reference plane can stay perpendicular to the sun. Individual spacecraft
-// are spread far from this plane.
+// reference plane can stay perpendicular to the sun. Craft stay on this one
+// plane: the filing describes narrow shells, not a spread of longitudes.
 export const RING_INCLINATION_DEG = sunSyncInclination(SHELL_ALTITUDE_KM);
-// Modest body on one ring. Wide enough that craft are not a razor line,
-// narrow enough that the fleet stays an annulus instead of a shell.
-export const INCLINATION_SPREAD_DEG = 12;
-export const RAAN_SPREAD_DEG = 16;
+export const INCLINATION_SPREAD_DEG = 0;
+export const RAAN_SPREAD_DEG = 0;
 // Dawn-dusk means the orbit normal is the sun direction, so the plane is the
 // terminator. 20°E is a fixed subsolar longitude chosen so the lit hemisphere
 // matches the white-paper figure (Africa and Europe in daylight). It is not a
@@ -76,10 +75,10 @@ export type OrbitalNode = Location & {
   band: number;
   slot: number;
 };
-export const MIN_ELEVATION_DEG = 25;
-export const MAX_LASER_KM = 4000;
-const C_KM_PER_MS = 299.792458;
-const PROC_MS_PER_HOP = 1.5;
+// Whitepaper: the speed of light in vacuum is 35% faster than in typical glass fiber.
+export const C_KM_PER_MS = 299.792458;
+export const VACUUM_OVER_FIBER = 1.35;
+export const FIBER_KM_PER_MS = C_KM_PER_MS / VACUUM_OVER_FIBER;
 const rad = Math.PI / 180;
 export function interpolateLocation(
   a: Location,
@@ -121,154 +120,29 @@ export function interpolateLocation(
   };
 }
 
-// Illustrative exchange/landing-city graph; these are NOT live ISP routes or a cable inventory.
-const hubRows: [string, number, number][] = [
-  ["New York", 40.71, -74.01],
-  ["Virginia", 38.9, -77.4],
-  ["Chicago", 41.88, -87.63],
-  ["Dallas", 32.78, -96.8],
-  ["Los Angeles", 34.05, -118.24],
-  ["Seattle", 47.61, -122.33],
-  ["Miami", 25.76, -80.19],
-  ["Mexico City", 19.43, -99.13],
-  ["Panama", 8.98, -79.52],
-  ["Bogotá", 4.71, -74.07],
-  ["Lima", -12.05, -77.04],
-  ["São Paulo", -23.55, -46.63],
-  ["Santiago", -33.45, -70.67],
-  ["London", 51.51, -0.13],
-  ["Paris", 48.86, 2.35],
-  ["Frankfurt", 50.11, 8.68],
-  ["Lisbon", 38.72, -9.14],
-  ["Marseille", 43.3, 5.37],
-  ["Helsinki", 60.17, 24.94],
-  ["Istanbul", 41.01, 28.98],
-  ["Cairo", 30.04, 31.24],
-  ["Lagos", 6.52, 3.38],
-  ["Cape Town", -33.92, 18.42],
-  ["Nairobi", -1.29, 36.82],
-  ["Dubai", 25.2, 55.27],
-  ["Mumbai", 19.08, 72.88],
-  ["Singapore", 1.35, 103.82],
-  ["Hong Kong", 22.32, 114.17],
-  ["Tokyo", 35.68, 139.69],
-  ["Seoul", 37.57, 126.98],
-  ["Jakarta", -6.21, 106.85],
-  ["Perth", -31.95, 115.86],
-  ["Sydney", -33.87, 151.21],
-  ["Auckland", -36.85, 174.76],
-  ["Honolulu", 21.31, -157.86],
-  ["Guam", 13.44, 144.79],
-];
-export const HUBS = hubRows.map(([name, lat, lon]) => ({ name, lat, lon }));
-const corridors = [
-  [0, 1],
-  [0, 2],
-  [1, 6],
-  [2, 3],
-  [3, 4],
-  [4, 5],
-  [2, 5],
-  [3, 7],
-  [6, 8],
-  [7, 8],
-  [8, 9],
-  [9, 10],
-  [10, 12],
-  [12, 11],
-  [6, 11],
-  [0, 13],
-  [6, 16],
-  [11, 16],
-  [13, 14],
-  [14, 15],
-  [14, 16],
-  [14, 17],
-  [15, 18],
-  [15, 19],
-  [17, 20],
-  [19, 20],
-  [16, 21],
-  [21, 22],
-  [22, 23],
-  [23, 20],
-  [20, 24],
-  [24, 25],
-  [25, 26],
-  [23, 25],
-  [26, 27],
-  [27, 28],
-  [28, 29],
-  [26, 30],
-  [30, 31],
-  [31, 32],
-  [32, 33],
-  [4, 34],
-  [34, 28],
-  [34, 33],
-  [28, 35],
-  [35, 32],
-  [35, 27],
-  [5, 28],
-];
-function nearestHub(p: Location) {
-  return HUBS.reduce(
-    (best, h, i) => (distanceKm(p, h) < distanceKm(p, HUBS[best]) ? i : best),
-    0,
-  );
-}
 export type GroundRoute = {
   points: Location[];
   stops: (Location & { name: string })[];
   km: number;
   rttMs: number;
 };
+/**
+ * Surface distance from the user to a public provider site.
+ * Starcloud does not publish a fiber map. The length is the great-circle
+ * surface path, and the speed is the whitepaper's glass figure: vacuum is
+ * 35% faster than typical fiber, so fiber travels at c / 1.35.
+ */
 export function groundRoute(
   origin: Location,
   destination: Location,
 ): GroundRoute {
-  let stops: GroundRoute["stops"];
-  if (distanceKm(origin, destination) < 900) {
-    stops = [
-      { ...interpolateLocation(origin, destination, 0.2), name: "Local ISP" },
-      {
-        ...interpolateLocation(origin, destination, 0.7),
-        name: "Regional peering",
-      },
-    ];
-  } else {
-    const start = nearestHub(origin),
-      end = nearestHub(destination);
-    const dist = HUBS.map(() => Infinity),
-      previous = HUBS.map(() => -1),
-      visited = new Set<number>();
-    dist[start] = 0;
-    while (!visited.has(end)) {
-      let u = -1;
-      for (let i = 0; i < HUBS.length; i++)
-        if (!visited.has(i) && (u < 0 || dist[i] < dist[u])) u = i;
-      if (u < 0 || !Number.isFinite(dist[u]))
-        throw new Error("Disconnected fiber model");
-      visited.add(u);
-      for (const [a, b] of corridors) {
-        const v = a === u ? b : b === u ? a : -1;
-        if (v < 0) continue;
-        const cost = dist[u] + distanceKm(HUBS[u], HUBS[v]);
-        if (cost < dist[v]) {
-          dist[v] = cost;
-          previous[v] = u;
-        }
-      }
-    }
-    const path = [end];
-    while (path[0] !== start) path.unshift(previous[path[0]]);
-    stops = path.map((i) => HUBS[i]);
-  }
-  const points = [origin, ...stops, destination];
-  const km =
-    points.slice(1).reduce((sum, p, i) => sum + distanceKm(points[i], p), 0) *
-    1.15;
-  return { points, stops, km, rttMs: ((2 * km) / 200000) * 1000 + 10 };
+  const km = distanceKm(origin, destination);
+  return {
+    points: [origin, destination],
+    stops: [],
+    km,
+    rttMs: (2 * km) / FIBER_KM_PER_MS,
+  };
 }
 
 function ribbonPoint(u: number, inclination: number, raan: number, across: number) {
@@ -304,9 +178,8 @@ function ribbonPoint(u: number, inclination: number, raan: number, across: numbe
 export function orbitalNodes(at: number): OrbitalNode[] {
   const altSpan = SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM;
   return Array.from({ length: NODE_COUNT }, (_, i) => {
-    // One unique station along the ring. Cross-track and altitude use other
-    // strides so neighbors do not stack on that station.
-    const alongJ = (orbitalSeed(i, 3) - 0.5) * 0.45;
+    // Even stations on one plane. Altitude is the only spread, across the
+    // filed 600–850 km band, so the shell stays one longitude.
     const inclT = ((i * 17) % 48) / 47;
     const raanT = ((i * 29) % 40) / 39;
     const altT = ((i * 13) % 32) / 31;
@@ -327,7 +200,7 @@ export function orbitalNodes(at: number): OrbitalNode[] {
     const period = orbitalPeriodMs(altitudeKm);
     let turns = ((at - ORBIT_EPOCH_MS) % period) / period;
     if (turns < 0) turns += 1;
-    const u = (turns + (i + 0.5 + alongJ) / NODE_COUNT) * Math.PI * 2;
+    const u = (turns + (i + 0.5) / NODE_COUNT) * Math.PI * 2;
     return {
       ...ribbonPoint(u, inclinationDeg * rad, raanDeg * rad, 0),
       altitudeKm,
@@ -370,11 +243,13 @@ export type OrbitalRoute = {
   carrierLinkKm: number;
   ingress: number;
   computeRelay: number;
-  /** Compute spacecraft on this same dawn-dusk shell, reached by optical ISLs. */
+  /** Starcloud-2, one spacecraft on this dawn-dusk shell. */
   computeCraft: OrbitalNode;
   hops: number[];
+  /** Points of the optical leg, on the shell. Straight when it clears Earth, otherwise the shorter arc. */
+  opticalPoints: OrbitalNode[];
   gateway: Location & { name: string };
-  /** RF endpoint: the user when a relay is visible, otherwise a land gateway. */
+  /** RF leaves the user. Starcloud does not publish a separate gateway site. */
   uplinkAnchor: Location;
   ground: GroundRoute;
   gatewayRoute: GroundRoute;
@@ -411,8 +286,9 @@ type PlaybackRoute = Pick<
   "ground" | "gatewayRoute" | "uplinkKm" | "laserKm" | "hops" | "rttMs"
 >;
 const PLAYBACK_LAUNCH_MS = 700;
-const PLAYBACK_TRAVEL_BASE_MS = 1250;
-const PLAYBACK_PROPAGATION_STRETCH = 12;
+// One visual millisecond per physical millisecond, times this factor.
+// No fixed base: a longer light-time stays proportionally longer on screen.
+const PLAYBACK_MS_PER_PROP_MS = 48;
 const PLAYBACK_COMPUTE_PROXY_MS = 1200;
 const PLAYBACK_RELEASE_MARGIN_MS = 100;
 const window = (startMs: number, endMs: number): PlaybackWindow => ({
@@ -421,11 +297,10 @@ const window = (startMs: number, endMs: number): PlaybackWindow => ({
 });
 
 /**
- * Educational playback for two parallel paths. Every physical propagation
- * interval receives the same visual time transform. This makes a millisecond
- * network hop visible while preserving which modeled route would finish first
- * under an identical compute workload. The API calls are both served on Earth;
- * their measured durations must not be presented as orbital service times.
+ * Playback for two parallel paths. Visual duration is physical propagation
+ * time multiplied by one constant, so the longer light-time takes longer on
+ * screen by the same ratio. The API calls are both served on Earth; their
+ * measured durations are not the route times.
  *
  * The compute window holds until both API responses are available because the
  * client receives them together. No return packet is drawn before that point.
@@ -442,8 +317,7 @@ export function createRoutePlayback(
   const groundOneWayMs = positive(route.ground.rttMs) / 2;
   const spaceOneWayMs = positive(route.rttMs) / 2;
   const travelVisualMs = (oneWayMs: number) =>
-    PLAYBACK_TRAVEL_BASE_MS +
-    oneWayMs * PLAYBACK_PROPAGATION_STRETCH;
+    oneWayMs * PLAYBACK_MS_PER_PROP_MS;
   const launchMs = PLAYBACK_LAUNCH_MS;
   const groundOutEnd = launchMs + travelVisualMs(groundOneWayMs);
   const spaceOutEnd = launchMs + travelVisualMs(spaceOneWayMs);
@@ -470,19 +344,16 @@ export function createRoutePlayback(
   const ground = lane(groundOutEnd, groundOneWayMs);
   const spaceBase = lane(spaceOutEnd, spaceOneWayMs);
 
-  // A feeder is zero-length for direct user uplinks. The terminal delay is
-  // assigned to the uplink and optical relay processing to the laser leg.
-  const feederMs = positive(route.gatewayRoute.km) / 200;
-  const uplinkMs = positive(route.uplinkKm) / C_KM_PER_MS + 4;
-  const laserMs =
-    positive(route.laserKm) / C_KM_PER_MS +
-    Math.max(0, route.hops.length - 1) * PROC_MS_PER_HOP;
+  // Published legs only: RF at c, then the optical link at c. No feeder and
+  // no per-hop processing delay — Starcloud does not publish either.
+  const feederMs = 0;
+  const uplinkMs = positive(route.uplinkKm) / C_KM_PER_MS;
+  const laserMs = positive(route.laserKm) / C_KM_PER_MS;
   const physicalLegTotal = feederMs + uplinkMs + laserMs;
   const visualOutboundMs = spaceOutEnd - launchMs;
-  const feederEnd =
-    launchMs + (visualOutboundMs * feederMs) / physicalLegTotal;
-  const uplinkEnd =
-    feederEnd + (visualOutboundMs * uplinkMs) / physicalLegTotal;
+  const share = physicalLegTotal > 0 ? physicalLegTotal : 1;
+  const feederEnd = launchMs + (visualOutboundMs * feederMs) / share;
+  const uplinkEnd = feederEnd + (visualOutboundMs * uplinkMs) / share;
   const space = {
     ...spaceBase,
     feeder: window(launchMs, feederEnd),
@@ -505,75 +376,45 @@ export function createRoutePlayback(
     waitingForAnswer: answerReadyAtMs === null,
   };
 }
-// The chosen craft stands in for Starcloud-2, one commercial smallsat.
-// Extra slots keep a reachable stand-in; they are not a commercial fleet.
-export const COMPUTE_SLOTS = [0, 1760, 3520, 5280, 7040] as const;
-/** Return the nearest reachable compute craft by direct distance. */
-function laserRelayToCompute(nodes: OrbitalNode[], ingress: number) {
-  const candidates = COMPUTE_SLOTS.slice().sort(
-    (a, b) =>
-      opticalDistanceKm(nodes[ingress], nodes[a]) -
-      opticalDistanceKm(nodes[ingress], nodes[b]),
-  );
-  for (const goal of candidates) {
-    const path = laserPathToGoal(nodes, ingress, goal);
-    if (path) return path;
-  }
-  throw new Error("No optical path to compute");
+/** One commercial spacecraft. Starcloud-2 is not a fleet of stand-ins. */
+export const STARCLOUD2_SLOT = 0;
+
+/** Shorter arc along the shell, in kilometres. */
+export function shellArcKm(a: ElevatedLocation, b: ElevatedLocation) {
+  const theta = distanceKm(a, b) / EARTH_KM;
+  const ra = EARTH_KM + (a.altitudeKm ?? ALTITUDE_KM);
+  const rb = EARTH_KM + (b.altitudeKm ?? ALTITUDE_KM);
+  return theta * ((ra + rb) / 2);
 }
-/** Greedy Earth-clear laser path with a bounded number of relay terminals. */
-function laserPathToGoal(
-  nodes: OrbitalNode[],
-  ingress: number,
-  goal: number,
-): { hops: number[]; km: number; compute: number } | null {
-  if (goal === ingress) return { hops: [ingress], km: 0, compute: goal };
-  const hops = [ingress];
-  let km = 0;
-  const seen = new Set<number>([ingress]);
-  for (let guard = 0; guard < 12 && hops[hops.length - 1] !== goal; guard++) {
-    const cur = hops[hops.length - 1];
-    const goalDist = opticalDistanceKm(nodes[cur], nodes[goal]);
-    if (
-      goalDist > 40 &&
-      goalDist <= MAX_LASER_KM &&
-      laserClearsEarth(nodes[cur], nodes[goal])
-    ) {
-      km += goalDist;
-      hops.push(goal);
-      break;
-    }
-    let pick = -1,
-      bestRemain = goalDist;
-    for (let i = 0; i < nodes.length; i++) {
-      if (seen.has(i)) continue;
-      const dist = opticalDistanceKm(nodes[cur], nodes[i]);
-      if (dist <= 200 || dist > MAX_LASER_KM) continue;
-      if (!laserClearsEarth(nodes[cur], nodes[i])) continue;
-      const remain = opticalDistanceKm(nodes[i], nodes[goal]);
-      if (remain < bestRemain - 100) {
-        bestRemain = remain;
-        pick = i;
-      }
-    }
-    if (pick < 0) return null;
-    km += opticalDistanceKm(nodes[cur], nodes[pick]);
-    seen.add(pick);
-    hops.push(pick);
+
+function opticalLeg(from: OrbitalNode, to: OrbitalNode) {
+  if (laserClearsEarth(from, to))
+    return { km: opticalDistanceKm(from, to), points: [from, to] };
+  const steps = 64;
+  const points: OrbitalNode[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const loc = interpolateLocation(from, to, t);
+    points.push({
+      ...loc,
+      altitudeKm: from.altitudeKm + (to.altitudeKm - from.altitudeKm) * t,
+      band: 0,
+      slot: -1,
+    });
   }
-  if (hops[hops.length - 1] !== goal) return null;
-  return { hops, km, compute: goal };
+  return { km: shellArcKm(from, to), points };
 }
 
 /**
- * Two independent requests leave the user at the same time.
- * Ground: fiber to the nearest public reference site, then back. That site is
- * not a location returned by the provider.
- * Orbit: RF uplink when a relay is above the elevation mask; otherwise a
- * feeder to a land gateway, then the uplink. Optical links cross the relay
- * shell to the nearest reachable craft standing in for Starcloud-2. The reply
- * returns across that shell to the user. The shell is not Starcloud-2, and
- * Starcloud-1 is a separate demonstration spacecraft.
+ * Two requests leave the user at the same time.
+ * Ground: surface fiber to the public reference site and back. That site is
+ * not a location the provider returned.
+ * Orbit, from the Starcloud-2 diagram: RF from the end user to a backhaul
+ * spacecraft, then one optical link to Starcloud-2, then the same path home.
+ * The third-party backhaul orbit is not published. The RF satellite is the
+ * other craft in the filed 600–850 km dawn-dusk shell with the highest
+ * elevation. The optical leg is the straight vacuum path when it clears
+ * Earth, otherwise the shorter arc on that shell. Starcloud-1 is not this path.
  */
 export function routeAt(
   origin: Location,
@@ -582,90 +423,53 @@ export function routeAt(
 ): OrbitalRoute {
   const nodes = orbitalNodes(at);
   const ground = groundRoute(origin, providerEntry);
+  const computeRelay = STARCLOUD2_SLOT;
+  const computeCraft = nodes[computeRelay];
 
-  const ranked = nodes
-    .map((node, i) => ({ node, i, elev: elevationDeg(origin, node) }))
-    .sort((a, b) => b.elev - a.elev);
-  const visibleFromUser = ranked.filter(
-    ({ elev }) => elev >= MIN_ELEVATION_DEG,
-  );
-
-  let ingress: number;
-  let uplinkAnchor: Location & { name?: string };
-  if (visibleFromUser.length) {
-    const ingressEntry = visibleFromUser.reduce((best, entry) => {
-      if (entry.elev !== best.elev) return entry.elev > best.elev ? entry : best;
-      const groundPoint = { ...origin, altitudeKm: 0 };
-      return opticalDistanceKm(groundPoint, entry.node) <
-        opticalDistanceKm(groundPoint, best.node)
-        ? entry
-        : best;
-    });
-    ingress = ingressEntry.i;
-    uplinkAnchor = origin;
-  } else {
-    const gateways = HUBS.map((h) => {
-      const vis = nodes
-        .map((node, i) => ({ i, elev: elevationDeg(h, node) }))
-        .filter(({ elev }) => elev >= MIN_ELEVATION_DEG);
-      return { h, vis };
-    }).filter((g) => g.vis.length);
-    if (!gateways.length) throw new Error("No LEO-visible land gateway");
-    const pick = gateways.reduce((best, g) =>
-      distanceKm(origin, g.h) < distanceKm(origin, best.h) ? g : best,
-    );
-    ingress = pick.vis.reduce((best, entry) =>
-      entry.elev > best.elev ? entry : best,
-    ).i;
-    uplinkAnchor = pick.h;
+  let ingress = computeRelay === 0 ? 1 : 0;
+  let bestElev = -Infinity;
+  for (let i = 0; i < nodes.length; i++) {
+    if (i === computeRelay) continue;
+    const elev = elevationDeg(origin, nodes[i]);
+    if (elev > bestElev) {
+      bestElev = elev;
+      ingress = i;
+    }
   }
 
-  const visibleHubs = HUBS.filter(
-    (h) => elevationDeg(h, nodes[ingress]) >= MIN_ELEVATION_DEG,
-  );
-  const gateway =
-    typeof (uplinkAnchor as { name?: string }).name === "string"
-      ? (uplinkAnchor as (typeof HUBS)[number])
-      : (visibleHubs.length ? visibleHubs : HUBS).reduce((best, h) =>
-          distanceKm(origin, h) < distanceKm(origin, best) ? h : best,
-        );
-  const gatewayRoute = groundRoute(origin, uplinkAnchor);
+  const uplinkAnchor = origin;
+  const gateway = { ...origin, name: "You" };
+  const gatewayRoute: GroundRoute = {
+    points: [origin],
+    stops: [],
+    km: 0,
+    rttMs: 0,
+  };
   const relay = { ...nodes[ingress] };
   const uplinkKm = opticalDistanceKm(
-    { lat: uplinkAnchor.lat, lon: uplinkAnchor.lon, altitudeKm: 0 },
+    { lat: origin.lat, lon: origin.lon, altitudeKm: 0 },
     nodes[ingress],
   );
-
-  const path = laserRelayToCompute(nodes, ingress);
-  const hops = path.hops;
-  const computeRelay = hops[hops.length - 1];
-  const computeCraft = nodes[computeRelay];
-  const carrierLinkKm = 0;
-  const laserKm = path.km;
-  const gatewayKm = gatewayRoute.km;
-  const opticalHops = Math.max(0, hops.length - 1);
-  const oneWayMs =
-    gatewayRoute.km / 200 +
-    uplinkKm / C_KM_PER_MS +
-    laserKm / C_KM_PER_MS +
-    opticalHops * PROC_MS_PER_HOP +
-    4;
+  const optical = opticalLeg(nodes[ingress], computeCraft);
+  const hops = [ingress, computeRelay];
+  const oneWayMs = uplinkKm / C_KM_PER_MS + optical.km / C_KM_PER_MS;
   return {
     at,
     nodes,
     relay,
-    carrierLinkKm,
+    carrierLinkKm: 0,
     ingress,
     computeRelay,
     computeCraft,
     hops,
+    opticalPoints: optical.points,
     gateway,
     uplinkAnchor,
     ground,
     gatewayRoute,
-    gatewayKm,
+    gatewayKm: 0,
     uplinkKm,
-    laserKm,
+    laserKm: optical.km,
     rttMs: 2 * oneWayMs,
   };
 }

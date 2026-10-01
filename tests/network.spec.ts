@@ -18,7 +18,7 @@ import {
   orbitalPeriodMs,
   ORBIT_EPOCH_MS,
   opticalDistanceKm,
-  COMPUTE_SLOTS,
+  STARCLOUD2_SLOT,
   createRoutePlayback,
   RING_INCLINATION_DEG,
   RING_RAAN_DEG,
@@ -26,20 +26,21 @@ import {
   RAAN_SPREAD_DEG,
   SHELL_ALTITUDE_MIN_KM,
   SHELL_ALTITUDE_MAX_KM,
+  FIBER_KM_PER_MS,
+  C_KM_PER_MS,
+  shellArcKm,
   dawnDuskSunEcef,
   sunSyncInclination,
 } from "../lib/starcloud/network";
 
-test("the reference plane stays dawn-dusk and the fleet is one thick ring", () => {
+test("the reference plane stays dawn-dusk and the fleet shares that longitude", () => {
   const nodes = orbitalNodes(ORBIT_EPOCH_MS);
   expect(RING_INCLINATION_DEG).toBeCloseTo(sunSyncInclination(725), 6);
   expect(RING_INCLINATION_DEG).toBeGreaterThan(98);
   expect(RING_INCLINATION_DEG).toBeLessThan(99);
   expect(RING_RAAN_DEG).toBeCloseTo(110, 3);
-  expect(INCLINATION_SPREAD_DEG).toBeGreaterThan(8);
-  expect(INCLINATION_SPREAD_DEG).toBeLessThan(20);
-  expect(RAAN_SPREAD_DEG).toBeGreaterThan(8);
-  expect(RAAN_SPREAD_DEG).toBeLessThan(24);
+  expect(INCLINATION_SPREAD_DEG).toBe(0);
+  expect(RAAN_SPREAD_DEG).toBe(0);
   const sun = dawnDuskSunEcef();
   const incl = (RING_INCLINATION_DEG * Math.PI) / 180;
   const raan = (RING_RAAN_DEG * Math.PI) / 180;
@@ -48,9 +49,7 @@ test("the reference plane stays dawn-dusk and the fleet is one thick ring", () =
   const hz = Math.cos(incl);
   expect(hx * sun.x + hy * sun.y + hz * sun.z).toBeCloseTo(1, 6);
   const abs = nodes.map((node) => Math.abs(planeOffsetDeg(node)));
-  expect(Math.max(...abs)).toBeGreaterThan(2);
-  expect(Math.max(...abs)).toBeLessThan(16);
-  expect(abs.filter((v) => v > 20).length).toBe(0);
+  expect(Math.max(...abs)).toBeLessThan(0.05);
 });
 function planeOffsetDeg(node: { lat: number; lon: number }) {
   const lat = (node.lat * Math.PI) / 180,
@@ -105,7 +104,7 @@ test("the modeled fleet occupies one 600–850 km ring with thickness", () => {
   expect(Math.max(...alts)).toBeLessThanOrEqual(SHELL_ALTITUDE_MAX_KM + 1);
   for (const p of nodes) expect(p.band).toBe(0);
   expect(
-    new Set(nodes.map((p) => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`)).size,
+    new Set(nodes.map((p) => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`)).size,
   ).toBe(NODE_COUNT);
   const sample = nodes.filter((_, i) => i % 80 === 0);
   const nearest = sample.map((node) => {
@@ -151,44 +150,35 @@ test("ground and orbital routes leave the user independently", () => {
           r = routeAt(origin, at, site);
         expect(r.ground.points[0]).toEqual(origin);
         expect(r.ground.points.at(-1)).toEqual(site);
-        expect(r.gatewayRoute.points[0]).toEqual(origin);
-        expect(r.gatewayRoute.points.at(-1)).toEqual(r.uplinkAnchor);
-        const elevUser = elevationDeg(origin, r.nodes[r.ingress]);
-        const elevAnchor = elevationDeg(r.uplinkAnchor, r.nodes[r.ingress]);
-        expect(elevAnchor).toBeGreaterThanOrEqual(25);
-        if (elevUser >= 25) expect(r.uplinkAnchor).toEqual(origin);
-        else expect(r.uplinkAnchor).toEqual(r.gateway);
-        expect(r.uplinkKm).toBeGreaterThan(400);
-        expect(r.uplinkKm).toBeLessThan(3000);
-        expect(r.hops[0]).toBe(r.ingress);
-        expect(r.hops.at(-1)).toBe(r.computeRelay);
-        expect(r.computeCraft).toBe(r.nodes[r.computeRelay]);
-        expect(COMPUTE_SLOTS).toContain(r.computeRelay);
+        expect(r.ground.stops).toEqual([]);
+        expect(r.gatewayRoute.km).toBe(0);
+        expect(r.uplinkAnchor).toEqual(origin);
+        expect(r.ingress).not.toBe(STARCLOUD2_SLOT);
+        expect(elevationDeg(origin, r.nodes[r.ingress])).toBeGreaterThan(-90);
+        expect(r.uplinkKm).toBeGreaterThan(599);
+        expect(r.uplinkKm).toBeLessThan(20000);
+        expect(r.hops).toEqual([r.ingress, r.computeRelay]);
+        expect(r.computeRelay).toBe(STARCLOUD2_SLOT);
+        expect(r.computeCraft).toBe(r.nodes[STARCLOUD2_SLOT]);
         expect(r.computeCraft.band).toBe(0);
         expect(r.carrierLinkKm).toBe(0);
-        expect(r.laserKm).toBeGreaterThanOrEqual(0);
-        expect(r.laserKm).toBeLessThan(25000);
-        expect(r.hops.length).toBeGreaterThanOrEqual(1);
-        expect(r.hops.length).toBeLessThanOrEqual(13);
-        if (r.hops.length === 1) expect(r.laserKm).toBe(0);
-        else expect(r.laserKm).toBeGreaterThan(0);
-        expect(new Set(r.hops).size).toBe(r.hops.length);
-        for (let i = 1; i < r.hops.length; i++) {
-          expect(
-            laserClearsEarth(r.nodes[r.hops[i - 1]], r.nodes[r.hops[i]]),
-          ).toBe(true);
-          expect(
-            opticalDistanceKm(r.nodes[r.hops[i - 1]], r.nodes[r.hops[i]]),
-          ).toBeLessThanOrEqual(4000);
-        }
+        expect(r.laserKm).toBeGreaterThan(0);
+        const ingressNode = r.nodes[r.ingress];
+        expect(r.opticalPoints[0].lat).toBeCloseTo(ingressNode.lat, 4);
+        expect(r.opticalPoints[0].lon).toBeCloseTo(ingressNode.lon, 4);
+        expect(r.opticalPoints.at(-1)!.lat).toBeCloseTo(r.computeCraft.lat, 4);
+        expect(r.opticalPoints.at(-1)!.lon).toBeCloseTo(r.computeCraft.lon, 4);
+        const straight = opticalDistanceKm(r.nodes[r.ingress], r.computeCraft);
+        const clears = laserClearsEarth(r.nodes[r.ingress], r.computeCraft);
+        expect(r.laserKm).toBeCloseTo(
+          clears ? straight : shellArcKm(r.nodes[r.ingress], r.computeCraft),
+          6,
+        );
+        if (!clears) expect(r.opticalPoints.length).toBeGreaterThan(2);
         expect(r.rttMs).toBeGreaterThan(0);
         expect(r.rttMs / 2).toBeCloseTo(
-          r.gatewayRoute.km / 200 +
-            r.uplinkKm / 299.792458 +
-            r.laserKm / 299.792458 +
-            (r.hops.length - 1) * 1.5 +
-            4,
-          8,
+          r.uplinkKm / C_KM_PER_MS + r.laserKm / C_KM_PER_MS,
+          6,
         );
         expect(
           compare(provider, origin, site, null, 256, 1.11, at).space.rttMs,
@@ -230,25 +220,21 @@ test("parallel playback keeps modeled completion order and waits for both API re
     Math.sign(route.ground.rttMs - route.rttMs),
   );
 });
-test("routing uses peering cities for long trips and avoids remote detours for local traffic", () => {
+test("ground routing is the surface path at the published fiber speed", () => {
   const ny = DEFAULT_LOCATION,
     london = PRESETS[1];
   const transatlantic = groundRoute(ny, london);
-  expect(transatlantic.stops.map((p) => p.name)).toEqual([
-    "New York",
-    "London",
-  ]);
-  expect(transatlantic.km).toBeGreaterThan(distanceKm(ny, london));
-  const local = groundRoute(ny, nearestSite("gemini", ny));
-  expect(local.stops.map((p) => p.name)).toEqual([
-    "Local ISP",
-    "Regional peering",
-  ]);
-  expect(local.km).toBeCloseTo(
-    distanceKm(ny, nearestSite("gemini", ny)) * 1.15,
-    5,
+  expect(transatlantic.stops).toEqual([]);
+  expect(transatlantic.points).toEqual([ny, london]);
+  expect(transatlantic.km).toBeCloseTo(distanceKm(ny, london), 6);
+  expect(transatlantic.rttMs).toBeCloseTo(
+    (2 * distanceKm(ny, london)) / FIBER_KM_PER_MS,
+    6,
   );
-  expect(groundRoute(ny, ny).rttMs).toBe(10);
+  const local = groundRoute(ny, nearestSite("gemini", ny));
+  expect(local.stops).toEqual([]);
+  expect(local.km).toBeCloseTo(distanceKm(ny, nearestSite("gemini", ny)), 6);
+  expect(groundRoute(ny, ny).rttMs).toBe(0);
 });
 test("surface interpolation crosses the date line and handles poles and antipodes", () => {
   expect(

@@ -208,9 +208,13 @@ textarea:focus-visible {
   font-size: 15px;
   line-height: 1.6;
   width: 100%;
-  height: 48px;
+  field-sizing: content;
+  min-height: 48px;
+  max-height: calc(1.6em * 8 + 18px);
+  height: auto;
   padding: 13px 22px 5px;
   outline: none;
+  overflow-y: auto;
   scrollbar-width: thin;
 }
 .prompt-glass textarea::placeholder {
@@ -1687,7 +1691,7 @@ button.location-suggestion:hover {
     bottom: 76px;
   }
   .prompt-glass textarea {
-    height: 92px;
+    min-height: 48px;
     font-size: 16px;
   }
   .site-header {
@@ -1738,7 +1742,7 @@ button.location-suggestion:hover {
     border-radius: 23px;
   }
   .prompt-glass textarea {
-    height: 44px;
+    min-height: 44px;
     padding: 11px 18px 4px;
     font-size: 14px;
   }
@@ -1952,7 +1956,7 @@ button.location-suggestion:hover {
     font-size: 23px;
   }
   .prompt-glass textarea {
-    height: 68px;
+    min-height: 44px;
   }
   .site-header {
     padding-top: 22px;

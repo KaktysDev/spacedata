@@ -165,7 +165,7 @@ test("orbital network is not universally faster than nearby ground", () => {
   const site = nearestSite("gemini", DEFAULT_LOCATION);
   const c = compare("gemini", site, site, null);
   expect(c.space.rttMs).toBeGreaterThan(c.ground.rttMs);
-  expect(c.ground.rttMs).toBe(10);
+  expect(c.ground.rttMs).toBe(0);
 });
 test("rejects invalid energy and token assumptions", () => {
   for (const n of [NaN, Infinity, -1])
@@ -532,7 +532,7 @@ test("Gemini makes two capped requests (ground + space), keeps keys server-side 
   expect(body.space.totalTokens).toBe(40);
   expect(body.ground.usageEstimated).toBe(false);
   expect(calls).toBe(2);
-  expect(maxTokens.sort((a, b) => a - b)).toEqual([360, 512]);
+  expect(maxTokens).toEqual([4096, 4096]);
   const c = compare(
     "gemini",
     DEFAULT_LOCATION,
@@ -812,7 +812,7 @@ test("OpenAI, Anthropic and xAI adapters use fixed models and parse usage", asyn
     mockProvider((_, init) => {
       const b = JSON.parse(String(init?.body));
       expect(b.model).toBe(PROVIDERS[id].model);
-      expect([360, 512]).toContain(b.max_tokens ?? b.max_output_tokens);
+      expect(b.max_tokens ?? b.max_output_tokens).toBe(4096);
       if (id === "openai") {
         expect(b.store).toBe(false);
         return Response.json({
