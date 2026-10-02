@@ -145,8 +145,8 @@ export function SourcesNote({
             spacing picture rather than the 88,000 filing and not extra
             Starcloud-2 satellites. They fill a volume: along the ring, from
             600 km to 850 km, and a cross-track thickness, with a gap between
-            neighbors. The drawing pulls that volume inward toward Earth and
-            outward past the old band; routing distances stay in physical
+            neighbors. The drawing holds that volume clear of Earth; routing
+            distances stay in physical
             kilometres on the dawn-dusk plane. A fixed sun over 20°E sets that
             plane, matching the paper’s figure. That sun direction is not a
             live ephemeris. Hardware size is enlarged.

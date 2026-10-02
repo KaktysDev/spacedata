@@ -201,18 +201,18 @@ export function orbitalNodes(at: number): OrbitalNode[] {
     const rest = Math.floor(i / SHELL_ALONG_COUNT);
     const radial = rest % SHELL_RADIAL_COUNT;
     const acrossBin = Math.floor(rest / SHELL_RADIAL_COUNT);
-    const altT =
-      i === STARCLOUD2_SLOT
-        ? 0.5
-        : (radial + shellHash(i, 1)) / SHELL_RADIAL_COUNT;
+    // Stay inside each cell so neighboring craft keep a gap. Slot 0 is the
+    // center of the volume.
+    const place = (bin: number, count: number, salt: number) => {
+      const margin = 0.22;
+      const h = shellHash(i, salt);
+      return (bin + margin + h * (1 - 2 * margin)) / count;
+    };
+    const altT = i === STARCLOUD2_SLOT ? 0.5 : place(radial, SHELL_RADIAL_COUNT, 1);
     const acrossT =
-      i === STARCLOUD2_SLOT
-        ? 0.5
-        : (acrossBin + shellHash(i, 2)) / SHELL_ACROSS_COUNT;
+      i === STARCLOUD2_SLOT ? 0.5 : place(acrossBin, SHELL_ACROSS_COUNT, 2);
     const alongT =
-      i === STARCLOUD2_SLOT
-        ? 0.5
-        : (along + shellHash(i, 3)) / SHELL_ALONG_COUNT;
+      i === STARCLOUD2_SLOT ? 0.5 : place(along, SHELL_ALONG_COUNT, 3);
     const altitudeKm = SHELL_ALTITUDE_MIN_KM + altT * altSpan;
     const across = (acrossT - 0.5) * 2 * SHELL_ACROSS_RAD;
     const u = (turns + alongT) * Math.PI * 2;
