@@ -18,6 +18,7 @@ import {
   RING_RAAN_DEG,
   SHELL_ALTITUDE_MIN_KM,
   SHELL_ALTITUDE_MAX_KM,
+  EARTH_KM,
   type OrbitalNode,
   interpolateLocation,
   type OrbitalRoute,
@@ -45,22 +46,27 @@ type Props = {
   onReady: () => void;
 };
 const R = 3.5,
-  // Visual shell only. The inner edge stays well clear of Earth. The outer
-  // edge is what the opening camera frames. Routing still uses physical
-  // kilometres.
-  BELT_INNER = 8,
-  BELT_OUTER = 12.2,
-  // Grains on the shell, small enough that the cell gap stays visible.
-  CRAFT_SCALE = 0.22,
+  // Physical 600 km and 850 km altitudes. R is Earth's radius, 6371 km.
+  // Routing uses the same kilometres.
+  BELT_INNER = (R * (EARTH_KM + SHELL_ALTITUDE_MIN_KM)) / EARTH_KM,
+  BELT_OUTER = (R * (EARTH_KM + SHELL_ALTITUDE_MAX_KM)) / EARTH_KM,
+  // Starcloud-1's published span. KeepTrack lists NORAD 66303 at 0.6 m long
+  // with a 0.6 m span; the Corvus-Micro body is about 0.49 m. Starcloud-2 has
+  // no published length, so it uses this smallsat class. The whitepaper's
+  // 4 km × 4 km array is one 5 GW station, not each of these craft.
+  FLEET_SPAN_M = 0.6,
+  EARTH_RADIUS_M = EARTH_KM * 1000,
+  // True 0.6 m is far below a pixel, and even a 4 km array is a fraction of
+  // a pixel beside this Earth. This is the smallest mark that still reads.
+  READABLE_CRAFT_PX = 1.25,
   // Close enough for the land dots to fill the frame, still outside Earth.
   MIN_ORBIT = 4.22,
   MAX_ORBIT = 64,
   UP = new THREE.Vector3(0, 1, 0);
 function fitDistance(w: number, h: number) {
-  // Closer than a full fit of the outer belt. That fit left a wide black
-  // margin around Earth on first load. 0.82 fills the space under the header
-  // and above the headline without clipping the shell. Geometry is unchanged.
-  const framed = BELT_OUTER * 0.82;
+  // Frame the true 850 km shell, with a margin, inside the header and the
+  // composer. Earth then fills the window and the band stays on screen.
+  const framed = BELT_OUTER * 1.14;
   const width = Math.max(w, 1);
   const height = Math.max(h, 1);
   const fov = (43 * Math.PI) / 180;
@@ -80,6 +86,14 @@ function fitDistance(w: number, h: number) {
     MIN_ORBIT + 2,
     MAX_ORBIT,
   );
+}
+function markerSpan(distance: number, viewHeight: number) {
+  const focal =
+    Math.max(viewHeight, 1) / (2 * Math.tan((43 * Math.PI) / 360));
+  const trueSpan = FLEET_SPAN_M / (EARTH_RADIUS_M / R);
+  const readable =
+    (READABLE_CRAFT_PX * Math.max(distance, 0.05)) / focal;
+  return Math.max(trueSpan, readable);
 }
 function displayRadius(altitudeKm: number) {
   const span = SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM;
@@ -432,13 +446,21 @@ export function OrbitalScene(props: Props) {
     scene.add(roundPoints(stars, 1.15 * renderer.getPixelRatio(), 0.38));
     const hardware = satelliteGeometry(),
       hardwareMat = hardwareMaterial();
+    const overviewGeometry = satelliteOverviewGeometry();
+    const axisOf = (geometry: THREE.BufferGeometry) => {
+      geometry.computeBoundingBox();
+      const size = geometry.boundingBox!.getSize(new THREE.Vector3());
+      return Math.max(size.x, size.y, size.z, 1e-6);
+    };
+    const overviewLong = axisOf(overviewGeometry);
+    const detailLong = axisOf(hardware);
     const detailCount = 384,
       detailed = new THREE.InstancedMesh(hardware, hardwareMat, detailCount);
     detailed.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     detailed.frustumCulled = false;
     scene.add(detailed);
     const distant = new THREE.InstancedMesh(
-      satelliteOverviewGeometry(),
+      overviewGeometry,
       hardwareMat,
       NODE_COUNT,
     );
@@ -453,12 +475,19 @@ export function OrbitalScene(props: Props) {
     selected.count = 0;
     scene.add(selected);
     const odcCraft = orbitalComputeCraft();
-    odcCraft.scale.setScalar(0.45);
+    const longestOf = (object: THREE.Object3D) => {
+      const size = new THREE.Box3()
+        .setFromObject(object)
+        .getSize(new THREE.Vector3());
+      return Math.max(size.x, size.y, size.z, 1e-6);
+    };
+    const odcSpan = longestOf(odcCraft);
     scene.add(odcCraft);
     odcCraft.visible = false;
     selected.visible = false;
     const carrier = new THREE.Mesh(hardware, routeHardwareMat);
-    carrier.scale.setScalar(CRAFT_SCALE);
+    odcCraft.scale.setScalar(1e-4);
+    carrier.scale.setScalar(1e-4);
     scene.add(carrier);
     const matrix = new THREE.Object3D();
     const radialAxis = new THREE.Vector3(),
@@ -524,6 +553,7 @@ export function OrbitalScene(props: Props) {
       providerKey = "",
       lastNodeTime = -Infinity,
       lastDetailTime = -Infinity,
+      detailSlots: number[] = [],
       lastFlight = 0,
       lastFocus = latest.current.focusId,
       lastZoom = latest.current.zoom;
@@ -982,7 +1012,12 @@ export function OrbitalScene(props: Props) {
           const relayHops = network.hops.slice(1, -1);
           const hopCount = Math.min(relayHops.length, 64);
           relayHops.slice(0, hopCount).forEach((index, i) =>
-            orient(selected, i, vectors[index], CRAFT_SCALE),
+            orient(
+              selected,
+              i,
+              vectors[index],
+              markerSpan(homeDistance, height) / detailLong,
+            ),
           );
           selected.count = hopCount;
           selected.instanceMatrix.needsUpdate = true;
@@ -998,38 +1033,22 @@ export function OrbitalScene(props: Props) {
       }
       if (now - lastDetailTime > 400) {
         // Pixel-based detail preserves the hardware up close without drawing
-        // thousands of subpixel solar cells in the overview.
+        // thousands of subpixel solar cells in the overview. At this Earth
+        // scale the 0.6 m craft stay under that threshold.
         const activeIds = new Set(active ? network?.hops : []);
-        // Route craft retain the same physical display size as the fleet.
-        // Camera distance and light identify the path, not enlarged geometry.
-        const scale = CRAFT_SCALE;
         const focal = height / (2 * Math.tan((43 * Math.PI) / 360));
-        const candidates = active ? [] : vectors
-          .map((v, i) => ({ i, distance: v.distanceTo(camera.position) }))
-          .filter(
-            ({ i, distance }) =>
-              !activeIds.has(i) && (0.56 * scale * focal) / distance > 6,
-          )
-          .sort((a, b) => a.distance - b.distance)
-          .slice(0, detailCount);
-        const detailIds = new Set(candidates.map(({ i }) => i));
-        vectors.forEach((v, i) =>
-          orient(
-            distant,
-            i,
-            v,
-            activeIds.has(i) || detailIds.has(i) ||
-              (active && v.distanceToSquared(spaceDot.position) < 0.35)
-              ? 0
-              : scale,
-          ),
-        );
-        candidates.forEach(({ i }, slot) =>
-          orient(detailed, slot, vectors[i], scale),
-        );
-        detailed.count = candidates.length;
-        detailed.instanceMatrix.needsUpdate = true;
-        distant.instanceMatrix.needsUpdate = true;
+        const candidates = active
+          ? []
+          : vectors
+              .map((v, i) => ({ i, distance: v.distanceTo(camera.position) }))
+              .filter(({ i, distance }) => {
+                const pixels =
+                  (markerSpan(distance, height) * focal) / Math.max(distance, 0.05);
+                return !activeIds.has(i) && pixels > 6;
+              })
+              .sort((a, b) => a.distance - b.distance)
+              .slice(0, detailCount);
+        detailSlots = candidates.map(({ i }) => i);
         lastDetailTime = now;
       }
       if (p.focusId !== lastFocus) {
@@ -1207,6 +1226,58 @@ export function OrbitalScene(props: Props) {
       if (controls.enabled) controls.update();
       else camera.lookAt(controls.target);
       camera.updateMatrixWorld();
+      // Each mark stays about 1.25 px. True 0.6 m never exceeds that floor
+      // at a camera that can still see Earth, so zooming does not turn the
+      // fleet into kilometer-scale panels.
+      const activeIds = new Set(active ? (network?.hops ?? []) : []);
+      const detailIds = new Set(detailSlots);
+      vectors.forEach((v, i) =>
+        orient(
+          distant,
+          i,
+          v,
+          activeIds.has(i) ||
+            detailIds.has(i) ||
+            (active && v.distanceToSquared(spaceDot.position) < 0.35)
+            ? 0
+            : markerSpan(v.distanceTo(camera.position), height) / overviewLong,
+        ),
+      );
+      distant.instanceMatrix.needsUpdate = true;
+      detailSlots.forEach((i, slot) => {
+        const v = vectors[i];
+        orient(
+          detailed,
+          slot,
+          v,
+          markerSpan(v.distanceTo(camera.position), height) / detailLong,
+        );
+      });
+      detailed.count = detailSlots.length;
+      detailed.instanceMatrix.needsUpdate = true;
+      if (network && selected.count > 0) {
+        const relayHops = network.hops.slice(1, -1);
+        const hopCount = Math.min(relayHops.length, selected.count);
+        for (let i = 0; i < hopCount; i++) {
+          const v = vectors[relayHops[i]];
+          if (!v) continue;
+          orient(
+            selected,
+            i,
+            v,
+            markerSpan(v.distanceTo(camera.position), height) / detailLong,
+          );
+        }
+        selected.instanceMatrix.needsUpdate = true;
+      }
+      odcCraft.scale.setScalar(
+        markerSpan(camera.position.distanceTo(odcCraft.position), height) /
+          odcSpan,
+      );
+      carrier.scale.setScalar(
+        markerSpan(camera.position.distanceTo(carrier.position), height) /
+          detailLong,
+      );
       routes.visible = active;
       selected.visible = active;
       odcCraft.visible = active;

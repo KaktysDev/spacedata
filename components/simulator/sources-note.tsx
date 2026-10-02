@@ -143,13 +143,24 @@ export function SourcesNote({
           <p className="fine-print">
             The other dots are about 8,800 craft in one dawn-dusk shell, a
             spacing picture rather than the 88,000 filing and not extra
-            Starcloud-2 satellites. They fill a volume: along the ring, from
-            600 km to 850 km, and a cross-track thickness, with a gap between
-            neighbors. The drawing holds that volume clear of Earth; routing
-            distances stay in physical
-            kilometres on the dawn-dusk plane. A fixed sun over 20°E sets that
-            plane, matching the paper’s figure. That sun direction is not a
-            live ephemeris. Hardware size is enlarged.
+            Starcloud-2 satellites. They fill a volume along the ring, from
+            600 km to 850 km, and a cross-track width equal to that same 250 km,
+            with a gap between neighbors. Those are the physical altitudes, so
+            the nearest craft sit 600 km above the surface. Routing uses the
+            same kilometres on the dawn-dusk plane. A fixed sun over 20°E sets
+            that plane, matching the paper’s figure. That sun direction is not
+            a live ephemeris. Starcloud-1 is about 60 kg. Gunter compares it to
+            a small refrigerator on the Corvus-Micro bus; that bus body is
+            published at about 34 × 34 × 49 cm, and the Starcloud-1 catalog
+            lists a 0.6 m length and span. Starcloud-2 is an 8 kW smallsat with
+            no published length, so the markers use that 0.6 m class. The
+            whitepaper’s 5 GW data center is a different machine: one solar
+            array about 4 km by 4 km, with radiators, not a size for each
+            satellite and not this route. Earth is 12,742 km across. That array
+            is about 1/3,200 of the globe’s width, and a 0.6 m craft is
+            thousands of times smaller again. Both are below one pixel in this
+            view, so each mark is drawn at about 1.25 pixels and stays that
+            size as the camera moves.
           </p>
         </section>
         <section className="method-section">
