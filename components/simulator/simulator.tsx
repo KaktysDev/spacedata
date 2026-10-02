@@ -365,7 +365,9 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         </div>
       </div>
       <footer className="site-footer">
-        <span className="constellation-count">SSO · 600–850 km</span>
+        <span className="constellation-count">
+          {NODE_COUNT.toLocaleString("en-US")} satellites
+        </span>
         <DeveloperCredit />
       </footer>
       {results && (

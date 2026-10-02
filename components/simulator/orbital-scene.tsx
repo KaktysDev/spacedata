@@ -25,7 +25,6 @@ import {
 } from "@/lib/starcloud/network";
 import {
   satelliteGeometry,
-  satelliteOverviewGeometry,
   orbitalComputeCraft,
   hardwareMaterial,
   datacenter,
@@ -46,27 +45,24 @@ type Props = {
   onReady: () => void;
 };
 const R = 3.5,
-  // Physical 600 km and 850 km altitudes. R is Earth's radius, 6371 km.
-  // Routing uses the same kilometres.
-  BELT_INNER = (R * (EARTH_KM + SHELL_ALTITUDE_MIN_KM)) / EARTH_KM,
-  BELT_OUTER = (R * (EARTH_KM + SHELL_ALTITUDE_MAX_KM)) / EARTH_KM,
+  // Drawn cloud around Earth. Routing still uses 600–850 km.
+  BELT_INNER = 4.6,
+  BELT_OUTER = 9.0,
   // Starcloud-1's published span. KeepTrack lists NORAD 66303 at 0.6 m long
   // with a 0.6 m span; the Corvus-Micro body is about 0.49 m. Starcloud-2 has
   // no published length, so it uses this smallsat class. The whitepaper's
   // 4 km × 4 km array is one 5 GW station, not each of these craft.
   FLEET_SPAN_M = 0.6,
   EARTH_RADIUS_M = EARTH_KM * 1000,
-  // True 0.6 m is far below a pixel, and even a 4 km array is a fraction of
-  // a pixel beside this Earth. This is the smallest mark that still reads.
-  READABLE_CRAFT_PX = 1.25,
+  // Opening marks are small specks. True 0.6 m craft are far smaller.
+  READABLE_CRAFT_PX = 2,
   // Close enough for the land dots to fill the frame, still outside Earth.
   MIN_ORBIT = 4.22,
   MAX_ORBIT = 64,
   UP = new THREE.Vector3(0, 1, 0);
 function fitDistance(w: number, h: number) {
-  // Frame the true 850 km shell, with a margin, inside the header and the
-  // composer. Earth then fills the window and the band stays on screen.
-  const framed = BELT_OUTER * 1.14;
+  // Fit the cloud, with a margin, under the header and above the composer.
+  const framed = BELT_OUTER * 0.86;
   const width = Math.max(w, 1);
   const height = Math.max(h, 1);
   const fov = (43 * Math.PI) / 180;
@@ -446,27 +442,48 @@ export function OrbitalScene(props: Props) {
     scene.add(roundPoints(stars, 1.15 * renderer.getPixelRatio(), 0.38));
     const hardware = satelliteGeometry(),
       hardwareMat = hardwareMaterial();
-    const overviewGeometry = satelliteOverviewGeometry();
     const axisOf = (geometry: THREE.BufferGeometry) => {
       geometry.computeBoundingBox();
       const size = geometry.boundingBox!.getSize(new THREE.Vector3());
       return Math.max(size.x, size.y, size.z, 1e-6);
     };
-    const overviewLong = axisOf(overviewGeometry);
     const detailLong = axisOf(hardware);
     const detailCount = 384,
       detailed = new THREE.InstancedMesh(hardware, hardwareMat, detailCount);
     detailed.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     detailed.frustumCulled = false;
     scene.add(detailed);
-    const distant = new THREE.InstancedMesh(
-      overviewGeometry,
-      hardwareMat,
-      NODE_COUNT,
+    const fleetPositions = new Float32Array(NODE_COUNT * 3);
+    const fleetGeo = new THREE.BufferGeometry();
+    fleetGeo.setAttribute(
+      "position",
+      new THREE.BufferAttribute(fleetPositions, 3),
     );
-    distant.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    distant.frustumCulled = false;
-    scene.add(distant);
+    const fleetMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      uniforms: {
+        size: { value: 2.15 * Math.min(devicePixelRatio, 1.7) },
+        opacity: { value: 0.92 },
+      },
+      vertexShader:
+        "uniform float size;void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=size;}",
+      fragmentShader:
+        "uniform float opacity;void main(){float d=length(gl_PointCoord-vec2(.5));if(d>.5)discard;gl_FragColor=vec4(vec3(1.),opacity*(1.-smoothstep(.32,.5,d)));}",
+    });
+    const fleetPoints = new THREE.Points(fleetGeo, fleetMat);
+    fleetPoints.frustumCulled = false;
+    scene.add(fleetPoints);
+    const syncFleet = (pts: THREE.Vector3[]) => {
+      for (let i = 0; i < pts.length; i++) {
+        const v = pts[i];
+        fleetPositions[i * 3] = v.x;
+        fleetPositions[i * 3 + 1] = v.y;
+        fleetPositions[i * 3 + 2] = v.z;
+      }
+      fleetGeo.attributes.position.needsUpdate = true;
+      fleetGeo.computeBoundingSphere();
+    };
     const routeHardwareMat = hardwareMat.clone();
     routeHardwareMat.emissive.setHex(0xffffff);
     routeHardwareMat.emissiveIntensity = 0.3;
@@ -902,6 +919,7 @@ export function OrbitalScene(props: Props) {
       frame = requestAnimationFrame(render);
       const active = !!p.flight;
       hardwareMat.color.setScalar(active ? 0.16 : 1);
+      fleetMat.uniforms.opacity.value = active ? 0.45 : 0.92;
       const networkTime =
         p.flight?.id ?? (motion.matches ? epoch : epoch + now - clockStart);
       const nextRoute = `${p.provider},${p.origin.lat},${p.origin.lon},${p.site.name},${p.flight?.id ?? 0}`;
@@ -916,6 +934,7 @@ export function OrbitalScene(props: Props) {
         // Display position only. Routing still uses each node's altitude in km
         // and its place on the dawn-dusk plane.
         vectors = nodes.map((n) => shellPosition(n, ringNormal));
+        syncFleet(vectors);
         lastNodeTime = now;
         lastDetailTime = -Infinity;
       }
@@ -1043,8 +1062,9 @@ export function OrbitalScene(props: Props) {
               .map((v, i) => ({ i, distance: v.distanceTo(camera.position) }))
               .filter(({ i, distance }) => {
                 const pixels =
-                  (markerSpan(distance, height) * focal) / Math.max(distance, 0.05);
-                return !activeIds.has(i) && pixels > 6;
+                  (markerSpan(homeDistance, height) * focal) /
+                  Math.max(distance, 0.05);
+                return !activeIds.has(i) && pixels > 20;
               })
               .sort((a, b) => a.distance - b.distance)
               .slice(0, detailCount);
@@ -1226,32 +1246,12 @@ export function OrbitalScene(props: Props) {
       if (controls.enabled) controls.update();
       else camera.lookAt(controls.target);
       camera.updateMatrixWorld();
-      // Each mark stays about 1.25 px. True 0.6 m never exceeds that floor
-      // at a camera that can still see Earth, so zooming does not turn the
-      // fleet into kilometer-scale panels.
-      const activeIds = new Set(active ? (network?.hops ?? []) : []);
-      const detailIds = new Set(detailSlots);
-      vectors.forEach((v, i) =>
-        orient(
-          distant,
-          i,
-          v,
-          activeIds.has(i) ||
-            detailIds.has(i) ||
-            (active && v.distanceToSquared(spaceDot.position) < 0.35)
-            ? 0
-            : markerSpan(v.distanceTo(camera.position), height) / overviewLong,
-        ),
-      );
-      distant.instanceMatrix.needsUpdate = true;
+      // The cloud is round specks. A mesh only appears on a craft the camera
+      // has approached, at the same opening size grown by perspective.
+      const fleetSpan = markerSpan(homeDistance, height);
       detailSlots.forEach((i, slot) => {
         const v = vectors[i];
-        orient(
-          detailed,
-          slot,
-          v,
-          markerSpan(v.distanceTo(camera.position), height) / detailLong,
-        );
+        orient(detailed, slot, v, fleetSpan / detailLong);
       });
       detailed.count = detailSlots.length;
       detailed.instanceMatrix.needsUpdate = true;
@@ -1261,28 +1261,17 @@ export function OrbitalScene(props: Props) {
         for (let i = 0; i < hopCount; i++) {
           const v = vectors[relayHops[i]];
           if (!v) continue;
-          orient(
-            selected,
-            i,
-            v,
-            markerSpan(v.distanceTo(camera.position), height) / detailLong,
-          );
+          orient(selected, i, v, fleetSpan / detailLong);
         }
         selected.instanceMatrix.needsUpdate = true;
       }
-      odcCraft.scale.setScalar(
-        markerSpan(camera.position.distanceTo(odcCraft.position), height) /
-          odcSpan,
-      );
-      carrier.scale.setScalar(
-        markerSpan(camera.position.distanceTo(carrier.position), height) /
-          detailLong,
-      );
+      odcCraft.scale.setScalar(fleetSpan / odcSpan);
+      carrier.scale.setScalar(fleetSpan / detailLong);
       routes.visible = active;
-      selected.visible = active;
-      odcCraft.visible = active;
+      selected.visible = false;
+      odcCraft.visible = false;
       gateway.visible = active && feederPath.length > 0;
-      carrier.visible = active && Boolean(network && network.hops.length > 1);
+      carrier.visible = false;
       groundDot.visible = Boolean(
         playback && !p.flight?.reduced && rawElapsed < playback.ground.finishedMs,
       );

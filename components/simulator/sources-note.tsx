@@ -141,13 +141,12 @@ export function SourcesNote({
             one.
           </p>
           <p className="fine-print">
-            The other dots are about 8,800 craft in one dawn-dusk shell, a
-            spacing picture rather than the 88,000 filing and not extra
-            Starcloud-2 satellites. They fill a volume along the ring, from
-            600 km to 850 km, and a cross-track width equal to that same 250 km,
-            with a gap between neighbors. Those are the physical altitudes, so
-            the nearest craft sit 600 km above the surface. Routing uses the
-            same kilometres on the dawn-dusk plane. A fixed sun over 20°E sets
+            The other marks are 8,800 craft in one dawn-dusk shell, a spacing
+            picture rather than the 88,000 filing and not extra Starcloud-2
+            satellites. Routing keeps them between 600 km and 850 km. The
+            picture scatters them through a cloud around Earth, denser toward
+            the middle and uneven at the edges, rather than on a lattice. Each
+            mark stays a small speck. A fixed sun over 20°E sets
             that plane, matching the paper’s figure. That sun direction is not
             a live ephemeris. Starcloud-1 is about 60 kg. Gunter compares it to
             a small refrigerator on the Corvus-Micro bus; that bus body is
@@ -158,9 +157,8 @@ export function SourcesNote({
             array about 4 km by 4 km, with radiators, not a size for each
             satellite and not this route. Earth is 12,742 km across. That array
             is about 1/3,200 of the globe’s width, and a 0.6 m craft is
-            thousands of times smaller again. Both are below one pixel in this
-            view, so each mark is drawn at about 1.25 pixels and stays that
-            size as the camera moves.
+            thousands of times smaller again. Both are below one pixel beside
+            Earth, so the opening view keeps each mark small.
           </p>
         </section>
         <section className="method-section">

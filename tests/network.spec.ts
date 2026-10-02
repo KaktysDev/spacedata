@@ -30,7 +30,6 @@ import {
   SHELL_ACROSS_RAD,
   SHELL_ALTITUDE_MIN_KM,
   SHELL_ALTITUDE_MAX_KM,
-  EARTH_KM,
   FIBER_KM_PER_MS,
   C_KM_PER_MS,
   shellArcKm,
@@ -65,12 +64,7 @@ test("the shell is one dawn-dusk plane with a drawn cross-track thickness", () =
   const across = nodes.map((node) => node.across);
   expect(Math.max(...across)).toBeGreaterThan(SHELL_ACROSS_RAD * 0.75);
   expect(Math.min(...across)).toBeLessThan(-SHELL_ACROSS_RAD * 0.75);
-  const midKm =
-    EARTH_KM + (SHELL_ALTITUDE_MIN_KM + SHELL_ALTITUDE_MAX_KM) / 2;
-  expect(SHELL_ACROSS_RAD).toBeCloseTo(
-    (SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM) / 2 / midKm,
-    8,
-  );
+  expect(SHELL_ACROSS_RAD).toBeCloseTo(0.7, 5);
 });
 function planeOffsetDeg(node: { lat: number; lon: number }) {
   const lat = (node.lat * Math.PI) / 180,

@@ -68,7 +68,7 @@ export function satelliteGeometry() {
           0.032,
           0.03,
           0.0018,
-          (row + col) % 3 === 0 ? 0x292929 : 0x191919,
+          (row + col) % 3 === 0 ? 0x6a7380 : 0x4e5966,
           side * 0.17 - 0.0925 + col * 0.037,
           -0.116 + row * 0.033,
           0.0,
@@ -166,17 +166,16 @@ export function satelliteOverviewGeometry() {
     g.deleteAttribute("uv");
     parts.push(g);
   };
-  box(0.075, 0.23, 0.075, 0xcacaca, 0, 0, 0.015);
-  box(0.56, 0.012, 0.014, 0xbcbcbc);
+  box(0.09, 0.24, 0.09, 0xd4d4d4, 0, 0, 0.02);
+  box(0.62, 0.02, 0.028, 0xc8c8c8);
   for (const side of [-1, 1]) {
-    // Light array faces. At overview scale the old near-black cells fell
-    // under the clear color, so the lane area disappeared and only stacked
-    // buses remained. Close-up meshes keep the dark cell grid.
-    box(0.22, 0.27, 0.008, 0xc4c4c4, side * 0.17);
-    box(0.22, 0.007, 0.011, 0xc9c9c9, side * 0.17, 0.13);
-    box(0.22, 0.007, 0.011, 0xc9c9c9, side * 0.17, -0.13);
-    box(0.115, 0.2, 0.006, 0xd5d5d5, side * 0.097, -0.24, -0.015);
-    box(0.025, 0.025, 0.035, 0xe3e3e3, side * 0.052, 0.093, 0.06);
+    // Both faces stay light. A near-black cell grid disappeared into space,
+    // so the wing read as a single edge.
+    box(0.24, 0.3, 0.03, 0xd0d0d0, side * 0.2);
+    box(0.24, 0.012, 0.04, 0xe4e4e4, side * 0.2, 0.15);
+    box(0.24, 0.012, 0.04, 0xe4e4e4, side * 0.2, -0.15);
+    box(0.13, 0.2, 0.02, 0xeeeeee, side * 0.11, -0.26, -0.02);
+    box(0.04, 0.04, 0.05, 0xf2f2f2, side * 0.06, 0.1, 0.06);
   }
   const merged = mergeGeometries(parts)!;
   parts.forEach((g) => g.dispose());
@@ -186,8 +185,10 @@ export function satelliteOverviewGeometry() {
 export function hardwareMaterial() {
   return new THREE.MeshStandardMaterial({
     vertexColors: true,
-    metalness: 0.42,
-    roughness: 0.53,
+    metalness: 0.35,
+    roughness: 0.48,
+    emissive: 0x6e6e6e,
+    emissiveIntensity: 0.18,
     side: THREE.DoubleSide,
   });
 }
