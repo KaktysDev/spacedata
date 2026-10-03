@@ -2056,7 +2056,7 @@ button.location-suggestion:hover {
   position: absolute;
   left: 0;
   top: 0;
-  z-index: 44;
+  z-index: 70;
   margin: 0;
   font-weight: 500;
   color: #f7f7f7;
@@ -2103,21 +2103,6 @@ button.location-suggestion:hover {
   opacity: 1;
   backdrop-filter: blur(26px) saturate(1.15);
 }
-.overview-scrim {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 40;
-  height: 112px;
-  pointer-events: none;
-  opacity: 0;
-  background: linear-gradient(#050505 18%, #05050500);
-  transition: opacity 0.34s ease;
-}
-.simulator.overview-open .overview-scrim {
-  opacity: 1;
-}
 .overview-page {
   position: absolute;
   inset: 0;
@@ -2125,7 +2110,7 @@ button.location-suggestion:hover {
   overflow-y: auto;
   overscroll-behavior: contain;
   touch-action: pan-y;
-  padding: 118px 28px 72px;
+  padding: 0 40px 80px;
   background: #050505;
   opacity: 0;
   visibility: hidden;
@@ -2147,9 +2132,19 @@ button.location-suggestion:hover {
 .overview-page:focus {
   outline: none;
 }
+.overview-mask {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  height: 108px;
+  margin: 0 -40px;
+  pointer-events: none;
+  background: linear-gradient(180deg, #050505 0 74px, #050505 74px, transparent 108px);
+}
 .overview-article {
-  width: min(680px, 100%);
-  margin: 0 auto;
+  width: min(740px, 100%);
+  margin: 0;
+  padding-top: 12px;
 }
 .overview-lead {
   margin: 0;
@@ -2285,6 +2280,13 @@ button.location-suggestion:hover {
   .overview-word.corner {
     transform: translate(48px, 34px);
   }
+  .overview-page {
+    padding-left: 48px;
+    padding-right: 48px;
+  }
+  .overview-mask {
+    margin: 0 -48px;
+  }
 }
 @media (max-width: 700px) {
   .overview-word.corner {
@@ -2292,10 +2294,12 @@ button.location-suggestion:hover {
     transform: translate(22px, 23px);
   }
   .overview-page {
-    padding: 132px 20px 64px;
+    padding: 0 22px 64px;
   }
-  .overview-scrim {
-    height: 124px;
+  .overview-mask {
+    height: 112px;
+    margin: 0 -22px;
+    background: linear-gradient(180deg, #050505 0 80px, transparent 112px);
   }
   .overview-lead {
     font-size: 28px;
@@ -2320,11 +2324,9 @@ button.location-suggestion:hover {
     padding: 8px 12px;
     font-size: 12px;
   }
-  .overview-page {
-    padding-top: 148px;
-  }
-  .overview-scrim {
-    height: 136px;
+  .overview-mask {
+    height: 156px;
+    background: linear-gradient(180deg, #050505 0 124px, transparent 156px);
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -28,6 +28,7 @@ export function Overview({
       inert={!open}
       className={`overview-page ${open ? "open" : ""}`}
     >
+      <div className="overview-mask" aria-hidden="true" />
       <article className="overview-article">
         <p className="overview-lead">
           SpaceVision asks what changes for a regular person if AI data centers

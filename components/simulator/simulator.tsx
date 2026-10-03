@@ -401,7 +401,6 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         Overview
       </h1>
       <div className={`overview-veil ${veil ? "on" : ""}`} aria-hidden="true" />
-      <div className="overview-scrim" aria-hidden="true" />
       <Overview open={pageOpen} onBack={() => go("space")} />
       {!ready && (
         <div className="loading-scene" role="status">
