@@ -11,23 +11,18 @@ export const SHELL_ALTITUDE_MIN_KM = 600;
 export const SHELL_ALTITUDE_MAX_KM = 850;
 export const SHELL_ALTITUDES_KM = [SHELL_ALTITUDE_KM] as const;
 // A spacing picture of the dawn-dusk shell: about a tenth of the filing's
-// 88,000 ceiling. Craft fill a volume — along the ring, across 600–850 km of
-// altitude, and a cross-track width equal to that 250 km band — with a gap
-// between neighbors. This count is not that fleet and not a set of extra
-// Starcloud-2 satellites.
+// 88,000 ceiling. 8,800 craft fill a volume along the ring, across the
+// 600–850 km altitudes, and a wider drawn cross-track spread so neighbors
+// separate on screen. This count is not that fleet and not extra Starcloud-2
+// satellites.
 export const SHELL_RADIAL_COUNT = 10;
 export const SHELL_ACROSS_COUNT = 8;
 export const SHELL_ALONG_COUNT = 110;
-const SHELL_MIDPOINT_KM =
-  (SHELL_ALTITUDE_MIN_KM + SHELL_ALTITUDE_MAX_KM) / 2;
 /**
- * Half-angle off the dawn-dusk plane. The full width equals the 250 km
- * altitude band, at the band's midpoint radius. Routing ignores this offset.
+ * Half-angle of the drawn cloud off the dawn-dusk plane, in radians.
+ * Wide enough that the shell reads as a scattered volume. Routing ignores it.
  */
-export const SHELL_ACROSS_RAD =
-  (SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM) /
-  2 /
-  (EARTH_KM + SHELL_MIDPOINT_KM);
+export const SHELL_ACROSS_RAD = 0.7;
 export const BAND_COUNT = 1;
 export const NODE_COUNT =
   SHELL_RADIAL_COUNT * SHELL_ACROSS_COUNT * SHELL_ALONG_COUNT;
@@ -203,25 +198,17 @@ export function orbitalNodes(at: number): OrbitalNode[] {
   let turns = ((at - ORBIT_EPOCH_MS) % ORBIT_PERIOD_MS) / ORBIT_PERIOD_MS;
   if (turns < 0) turns += 1;
   return Array.from({ length: NODE_COUNT }, (_, i) => {
-    // One shared period keeps the shell from shearing into arms. Slot 0 is
-    // the middle of the volume, so Starcloud-2 sits in the dawn-dusk shell.
-    // Other craft jitter inside a radial × cross-track × along-track cell.
-    const along = i % SHELL_ALONG_COUNT;
-    const rest = Math.floor(i / SHELL_ALONG_COUNT);
-    const radial = rest % SHELL_RADIAL_COUNT;
-    const acrossBin = Math.floor(rest / SHELL_RADIAL_COUNT);
-    // Stay inside each cell so neighboring craft keep a gap. Slot 0 is the
-    // center of the volume.
-    const place = (bin: number, count: number, salt: number) => {
-      const margin = 0.22;
-      const h = shellHash(i, salt);
-      return (bin + margin + h * (1 - 2 * margin)) / count;
+    // One shared period keeps the cloud from shearing into arms. Positions are
+    // scattered through the volume, denser toward the middle, with a fringe
+    // of outliers. Slot 0 stays at the center for the highlighted craft.
+    const scatter = (salt: number) => {
+      const edge = shellHash(i, salt);
+      if (shellHash(i, salt + 21) > 0.78) return edge;
+      return (edge + shellHash(i, salt + 9)) * 0.5;
     };
-    const altT = i === STARCLOUD2_SLOT ? 0.5 : place(radial, SHELL_RADIAL_COUNT, 1);
-    const acrossT =
-      i === STARCLOUD2_SLOT ? 0.5 : place(acrossBin, SHELL_ACROSS_COUNT, 2);
-    const alongT =
-      i === STARCLOUD2_SLOT ? 0.5 : place(along, SHELL_ALONG_COUNT, 3);
+    const altT = i === STARCLOUD2_SLOT ? 0.5 : scatter(1);
+    const acrossT = i === STARCLOUD2_SLOT ? 0.5 : scatter(2);
+    const alongT = i === STARCLOUD2_SLOT ? 0.5 : shellHash(i, 3);
     const altitudeKm = SHELL_ALTITUDE_MIN_KM + altT * altSpan;
     const across = (acrossT - 0.5) * 2 * SHELL_ACROSS_RAD;
     const u = (turns + alongT) * Math.PI * 2;
@@ -282,6 +269,11 @@ export type OrbitalRoute = {
   uplinkKm: number;
   laserKm: number;
   rttMs: number;
+  /**
+   * False when no other craft is above the horizon with a straight optical
+   * path to the compute craft. The model then has no RF uplink.
+   */
+  inView: boolean;
 };
 
 export type PlaybackWindow = { startMs: number; endMs: number };
@@ -385,14 +377,16 @@ export function createRoutePlayback(
     uplink: window(feederEnd, uplinkEnd),
     laser: window(uplinkEnd, spaceOutEnd),
   };
+  const spaceReachable = Number.isFinite(route.rttMs);
   const difference = route.ground.rttMs - route.rttMs;
   return {
     launchMs,
     ground,
     space,
     firstArrivalMs,
-    firstFinished:
-      Math.abs(difference) < 1e-9
+    firstFinished: !spaceReachable
+      ? "ground"
+      : Math.abs(difference) < 1e-9
         ? "tie"
         : difference < 0
           ? "ground"
@@ -435,13 +429,14 @@ function opticalLeg(from: OrbitalNode, to: OrbitalNode) {
  * Two requests leave the user at the same time.
  * Ground: surface fiber to the public reference site and back. That site is
  * not a location the provider returned.
- * Orbit, from the Starcloud-2 diagram: RF from the end user to a backhaul
- * spacecraft, then one optical link to Starcloud-2, then the same path home.
- * The third-party backhaul orbit is not published. The RF satellite is the
- * other drawn craft in the 600–850 km shell with the highest elevation. The
- * optical leg is the straight vacuum path when it clears Earth, otherwise the
- * shorter arc on that shell. Starcloud-1 is not this path. The drawn shell
- * is a spacing picture, not the 88,000-spacecraft filing.
+ * Orbit: one compute craft stands in for Starcloud-2. The RF craft is the
+ * other satellite in this single dawn-dusk plane that is above the horizon
+ * and has a straight optical path to that compute craft. Among those, the
+ * highest elevation is used. A later time or a different user can select a
+ * different RF craft because the shell has moved. If none qualify, there is
+ * no uplink: the path is not drawn through the Earth. The third-party
+ * backhaul orbit is not published, so this plane is the stand-in. The drawn
+ * cloud is a picture; these kilometres use the physical altitudes.
  */
 export function routeAt(
   origin: Location,
@@ -453,16 +448,20 @@ export function routeAt(
   const computeRelay = STARCLOUD2_SLOT;
   const computeCraft = nodes[computeRelay];
 
-  let ingress = computeRelay === 0 ? 1 : 0;
+  let ingress = -1;
   let bestElev = -Infinity;
   for (let i = 0; i < nodes.length; i++) {
     if (i === computeRelay) continue;
     const elev = elevationDeg(origin, nodes[i]);
+    // Geometric horizon. No published minimum elevation, so this is line of sight.
+    if (elev <= 0) continue;
+    if (!laserClearsEarth(nodes[i], computeCraft)) continue;
     if (elev > bestElev) {
       bestElev = elev;
       ingress = i;
     }
   }
+  const inView = ingress >= 0;
 
   const uplinkAnchor = origin;
   const gateway = { ...origin, name: "You" };
@@ -472,14 +471,18 @@ export function routeAt(
     km: 0,
     rttMs: 0,
   };
-  const relay = { ...nodes[ingress] };
-  const uplinkKm = opticalDistanceKm(
-    { lat: origin.lat, lon: origin.lon, altitudeKm: 0 },
-    nodes[ingress],
-  );
-  const optical = opticalLeg(nodes[ingress], computeCraft);
-  const hops = [ingress, computeRelay];
-  const oneWayMs = uplinkKm / C_KM_PER_MS + optical.km / C_KM_PER_MS;
+  const relay = inView ? { ...nodes[ingress] } : { ...origin, altitudeKm: 0 };
+  const uplinkKm = inView
+    ? opticalDistanceKm(
+        { lat: origin.lat, lon: origin.lon, altitudeKm: 0 },
+        nodes[ingress],
+      )
+    : 0;
+  const optical = inView
+    ? opticalLeg(nodes[ingress], computeCraft)
+    : { km: 0, points: [] as OrbitalNode[] };
+  const hops = inView ? [ingress, computeRelay] : [];
+  const oneWayMs = inView ? uplinkKm / C_KM_PER_MS + optical.km / C_KM_PER_MS : Number.NaN;
   return {
     at,
     nodes,
@@ -497,6 +500,7 @@ export function routeAt(
     gatewayKm: 0,
     uplinkKm,
     laserKm: optical.km,
-    rttMs: 2 * oneWayMs,
+    rttMs: inView ? 2 * oneWayMs : Number.NaN,
+    inView,
   };
 }

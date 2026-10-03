@@ -30,10 +30,8 @@ import {
   SHELL_ACROSS_RAD,
   SHELL_ALTITUDE_MIN_KM,
   SHELL_ALTITUDE_MAX_KM,
-  EARTH_KM,
   FIBER_KM_PER_MS,
   C_KM_PER_MS,
-  shellArcKm,
   dawnDuskSunEcef,
   sunSyncInclination,
 } from "../lib/starcloud/network";
@@ -65,12 +63,7 @@ test("the shell is one dawn-dusk plane with a drawn cross-track thickness", () =
   const across = nodes.map((node) => node.across);
   expect(Math.max(...across)).toBeGreaterThan(SHELL_ACROSS_RAD * 0.75);
   expect(Math.min(...across)).toBeLessThan(-SHELL_ACROSS_RAD * 0.75);
-  const midKm =
-    EARTH_KM + (SHELL_ALTITUDE_MIN_KM + SHELL_ALTITUDE_MAX_KM) / 2;
-  expect(SHELL_ACROSS_RAD).toBeCloseTo(
-    (SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM) / 2 / midKm,
-    8,
-  );
+  expect(SHELL_ACROSS_RAD).toBeCloseTo(0.7, 5);
 });
 function planeOffsetDeg(node: { lat: number; lon: number }) {
   const lat = (node.lat * Math.PI) / 180,
@@ -152,40 +145,57 @@ test("ground and orbital routes leave the user independently", () => {
         expect(r.ground.stops).toEqual([]);
         expect(r.gatewayRoute.km).toBe(0);
         expect(r.uplinkAnchor).toEqual(origin);
-        expect(r.ingress).not.toBe(STARCLOUD2_SLOT);
-        expect(elevationDeg(origin, r.nodes[r.ingress])).toBeGreaterThan(-90);
-        expect(r.uplinkKm).toBeGreaterThan(599);
-        expect(r.uplinkKm).toBeLessThan(20000);
-        expect(r.hops).toEqual([r.ingress, r.computeRelay]);
         expect(r.computeRelay).toBe(STARCLOUD2_SLOT);
         expect(r.computeCraft).toBe(r.nodes[STARCLOUD2_SLOT]);
         expect(r.computeCraft.band).toBe(0);
         expect(r.carrierLinkKm).toBe(0);
-        expect(r.laserKm).toBeGreaterThan(0);
-        const ingressNode = r.nodes[r.ingress];
-        expect(r.opticalPoints[0].lat).toBeCloseTo(ingressNode.lat, 4);
-        expect(r.opticalPoints[0].lon).toBeCloseTo(ingressNode.lon, 4);
-        expect(r.opticalPoints.at(-1)!.lat).toBeCloseTo(r.computeCraft.lat, 4);
-        expect(r.opticalPoints.at(-1)!.lon).toBeCloseTo(r.computeCraft.lon, 4);
-        const straight = opticalDistanceKm(r.nodes[r.ingress], r.computeCraft);
-        const clears = laserClearsEarth(r.nodes[r.ingress], r.computeCraft);
-        expect(r.laserKm).toBeCloseTo(
-          clears ? straight : shellArcKm(r.nodes[r.ingress], r.computeCraft),
-          6,
-        );
-        if (!clears) expect(r.opticalPoints.length).toBeGreaterThan(2);
-        expect(r.rttMs).toBeGreaterThan(0);
-        expect(r.rttMs / 2).toBeCloseTo(
-          r.uplinkKm / C_KM_PER_MS + r.laserKm / C_KM_PER_MS,
-          6,
-        );
-        expect(
-          compare(provider, origin, site, null, 256, 1.11, at).space.rttMs,
-        ).toBe(r.rttMs);
+        if (!r.inView) {
+          expect(r.hops).toEqual([]);
+          expect(r.uplinkKm).toBe(0);
+          expect(r.laserKm).toBe(0);
+          expect(Number.isNaN(r.rttMs)).toBe(true);
+        } else {
+          expect(r.ingress).not.toBe(STARCLOUD2_SLOT);
+          expect(elevationDeg(origin, r.nodes[r.ingress])).toBeGreaterThan(0);
+          expect(laserClearsEarth(r.nodes[r.ingress], r.computeCraft)).toBe(true);
+          expect(r.uplinkKm).toBeGreaterThan(599);
+          expect(r.uplinkKm).toBeLessThan(20000);
+          expect(r.hops).toEqual([r.ingress, r.computeRelay]);
+          expect(r.laserKm).toBeGreaterThan(0);
+          const ingressNode = r.nodes[r.ingress];
+          expect(r.opticalPoints[0].lat).toBeCloseTo(ingressNode.lat, 4);
+          expect(r.opticalPoints[0].lon).toBeCloseTo(ingressNode.lon, 4);
+          expect(r.opticalPoints.at(-1)!.lat).toBeCloseTo(r.computeCraft.lat, 4);
+          expect(r.opticalPoints.at(-1)!.lon).toBeCloseTo(r.computeCraft.lon, 4);
+          expect(r.laserKm).toBeCloseTo(
+            opticalDistanceKm(r.nodes[r.ingress], r.computeCraft),
+            6,
+          );
+          expect(r.opticalPoints).toHaveLength(2);
+          expect(r.rttMs).toBeGreaterThan(0);
+          expect(r.rttMs / 2).toBeCloseTo(
+            r.uplinkKm / C_KM_PER_MS + r.laserKm / C_KM_PER_MS,
+            6,
+          );
+        }
+        const modeled = compare(provider, origin, site, null, 256, 1.11, at);
+        if (r.inView) expect(modeled.space.rttMs).toBe(r.rttMs);
+        else expect(Number.isNaN(modeled.space.rttMs)).toBe(true);
         expect(
           compare(provider, origin, site, null, 256, 1.11, at).ground.rttMs,
         ).toBe(r.ground.rttMs);
       }
+});
+test("the RF satellite is the highest craft in view and changes with time", () => {
+  const origin = DEFAULT_LOCATION;
+  const first = routeAt(origin, ORBIT_EPOCH_MS);
+  const later = routeAt(origin, ORBIT_EPOCH_MS + 5 * 60 * 1000);
+  expect(first.inView).toBe(true);
+  expect(later.inView).toBe(true);
+  expect(first.computeRelay).toBe(STARCLOUD2_SLOT);
+  expect(later.computeRelay).toBe(STARCLOUD2_SLOT);
+  expect(first.ingress).not.toBe(later.ingress);
+  expect(routeAt({ lat: 0, lon: 0 }, ORBIT_EPOCH_MS).inView).toBe(false);
 });
 test("parallel playback keeps modeled completion order and waits for both API replies", () => {
   const route = routeAt(DEFAULT_LOCATION, ORBIT_EPOCH_MS, nearestSite("gemini", DEFAULT_LOCATION));

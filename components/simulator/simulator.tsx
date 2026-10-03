@@ -200,11 +200,15 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       })
     : null;
   const groundDone = Boolean(playback && elapsed >= playback.ground.finishedMs);
-  const spaceDone = Boolean(playback && elapsed >= playback.space.finishedMs);
+  const spaceDone = Boolean(
+    routeSnapshot?.inView && playback && elapsed >= playback.space.finishedMs,
+  );
   const progress = flight?.reduced
     ? "Comparing the two paths"
     : !playback || elapsed < playback.launchMs
       ? "Sending both requests"
+      : routeSnapshot && !routeSnapshot.inView
+        ? "No satellite in view"
       : elapsed < Math.max(playback.ground.outbound.endMs, playback.space.outbound.endMs)
         ? "Following both routes"
         : !answerReady
@@ -365,7 +369,9 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         </div>
       </div>
       <footer className="site-footer">
-        <span className="constellation-count">SSO · 600–850 km</span>
+        <span className="constellation-count">
+          {NODE_COUNT.toLocaleString("en-US")} shown
+        </span>
         <DeveloperCredit />
       </footer>
       {results && (

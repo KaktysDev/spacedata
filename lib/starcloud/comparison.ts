@@ -46,10 +46,22 @@ function apiCost(
   );
 }
 
+// Google's published 2025 fleet-wide average. The whitepaper says orbital PUE
+// is comparable to a hyperscale facility and does not give a number, so orbit
+// uses this same figure. Other providers are not given a different PUE: this
+// model does not have their fleet measurement.
+const PUE = 1.09;
+// Whitepaper Table 1, terrestrial column: 0.5 L/kWh. The space column is
+// "Not required." This is the paper's assumption, not a metered site.
+const PAPER_GROUND_WATER_L_PER_KWH = 0.5;
+// Whitepaper: projected orbital energy ~$0.002/kWh, and a US wholesale
+// reference of $0.045/kWh. The US figure is applied to every ground site.
+const PAPER_GROUND_USD_PER_KWH = 0.045;
+const PAPER_ORBIT_USD_PER_KWH = 0.002;
+
 /**
- * Energy: IT joules/token × PUE.
- * Water: terrestrial evaporative cooling ~0.2–2 L/kWh of facility energy
- * (mid ≈ 1.1 L/kWh); orbital radiative cooling ≈ 0 L.
+ * Energy: IT joules/token × PUE. Both paths use the same PUE.
+ * Water: the paper's 0.5 L/kWh on the ground path; 0 L in orbit.
  */
 export function compare(
   provider: ProviderId,
@@ -70,13 +82,15 @@ export function compare(
     throw new Error("Invalid workload");
 
   const groundTokens = result?.ground.totalTokens ?? previewTokens;
-  const spaceTokens = result?.space.totalTokens ?? Math.round(previewTokens * 0.78);
+  // No measured reply yet: both previews use the same token count. A lower
+  // orbital count would be an invented efficiency.
+  const spaceTokens = result?.space.totalTokens ?? previewTokens;
   if (![groundTokens, spaceTokens].every((n) => Number.isFinite(n) && n >= 0))
     throw new Error("Invalid workload");
 
   const km = distanceKm(origin, site),
-    pueGround = provider === "gemini" ? 1.09 : 1.1,
-    pueSpace = 1.04;
+    pueGround = PUE,
+    pueSpace = PUE;
   const network = routeAt(origin, snapshotAt, site);
 
   const scenario = (
@@ -90,8 +104,7 @@ export function compare(
   ): Scenario => {
     const itWh = (tokens * joulesPerToken) / 3600;
     const energyWh = itWh * pue;
-    // Mid water intensity 1.1 L/kWh → mL; orbital closed-loop radiators = 0.
-    const waterMl = water ? energyWh * 1.1 : 0;
+    const waterMl = water ? energyWh * PAPER_GROUND_WATER_L_PER_KWH : 0;
     return {
       energyWh,
       energyRange: [itWh * pue * 0.5, itWh * pue * 2],
@@ -127,7 +140,7 @@ export function compare(
       groundTokens,
       pueGround,
       true,
-      0.045,
+      PAPER_GROUND_USD_PER_KWH,
       network.ground.rttMs,
       result?.ground.latencyMs ?? 0,
       groundCost,
@@ -136,7 +149,7 @@ export function compare(
       spaceTokens,
       pueSpace,
       false,
-      0.002,
+      PAPER_ORBIT_USD_PER_KWH,
       network.rttMs,
       result?.space.latencyMs ?? 0,
       spaceCost,
