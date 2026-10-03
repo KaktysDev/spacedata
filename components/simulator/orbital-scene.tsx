@@ -31,6 +31,8 @@ import {
 } from "./space-hardware";
 import { ProviderLogo } from "./provider-picker";
 export type Flight = { id: number; started: number; reduced: boolean };
+export type SceneView = "space" | "overview";
+export type ViewPhase = "blur" | "settled" | "returned";
 type Props = {
   origin: Location;
   site: Site;
@@ -43,7 +45,12 @@ type Props = {
   focusId: number;
   zoom: number;
   onReady: () => void;
+  sceneView: SceneView;
+  onViewPhase?: (phase: ViewPhase) => void;
 };
+// Dublin, southern New Hampshire: the dorm where the project started.
+const OVERVIEW_FOCUS = { lat: 42.9, lon: -72.06 };
+const OVERVIEW_DISTANCE = 4.38;
 const R = 3.5,
   // Visual shell only. The inner edge stays well clear of Earth. The outer
   // edge is what the opening camera frames. Routing still uses physical
@@ -357,23 +364,27 @@ export function OrbitalScene(props: Props) {
     scene.add(atmosphere);
     const abort = new AbortController();
     let disposed = false;
+    const landPoints: { mat: THREE.ShaderMaterial; size: number }[] = [];
     const roundPoints = (
       coordinates: THREE.Vector3[],
       size: number,
       opacity: number,
-    ) =>
-      new THREE.Points(
+    ) => {
+      const mat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        uniforms: { size: { value: size }, opacity: { value: opacity } },
+        vertexShader:
+          "uniform float size;void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=size;}",
+        fragmentShader:
+          "uniform float opacity;void main(){float d=length(gl_PointCoord-vec2(.5));if(d>.5)discard;gl_FragColor=vec4(vec3(1.),opacity*(1.-smoothstep(.3,.5,d)));}",
+      });
+      landPoints.push({ mat, size });
+      return new THREE.Points(
         new THREE.BufferGeometry().setFromPoints(coordinates),
-        new THREE.ShaderMaterial({
-          transparent: true,
-          depthWrite: false,
-          uniforms: { size: { value: size }, opacity: { value: opacity } },
-          vertexShader:
-            "uniform float size;void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=size;}",
-          fragmentShader:
-            "uniform float opacity;void main(){float d=length(gl_PointCoord-vec2(.5));if(d>.5)discard;gl_FragColor=vec4(vec3(1.),opacity*(1.-smoothstep(.3,.5,d)));}",
-        }),
+        mat,
       );
+    };
     fetch("/globe-land.json", { signal: abort.signal })
       .then((r) => {
         if (!r.ok) throw Error("map");
@@ -551,6 +562,20 @@ export function OrbitalScene(props: Props) {
       camera: THREE.Vector3;
       to: THREE.Vector3;
     } | null = null;
+    const overviewDir = position(OVERVIEW_FOCUS, 1).normalize();
+    let sceneView: SceneView = "space";
+    let savedDir = camera.position.clone().normalize();
+    let savedRadius = camera.position.length();
+    let regionMix = 0;
+    let fly: {
+      kind: SceneView;
+      at: number;
+      fromDir: THREE.Vector3;
+      fromRadius: number;
+      pullRadius: number;
+      blurSent: boolean;
+      doneSent: boolean;
+    } | null = null;
     let pauseTimer = 0,
       width = 1,
       height = 1,
@@ -564,9 +589,12 @@ export function OrbitalScene(props: Props) {
       const fit = fitDistance(width, height);
       const zoom = camera.position.length() / Math.max(homeDistance, 1e-3);
       homeDistance = fit;
-      camera.position.setLength(
-        THREE.MathUtils.clamp(fit * zoom, MIN_ORBIT, MAX_ORBIT),
-      );
+      // The overview shot is a fixed altitude over New Hampshire. Rescale
+      // would pull that camera back out to the home framing.
+      if (latest.current.sceneView !== "overview" && !fly)
+        camera.position.setLength(
+          THREE.MathUtils.clamp(fit * zoom, MIN_ORBIT, MAX_ORBIT),
+        );
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
     };
@@ -608,17 +636,18 @@ export function OrbitalScene(props: Props) {
     };
     const end = () => {
       drag = false;
-      controls.enabled = !latest.current.flight;
+      controls.enabled =
+        !latest.current.flight && latest.current.sceneView === "space" && !fly;
       pin.current?.classList.remove("dragging");
       if (pointerId >= 0 && pin.current?.hasPointerCapture(pointerId))
         pin.current.releasePointerCapture(pointerId);
       pointerId = -1;
     };
     const place = (e: MouseEvent) => {
-      if (!latest.current.flight) {
-        const v = hit(e);
-        if (v) placePoint(v);
-      }
+      if (latest.current.flight || latest.current.sceneView !== "space" || fly)
+        return;
+      const v = hit(e);
+      if (v) placePoint(v);
     };
     const button = pin.current;
     button?.addEventListener("pointerdown", down);
@@ -860,6 +889,150 @@ export function OrbitalScene(props: Props) {
         .addScaledVector(lateral, 1.45);
       return { camera: cameraPos, target: point.clone() };
     }
+    function slerpDir(a: THREE.Vector3, b: THREE.Vector3, t: number) {
+      const dot = THREE.MathUtils.clamp(a.dot(b), -1, 1);
+      if (dot > 0.9995) return a.clone().lerp(b, t).normalize();
+      const omega = Math.acos(dot);
+      const s = Math.sin(omega);
+      if (s < 1e-5) return b.clone();
+      return a
+        .clone()
+        .multiplyScalar(Math.sin((1 - t) * omega) / s)
+        .addScaledVector(b, Math.sin(t * omega) / s);
+    }
+    function pullDistance(fromRadius: number) {
+      const pulled = Math.max(
+        fromRadius * 1.58,
+        homeDistance * 1.05,
+        fromRadius + 0.85,
+      );
+      return THREE.MathUtils.clamp(pulled, fromRadius, MAX_ORBIT * 0.88);
+    }
+    function beginFly(kind: SceneView, now: number) {
+      const fromRadius = Math.max(camera.position.length(), MIN_ORBIT);
+      const fromDir = camera.position.clone().normalize();
+      if (kind === "overview" && fly?.kind !== "space") {
+        const resting = returning ? idleCamera : camera.position;
+        savedDir = resting.clone().normalize();
+        savedRadius = Math.max(resting.length(), MIN_ORBIT);
+      }
+      returning = null;
+      focusing = null;
+      fly = {
+        kind,
+        at: now,
+        fromDir,
+        fromRadius,
+        pullRadius: pullDistance(fromRadius),
+        blurSent: false,
+        doneSent: false,
+      };
+    }
+    function emitPhase(phase: ViewPhase) {
+      latest.current.onViewPhase?.(phase);
+    }
+    // Zoom out along the current view, swing to southern New Hampshire, then
+    // dive until New England fills the frame. The UI blurs in on the callback.
+    function applyOverviewFly(now: number) {
+      if (!fly || fly.kind !== "overview") return 0;
+      if (motion.matches) {
+        camera.position.copy(overviewDir).multiplyScalar(OVERVIEW_DISTANCE);
+        controls.target.set(0, 0, 0);
+        if (!fly.blurSent) {
+          fly.blurSent = true;
+          emitPhase("blur");
+        }
+        if (!fly.doneSent) {
+          fly.doneSent = true;
+          emitPhase("settled");
+        }
+        fly = null;
+        return 1;
+      }
+      const outMs = 680;
+      const slewMs = 560;
+      const diveMs = 980;
+      const elapsed = now - fly.at;
+      let dir = fly.fromDir;
+      let radius = fly.fromRadius;
+      let dive = 0;
+      if (elapsed < outMs) {
+        radius = THREE.MathUtils.lerp(
+          fly.fromRadius,
+          fly.pullRadius,
+          smooth(elapsed / outMs),
+        );
+      } else if (elapsed < outMs + slewMs) {
+        dir = slerpDir(fly.fromDir, overviewDir, smooth((elapsed - outMs) / slewMs));
+        radius = fly.pullRadius;
+      } else {
+        dive = Math.min(1, (elapsed - outMs - slewMs) / diveMs);
+        const approach = Math.min(fly.pullRadius, 5.15);
+        if (dive <= 0.42) {
+          radius = THREE.MathUtils.lerp(
+            fly.pullRadius,
+            approach,
+            smooth(dive / 0.42),
+          );
+        } else {
+          radius = THREE.MathUtils.lerp(
+            approach,
+            OVERVIEW_DISTANCE,
+            smooth((dive - 0.42) / 0.58),
+          );
+        }
+        dir = overviewDir;
+        if (dive >= 0.72 && !fly.blurSent) {
+          fly.blurSent = true;
+          emitPhase("blur");
+        }
+        if (dive >= 1 && !fly.doneSent) {
+          fly.doneSent = true;
+          radius = OVERVIEW_DISTANCE;
+          emitPhase("settled");
+          fly = null;
+        }
+      }
+      camera.position.copy(dir).multiplyScalar(radius);
+      controls.target.set(0, 0, 0);
+      return dive;
+    }
+    function applyReturnFly(now: number) {
+      if (!fly || fly.kind !== "space") return;
+      if (motion.matches) {
+        camera.position.copy(savedDir).multiplyScalar(savedRadius);
+        controls.target.set(0, 0, 0);
+        if (!fly.doneSent) {
+          fly.doneSent = true;
+          emitPhase("returned");
+        }
+        fly = null;
+        return;
+      }
+      const outMs = 420;
+      const backMs = 780;
+      const elapsed = now - fly.at;
+      if (elapsed < outMs) {
+        const radius = THREE.MathUtils.lerp(
+          fly.fromRadius,
+          fly.pullRadius,
+          smooth(elapsed / outMs),
+        );
+        camera.position.copy(fly.fromDir).multiplyScalar(radius);
+      } else {
+        const k = smooth(Math.min(1, (elapsed - outMs) / backMs));
+        const dir = slerpDir(fly.fromDir, savedDir, k);
+        const radius = THREE.MathUtils.lerp(fly.pullRadius, savedRadius, k);
+        camera.position.copy(dir).multiplyScalar(Math.max(radius, MIN_ORBIT));
+        if (k >= 1 && !fly.doneSent) {
+          camera.position.copy(savedDir).multiplyScalar(savedRadius);
+          fly.doneSent = true;
+          emitPhase("returned");
+          fly = null;
+        }
+      }
+      controls.target.set(0, 0, 0);
+    }
     function render(now: number) {
       if (disposed) return;
       const p = latest.current;
@@ -1032,7 +1205,7 @@ export function OrbitalScene(props: Props) {
         distant.instanceMatrix.needsUpdate = true;
         lastDetailTime = now;
       }
-      if (p.focusId !== lastFocus) {
+      if (p.sceneView === "space" && !fly && p.focusId !== lastFocus) {
         lastFocus = p.focusId;
         const focusDirection = position(p.origin, 1);
         focusing = {
@@ -1041,7 +1214,7 @@ export function OrbitalScene(props: Props) {
           to: focusDirection.multiplyScalar(fitDistance(width, height)),
         };
       }
-      if (p.zoom !== lastZoom) {
+      if (p.sceneView === "space" && !fly && p.zoom !== lastZoom) {
         camera.position
           .sub(controls.target)
           .multiplyScalar(p.zoom > lastZoom ? 0.87 : 1.15)
@@ -1050,7 +1223,6 @@ export function OrbitalScene(props: Props) {
         lastZoom = p.zoom;
         focusing = null;
       }
-      const offset = height > 2 ? -(width < 700 ? 20 : 72) / height : 0;
       const rawElapsed = p.flight ? Math.max(0, now - p.flight.started) : 0;
       const playback =
         active && network
@@ -1198,12 +1370,39 @@ export function OrbitalScene(props: Props) {
         controls.target.set(0, 0, 0);
         if (t === 1) focusing = null;
       }
-      controls.enabled = !active && !drag && !returning && !focusing;
+      if (p.sceneView !== sceneView) {
+        sceneView = p.sceneView;
+        beginFly(sceneView, now);
+      }
+      let dive = 0;
+      if (fly?.kind === "overview") dive = applyOverviewFly(now);
+      else if (fly?.kind === "space") applyReturnFly(now);
+      else if (p.sceneView === "overview") {
+        camera.position.copy(overviewDir).multiplyScalar(OVERVIEW_DISTANCE);
+        controls.target.set(0, 0, 0);
+        dive = 1;
+      }
+      const frameTarget = p.sceneView === "overview" ? dive : 0;
+      regionMix = motion.matches || frameTarget >= regionMix
+        ? frameTarget
+        : regionMix + (frameTarget - regionMix) * 0.1;
+      const cinematic = fly !== null || p.sceneView === "overview";
+      const closeness = THREE.MathUtils.clamp(
+        (8.5 - camera.position.length()) / 4.2,
+        0,
+        1,
+      );
+      const pointBoost = cinematic && p.sceneView === "overview" ? 1 + closeness * 2.6 : 1;
+      for (const entry of landPoints)
+        entry.mat.uniforms.size.value = entry.size * pointBoost;
+      controls.enabled = !active && !drag && !returning && !focusing && !cinematic;
       controls.enableDamping = controls.enabled;
       controls.minDistance = active ? R + 0.45 : MIN_ORBIT;
       controls.maxDistance = MAX_ORBIT;
+      const chromeOffset = height > 2 ? -(width < 700 ? 20 : 72) / height : 0;
+      const framedOffset = chromeOffset * (1 - THREE.MathUtils.clamp(regionMix, 0, 1));
       if (width > 2 && height > 2)
-        camera.setViewOffset(width, height, 0, -height * offset, width, height);
+        camera.setViewOffset(width, height, 0, -height * framedOffset, width, height);
       if (controls.enabled) controls.update();
       else camera.lookAt(controls.target);
       camera.updateMatrixWorld();
@@ -1220,11 +1419,13 @@ export function OrbitalScene(props: Props) {
       );
       if (active) orbitalGroup.visible = true;
       occupied.length = 0;
-      project(pin.current, originMarker.position, !active, 0, 0);
+      const showPlaces = p.sceneView === "space" && !fly;
+      project(pin.current, originMarker.position, !active && showPlaces, 0, 0);
       project(
         groundLabel.current,
         dc.position,
-        !active || Boolean(playback && rawElapsed < playback.ground.outbound.endMs),
+        showPlaces &&
+          (!active || Boolean(playback && rawElapsed < playback.ground.outbound.endMs)),
         width < 700 ? -70 : -96,
         -30,
       );

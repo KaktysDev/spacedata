@@ -20,17 +20,26 @@ import {
   type OrbitalRoute,
   type PlaybackLane,
 } from "@/lib/starcloud/network";
-import { type Flight } from "./orbital-scene";
+import { type Flight, type ViewPhase } from "./orbital-scene";
 import { InferenceComparison, preloadComparisonImages } from "./inference-comparison";
 import { SourcesNote } from "./sources-note";
 import { DeveloperCredit } from "./developer-credit";
 import { ProviderPicker } from "./provider-picker";
+import { Overview } from "./overview";
 const OrbitalScene = dynamic(
   () => import("./orbital-scene").then((m) => m.OrbitalScene),
   { ssr: false },
 );
 
 type Place = Location & { name: string };
+type ViewMode = "space" | "to-overview" | "overview" | "to-space";
+
+function prefersReducedMotion() {
+  return (
+    typeof matchMedia === "function" &&
+    matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
 
 function routePhase(lane: PlaybackLane, elapsed: number, answerReady: boolean) {
   if (elapsed < lane.outbound.startMs) return "Starting";
@@ -61,7 +70,18 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     [error, setError] = useState(""),
     [joules, setJoules] = useState(1.11),
     [submitted, setSubmitted] = useState(""),
-    [snapshotAt, setSnapshotAt] = useState(0);
+    [snapshotAt, setSnapshotAt] = useState(0),
+    [mode, setMode] = useState<ViewMode>("space"),
+    [sceneView, setSceneView] = useState<"space" | "overview">("space"),
+    [veil, setVeil] = useState(false),
+    [word, setWord] = useState<"off" | "center" | "corner">("off"),
+    [pageOpen, setPageOpen] = useState(false);
+  const modeRef = useRef(mode);
+  const leaving = useRef(false);
+  const trip = useRef(0);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
   const request = useRef<AbortController | null>(null),
     active = useRef(false),
     textarea = useRef<HTMLTextAreaElement>(null);
@@ -91,6 +111,82 @@ export function Simulator({ available }: { available: ProviderId[] }) {
       body.classList.remove("app-lock");
     };
   }, []);
+  const onViewPhase = useCallback((phase: ViewPhase) => {
+    if (phase === "returned") {
+      leaving.current = false;
+      setVeil(false);
+      setWord("off");
+      setPageOpen(false);
+      setMode("space");
+      return;
+    }
+    if (leaving.current || modeRef.current !== "to-overview") return;
+    if (phase === "blur") {
+      setVeil(true);
+      setWord("center");
+    }
+    if (phase === "settled") {
+      setVeil(true);
+      setWord("corner");
+      setPageOpen(true);
+      setMode("overview");
+    }
+  }, []);
+  useEffect(() => {
+    if (mode !== "to-overview" && mode !== "to-space") return;
+    const ms = prefersReducedMotion() ? 80 : mode === "to-overview" ? 3600 : 2600;
+    const watch = mode;
+    const id = window.setTimeout(() => {
+      if (modeRef.current !== watch) return;
+      if (watch === "to-overview") {
+        if (leaving.current) return;
+        setVeil(true);
+        setWord("corner");
+        setPageOpen(true);
+        setMode("overview");
+      } else {
+        leaving.current = false;
+        setVeil(false);
+        setWord("off");
+        setPageOpen(false);
+        setMode("space");
+      }
+    }, ms);
+    return () => window.clearTimeout(id);
+  }, [mode]);
+  function go(next: "space" | "overview") {
+    if (flight) return;
+    const id = ++trip.current;
+    if (next === "overview") {
+      if (mode === "to-overview") return;
+      leaving.current = false;
+      if (mode === "overview" || (mode === "to-space" && sceneView === "overview")) {
+        setMode("overview");
+        setVeil(true);
+        setWord("corner");
+        setPageOpen(true);
+        return;
+      }
+      setResults(false);
+      setSources(false);
+      setPageOpen(false);
+      setWord("off");
+      setVeil(false);
+      setMode("to-overview");
+      setSceneView("overview");
+      return;
+    }
+    if (mode === "space" || mode === "to-space") return;
+    leaving.current = true;
+    setMode("to-space");
+    setPageOpen(false);
+    setWord("off");
+    window.setTimeout(() => {
+      if (trip.current !== id) return;
+      setVeil(false);
+      setSceneView("space");
+    }, prefersReducedMotion() ? 0 : 280);
+  }
 
   useEffect(() => () => request.current?.abort(), []);
   useEffect(() => {
@@ -219,9 +315,11 @@ export function Simulator({ available }: { available: ProviderId[] }) {
   const progressPercent = playback
     ? Math.min(answerReady ? 100 : 90, (elapsed / playback.totalMs) * 100)
     : 0;
+  const chromeHidden = mode !== "space";
+  const overviewTab = mode === "overview" || mode === "to-overview";
   return (
     <main
-      className={`simulator ${flight ? "in-flight" : ""} ${sources ? "modal-open" : ""} ${results ? "answer-open" : ""}`}
+      className={`simulator ${flight ? "in-flight" : ""} ${sources ? "modal-open" : ""} ${results ? "answer-open" : ""} ${chromeHidden ? "chrome-hidden" : ""} ${pageOpen ? "overview-open" : ""}`}
     >
       <OrbitalScene
         key={NODE_COUNT}
@@ -241,20 +339,70 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         focusId={focusId}
         zoom={zoom}
         onReady={onReady}
+        sceneView={sceneView}
+        onViewPhase={onViewPhase}
       />
       <header className="site-header">
-        <Link href="/" className="wordmark" aria-label="SpaceVision home">
+        <Link
+          href="/"
+          className="wordmark"
+          aria-label="SpaceVision home"
+          aria-hidden={chromeHidden}
+          tabIndex={chromeHidden ? -1 : undefined}
+        >
           <span className="brand-orbit" />
           SpaceVision<span className="wordmark-dot">.</span>
         </Link>
+        <div
+          className="view-switch"
+          role="tablist"
+          aria-label="Sections"
+          onKeyDown={(e) => {
+            if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+            e.preventDefault();
+            go(e.key === "ArrowRight" ? "overview" : "space");
+            const id = e.key === "ArrowRight" ? "tab-overview" : "tab-spacevision";
+            document.getElementById(id)?.focus();
+          }}
+        >
+          <button
+            type="button"
+            role="tab"
+            id="tab-spacevision"
+            aria-selected={!overviewTab}
+            disabled={Boolean(flight)}
+            onClick={() => go("space")}
+          >
+            SpaceVision
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-overview"
+            aria-selected={overviewTab}
+            aria-controls="overview-panel"
+            disabled={Boolean(flight)}
+            onClick={() => go("overview")}
+          >
+            Overview
+          </button>
+        </div>
         <button
           className="about-button"
           onClick={() => setSources(true)}
-          disabled={Boolean(flight)}
+          disabled={Boolean(flight) || chromeHidden}
+          aria-hidden={chromeHidden}
+          tabIndex={chromeHidden ? -1 : undefined}
         >
           How it works <span>↗</span>
         </button>
       </header>
+      <h1 className={`overview-word ${word}`} aria-hidden={word === "off"}>
+        Overview
+      </h1>
+      <div className={`overview-veil ${veil ? "on" : ""}`} aria-hidden="true" />
+      <div className="overview-scrim" aria-hidden="true" />
+      <Overview open={pageOpen} onBack={() => go("space")} />
       {!ready && (
         <div className="loading-scene" role="status">
           <span />
@@ -262,7 +410,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         </div>
       )}
       {flight ? (
-        <section className="journey-status" aria-label="Request journey">
+        <section className="journey-status" aria-label="Request journey" inert={chromeHidden}>
           <div className="journey-step">
             <span className="live-dot" />
             <span className="elapsed">{(elapsed / 1000).toFixed(1)} s</span>
@@ -289,9 +437,9 @@ export function Simulator({ available }: { available: ProviderId[] }) {
           </button>
         </section>
       ) : (
-        <section className="composer" aria-label="Send a prompt">
+        <section className="composer" aria-label="Send a prompt" inert={chromeHidden}>
           <div className="composer-heading">
-            <h1>A thought. Two paths.</h1>
+            <h1 aria-hidden={chromeHidden}>A thought. Two paths.</h1>
           </div>
           <form onSubmit={submit} className="prompt-glass">
             <textarea
@@ -345,7 +493,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
           )}
         </section>
       )}
-      <div className="map-controls">
+      <div className="map-controls" inert={chromeHidden}>
         <span className="map-hint">Drag to explore · hold the pin to move</span>
         <div>
           <button
@@ -364,7 +512,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
           </button>
         </div>
       </div>
-      <footer className="site-footer">
+      <footer className="site-footer" inert={chromeHidden}>
         <span className="constellation-count">SSO · 600–850 km</span>
         <DeveloperCredit />
       </footer>
