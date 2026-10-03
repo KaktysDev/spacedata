@@ -4,21 +4,30 @@ export const EARTH_KM = 6371,
   ALTITUDE_KM = 725;
 // Starcloud's FCC application (SAT-LOA-20260202-00073) proposes sun-synchronous
 // shells between 600 and 850 km. 725 km is the midpoint of that published band,
-// used only where a single reference altitude is required. The drawn ring is
-// raised off the globe; propagation uses these physical altitudes.
+// used only where a single reference altitude is required. The drawing uses
+// these same altitudes.
 export const SHELL_ALTITUDE_KM = 725;
 export const SHELL_ALTITUDE_MIN_KM = 600;
 export const SHELL_ALTITUDE_MAX_KM = 850;
 export const SHELL_ALTITUDES_KM = [SHELL_ALTITUDE_KM] as const;
 // A spacing picture of the dawn-dusk shell: about a tenth of the filing's
 // 88,000 ceiling. Craft fill a volume — along the ring, across 600–850 km of
-// altitude, and a cross-track offset — with a gap between neighbors. This
-// count is not that fleet and not a set of extra Starcloud-2 satellites.
+// altitude, and a cross-track width equal to that 250 km band — with a gap
+// between neighbors. This count is not that fleet and not a set of extra
+// Starcloud-2 satellites.
 export const SHELL_RADIAL_COUNT = 10;
 export const SHELL_ACROSS_COUNT = 8;
 export const SHELL_ALONG_COUNT = 110;
-/** Half-angle of the drawn shell off the dawn-dusk plane, in radians. */
-export const SHELL_ACROSS_RAD = 0.22;
+const SHELL_MIDPOINT_KM =
+  (SHELL_ALTITUDE_MIN_KM + SHELL_ALTITUDE_MAX_KM) / 2;
+/**
+ * Half-angle off the dawn-dusk plane. The full width equals the 250 km
+ * altitude band, at the band's midpoint radius. Routing ignores this offset.
+ */
+export const SHELL_ACROSS_RAD =
+  (SHELL_ALTITUDE_MAX_KM - SHELL_ALTITUDE_MIN_KM) /
+  2 /
+  (EARTH_KM + SHELL_MIDPOINT_KM);
 export const BAND_COUNT = 1;
 export const NODE_COUNT =
   SHELL_RADIAL_COUNT * SHELL_ACROSS_COUNT * SHELL_ALONG_COUNT;
