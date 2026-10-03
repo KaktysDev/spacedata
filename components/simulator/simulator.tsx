@@ -134,7 +134,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
   }, []);
   useEffect(() => {
     if (mode !== "to-overview" && mode !== "to-space") return;
-    const ms = prefersReducedMotion() ? 80 : mode === "to-overview" ? 3600 : 2600;
+    const ms = prefersReducedMotion() ? 80 : mode === "to-overview" ? 5600 : 2800;
     const watch = mode;
     const id = window.setTimeout(() => {
       if (modeRef.current !== watch) return;

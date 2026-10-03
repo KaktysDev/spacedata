@@ -50,7 +50,7 @@ type Props = {
 };
 // Dublin, southern New Hampshire: the dorm where the project started.
 const OVERVIEW_FOCUS = { lat: 42.9, lon: -72.06 };
-const OVERVIEW_DISTANCE = 4.38;
+const OVERVIEW_DISTANCE = 4.62;
 const R = 3.5,
   // Visual shell only. The inner edge stays well clear of Earth. The outer
   // edge is what the opening camera frames. Routing still uses physical
@@ -901,12 +901,10 @@ export function OrbitalScene(props: Props) {
         .addScaledVector(b, Math.sin(t * omega) / s);
     }
     function pullDistance(fromRadius: number) {
-      const pulled = Math.max(
-        fromRadius * 1.58,
-        homeDistance * 1.05,
-        fromRadius + 0.85,
-      );
-      return THREE.MathUtils.clamp(pulled, fromRadius, MAX_ORBIT * 0.88);
+      // A short pull-back. Going out to the orbit limit made Earth a speck
+      // and the following dive a blur.
+      const pulled = Math.max(fromRadius * 1.28, fromRadius + 2.4);
+      return THREE.MathUtils.clamp(pulled, fromRadius, 46);
     }
     function beginFly(kind: SceneView, now: number) {
       const fromRadius = Math.max(camera.position.length(), MIN_ORBIT);
@@ -949,9 +947,12 @@ export function OrbitalScene(props: Props) {
         fly = null;
         return 1;
       }
-      const outMs = 680;
-      const slewMs = 560;
-      const diveMs = 980;
+      const outMs = 740;
+      const slewMs = 900;
+      const diveMs = 1400;
+      const holdMs = 420;
+      const diveStart = outMs + slewMs;
+      const holdStart = diveStart + diveMs;
       const elapsed = now - fly.at;
       let dir = fly.fromDir;
       let radius = fly.fromRadius;
@@ -962,33 +963,37 @@ export function OrbitalScene(props: Props) {
           fly.pullRadius,
           smooth(elapsed / outMs),
         );
-      } else if (elapsed < outMs + slewMs) {
-        dir = slerpDir(fly.fromDir, overviewDir, smooth((elapsed - outMs) / slewMs));
+      } else if (elapsed < diveStart) {
+        dir = slerpDir(
+          fly.fromDir,
+          overviewDir,
+          smooth((elapsed - outMs) / slewMs),
+        );
         radius = fly.pullRadius;
       } else {
-        dive = Math.min(1, (elapsed - outMs - slewMs) / diveMs);
-        const approach = Math.min(fly.pullRadius, 5.15);
-        if (dive <= 0.42) {
+        dive = Math.min(1, (elapsed - diveStart) / diveMs);
+        const approach = Math.min(fly.pullRadius, 8.4);
+        if (dive < 1 && dive <= 0.58) {
           radius = THREE.MathUtils.lerp(
             fly.pullRadius,
             approach,
-            smooth(dive / 0.42),
+            smooth(dive / 0.58),
           );
-        } else {
+        } else if (dive < 1) {
           radius = THREE.MathUtils.lerp(
             approach,
             OVERVIEW_DISTANCE,
-            smooth((dive - 0.42) / 0.58),
+            smooth((dive - 0.58) / 0.42),
           );
-        }
+        } else radius = OVERVIEW_DISTANCE;
         dir = overviewDir;
-        if (dive >= 0.72 && !fly.blurSent) {
+        // Hold the close shot, then blur. The coast stays visible before the glass.
+        if (elapsed >= holdStart && !fly.blurSent) {
           fly.blurSent = true;
           emitPhase("blur");
         }
-        if (dive >= 1 && !fly.doneSent) {
+        if (elapsed >= holdStart + holdMs && !fly.doneSent) {
           fly.doneSent = true;
-          radius = OVERVIEW_DISTANCE;
           emitPhase("settled");
           fly = null;
         }
@@ -1388,11 +1393,12 @@ export function OrbitalScene(props: Props) {
         : regionMix + (frameTarget - regionMix) * 0.1;
       const cinematic = fly !== null || p.sceneView === "overview";
       const closeness = THREE.MathUtils.clamp(
-        (8.5 - camera.position.length()) / 4.2,
+        (12 - camera.position.length()) / 7.4,
         0,
         1,
       );
-      const pointBoost = cinematic && p.sceneView === "overview" ? 1 + closeness * 2.6 : 1;
+      const pointBoost =
+        cinematic && p.sceneView === "overview" ? 1 + closeness * 3.2 : 1;
       for (const entry of landPoints)
         entry.mat.uniforms.size.value = entry.size * pointBoost;
       controls.enabled = !active && !drag && !returning && !focusing && !cinematic;
@@ -1418,6 +1424,12 @@ export function OrbitalScene(props: Props) {
         playback && !p.flight?.reduced && rawElapsed < playback.space.finishedMs,
       );
       if (active) orbitalGroup.visible = true;
+      // Inside the shell the craft pass the lens. Hide them on the New England dive.
+      const tuckFleet =
+        (fly?.kind === "overview" || p.sceneView === "overview") &&
+        camera.position.length() < 13.5;
+      distant.visible = !tuckFleet;
+      detailed.visible = !tuckFleet;
       occupied.length = 0;
       const showPlaces = p.sceneView === "space" && !fly;
       project(pin.current, originMarker.position, !active && showPlaces, 0, 0);
