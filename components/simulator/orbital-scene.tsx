@@ -48,10 +48,8 @@ const R = 3.5,
   // Drawn cloud around Earth. Routing still uses 600–850 km.
   BELT_INNER = 4.6,
   BELT_OUTER = 9.0,
-  // Starcloud-1's published span. KeepTrack lists NORAD 66303 at 0.6 m long
-  // with a 0.6 m span; the Corvus-Micro body is about 0.49 m. Starcloud-2 has
-  // no published length, so it uses this smallsat class. The whitepaper's
-  // 4 km × 4 km array is one 5 GW station, not each of these craft.
+  // Starcloud's site does not publish a length. The whitepaper's 4 km array
+  // is one 5 GW station, not these marks. The opening view uses specks.
   FLEET_SPAN_M = 0.6,
   EARTH_RADIUS_M = EARTH_KM * 1000,
   // Opening marks are small specks. True 0.6 m craft are far smaller.
@@ -996,23 +994,31 @@ export function OrbitalScene(props: Props) {
             network.gatewayRoute.km > 0
               ? surface(network.gatewayRoute.points)
               : [];
-          carrier.position.copy(vectors[network.ingress].clone());
-          hardwareRotation(carrier.position, carrier.quaternion);
-          uplink = outsideLink(
-            position(network.uplinkAnchor, R + 0.016),
-            vectors[network.ingress].clone(),
-          );
-          laserPath = network.opticalPoints.map((p) =>
-            shellPosition(p, ringNormal),
-          );
-          computeVector = laserPath[laserPath.length - 1].clone();
+          if (network.inView) {
+            carrier.position.copy(vectors[network.ingress].clone());
+            hardwareRotation(carrier.position, carrier.quaternion);
+            uplink = outsideLink(
+              position(network.uplinkAnchor, R + 0.016),
+              vectors[network.ingress].clone(),
+            );
+            laserPath = network.opticalPoints.map((point) =>
+              shellPosition(point, ringNormal),
+            );
+            computeVector = laserPath[laserPath.length - 1].clone();
+          } else {
+            uplink = [];
+            laserPath = [];
+            computeVector = shellPosition(network.computeCraft, ringNormal);
+          }
           returnLaserPath = laserPath.slice().reverse();
           downlinkPath = uplink.slice().reverse();
           returnFeederPath = feederPath.slice().reverse();
           fiberGroup.add(line(groundPath, 0.8, true));
           if (feederPath.length) orbitalGroup.add(line(feederPath, 0.65, true));
-          orbitalGroup.add(line(uplink, 0.65));
-          if (laserPath.length > 1) orbitalGroup.add(line(laserPath, 0.85));
+          if (network.inView) {
+            orbitalGroup.add(line(uplink, 0.65));
+            if (laserPath.length > 1) orbitalGroup.add(line(laserPath, 0.85));
+          }
           for (const stop of network.ground.stops) {
             const node = new THREE.Mesh(
               new THREE.SphereGeometry(0.017, 8, 6),
@@ -1112,7 +1118,9 @@ export function OrbitalScene(props: Props) {
             1 - windowProgress(ground.return, ms),
             groundDot.position,
           );
-        if (feederPath.length && ms < space.feeder.endMs)
+        if (!network?.inView) {
+          spaceDot.visible = false;
+        } else if (feederPath.length && ms < space.feeder.endMs)
           follow(feederPath, windowProgress(space.feeder, ms), spaceDot.position);
         else if (ms < space.uplink.endMs)
           follow(uplink, windowProgress(space.uplink, ms), spaceDot.position);
@@ -1276,7 +1284,10 @@ export function OrbitalScene(props: Props) {
         playback && !p.flight?.reduced && rawElapsed < playback.ground.finishedMs,
       );
       spaceDot.visible = Boolean(
-        playback && !p.flight?.reduced && rawElapsed < playback.space.finishedMs,
+        network?.inView &&
+          playback &&
+          !p.flight?.reduced &&
+          rawElapsed < playback.space.finishedMs,
       );
       if (active) orbitalGroup.visible = true;
       occupied.length = 0;

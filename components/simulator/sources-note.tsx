@@ -51,13 +51,14 @@ export function SourcesNote({
               <strong>On Earth</strong>
               <ol>
                 <li>You</li>
-                <li>ISP & peering</li>
-                <li>Provider</li>
+                <li>Surface path</li>
+                <li>Public site reference</li>
                 <li>You</li>
               </ol>
               <p>
-                Packets follow terrestrial and subsea fiber through routers. The
-                return is shown along the same path.
+                The length is the great-circle surface distance to that public
+                reference, at the whitepaper’s fiber speed. It is not a trace
+                of ISP hops. The return uses the same length.
               </p>
             </div>
             <div>
@@ -69,13 +70,13 @@ export function SourcesNote({
                 <li>Back to you</li>
               </ol>
               <p>
-                The request leaves with the ground route. Starcloud-2’s diagram
-                sends an end user over RF to a third-party backhaul, then over
-                one optical link to Starcloud-2. That backhaul orbit is not
-                published, so the RF satellite is the other drawn craft in the
-                600–850 km shell with the highest elevation. The optical leg is
-                the straight path when it clears Earth, otherwise the shorter
-                arc on that shell.
+                The compute craft is the Starcloud-2 stand-in. The RF craft is
+                the other satellite in this one dawn-dusk plane that is above
+                the horizon and has a straight optical path to it. The highest
+                such elevation is used. A later send, or a moved pin, can
+                select a different RF craft because the shell has moved. If
+                none qualify, there is no uplink. The third-party backhaul
+                orbit is not in the model, so this plane is the stand-in.
               </p>
             </div>
           </div>
@@ -90,10 +91,11 @@ export function SourcesNote({
           <span className="section-number">02 / THE ARCHITECTURE</span>
           <h3>Built around power, cooling, and compute.</h3>
           <p>
-            Starcloud’s paper describes modular compute containers, solar
-            arrays, radiators, and RF or optical terminals on a shared spine.
-            The highlighted spacecraft carries that hardware. The link to it is
-            the optical connection in the filing, not the in-facility spine.
+            The figures are the whitepaper’s later data-center concept:
+            modular containers, solar arrays, radiators, and terminals on a
+            shared spine. They are not a claim that the Starcloud-2 smallsat
+            is that 4 km array. The optical leg in this route is the link from
+            the RF craft to the Starcloud-2 stand-in.
           </p>
           <figure className="paper-diagram">
             <Image
@@ -128,37 +130,27 @@ export function SourcesNote({
             </figure>
           </div>
           <p className="fine-print">
-            The highlighted craft is Starcloud-2, the first commercial GPU
-            smallsat, planned for sun-synchronous orbit in 2027. Starcloud-1
-            already flew in November 2025 with one H100; the results photo is
-            that demonstration spacecraft, not this path. Public descriptions
-            put Starcloud-3 on a later, much larger spacecraft and tie the
-            February 2026 filing for up to 88,000 satellites to that
-            constellation. Starcloud-4 is the far-future multi-gigawatt concept,
-            the same idea as the whitepaper’s 5 GW array, not a mission this
-            route uses.
-            Interview figures for 3 and 4 disagree, so this app does not pick
-            one.
+            The highlighted craft stands in for Starcloud-2, which Starcloud
+            describes as its first commercial GPU smallsat, planned for
+            sun-synchronous orbit in 2027. Starcloud-1 flew in November 2025
+            with one H100; the results photo is that demonstration, and
+            Starcloud’s page does not publish its mass or size. The February
+            2026 FCC notice requests up to 88,000 satellites. The 2024
+            whitepaper’s 5 GW concept is one solar array about 4 km by 4 km.
+            Those are different documents. This route does not mix them into
+            one spacecraft.
           </p>
           <p className="fine-print">
-            The other marks are 8,800 craft in one dawn-dusk shell, a spacing
-            picture rather than the 88,000 filing and not extra Starcloud-2
-            satellites. Routing keeps them between 600 km and 850 km. The
-            picture scatters them through a cloud around Earth, denser toward
-            the middle and uneven at the edges, rather than on a lattice. Each
-            mark stays a small speck. A fixed sun over 20°E sets
-            that plane, matching the paper’s figure. That sun direction is not
-            a live ephemeris. Starcloud-1 is about 60 kg. Gunter compares it to
-            a small refrigerator on the Corvus-Micro bus; that bus body is
-            published at about 34 × 34 × 49 cm, and the Starcloud-1 catalog
-            lists a 0.6 m length and span. Starcloud-2 is an 8 kW smallsat with
-            no published length, so the markers use that 0.6 m class. The
-            whitepaper’s 5 GW data center is a different machine: one solar
-            array about 4 km by 4 km, with radiators, not a size for each
-            satellite and not this route. Earth is 12,742 km across. That array
-            is about 1/3,200 of the globe’s width, and a 0.6 m craft is
-            thousands of times smaller again. Both are below one pixel beside
-            Earth, so the opening view keeps each mark small.
+            The other marks are 8,800 craft in one dawn-dusk plane, a picture
+            of spacing rather than the 88,000 filing and not extra Starcloud-2
+            satellites. Distances use 600–850 km on that plane. The cloud’s
+            radius and scatter on screen are not those kilometres. A fixed sun
+            over 20°E sets the plane, matching the paper’s dawn-dusk figure.
+            That sun direction is not a live ephemeris. Starcloud does not
+            publish a length for these craft, so each mark is a speck rather
+            than a measured scale model. The 4 km array would be about 1/3,200
+            of Earth’s 12,742 km width, still under a pixel here, and it is one
+            station in the whitepaper, not each of these marks.
           </p>
         </section>
         <section className="method-section">
@@ -187,18 +179,22 @@ export function SourcesNote({
               Energy, water & cost <span>+</span>
             </summary>
             <p>
-              Energy = total tokens × selected J/token ÷ 3,600 × PUE. PUE is
-              1.04 in orbit (assumed), 1.09 for Google (2025 fleet average), and
-              1.10 otherwise (assumed). The 0.5–2× range is sensitivity, not
+              Energy = total tokens × selected J/token ÷ 3,600 × PUE. Both
+              paths use PUE 1.09, Google’s published 2025 fleet average. The
+              whitepaper says orbital PUE is comparable and does not give a
+              number, so orbit is not given a lower PUE. Other providers are
+              not given a different number: this model does not have their
+              fleet measurement. The 0.5–2× range is sensitivity, not
               confidence. The default 1.11 J/token is illustrative.
             </p>
             <p>
-              Ground cooling uses an assumed 0.2–2.0 L/kWh, combined with the
-              energy range. Orbit assumes no routine evaporative cooling loss.
-              Power costs use the paper’s projected $0.002/kWh in orbit and
-              historical $0.045/kWh ground reference. These exclude
-              electricity-generation water, manufacturing, launch, hardware and
-              API fees.
+              Ground water uses the whitepaper’s terrestrial table, 0.5 L/kWh.
+              That is the paper’s assumption, not a meter at the marked site.
+              Orbit uses the paper’s “not required” column. Power uses the
+              paper’s projected $0.002/kWh in orbit and its US wholesale
+              reference of $0.045/kWh on every ground site, including sites
+              outside the US. These exclude manufacturing, launch, hardware
+              and API fees.
             </p>
           </details>
           <details className="method-details">
@@ -206,22 +202,24 @@ export function SourcesNote({
               Distance, timing & limitations <span>+</span>
             </summary>
             <p>
-              Ground distance is the surface path from you to the public site.
-              The whitepaper says vacuum is 35% faster than typical glass
-              fiber, so that path uses c/1.35. The orbital request starts with
-              it. RF runs from you to the backhaul satellite at c, then the
-              optical link runs to Starcloud-2 at c. The animation multiplies
-              those light-times by the same factor, so a longer path takes
-              proportionally longer. It waits for both terrestrial API replies
-              before showing either return. Positions freeze at send so the
-              picture matches the reported distances.
+              Ground distance is the great-circle surface path from you to the
+              public reference. The whitepaper says vacuum is 35% faster than
+              typical glass fiber, so that path uses c/1.35. There is no ISP
+              hop list. RF, when a satellite is above the horizon, runs to that
+              craft at c, then the straight optical leg runs at c. If no craft
+              is in view with a clear optical path, the network time is “No
+              line of sight” rather than a path through the Earth. The
+              animation multiplies those light-times by the same factor. It
+              waits for both terrestrial API replies before showing either
+              return. Positions freeze at send so the picture matches the
+              reported choice.
             </p>
             <p>
               No production AI request from this app runs in space.
-              Starcloud-2 is the commercial mission those routes stand in for.
-              Starcloud-1 is the flown demonstration. Starcloud-3 and
-              Starcloud-4 are later designs, not this path. API cost uses stored
-              standard rates and reported cache discounts; it is not an invoice.
+              Starcloud-2 is the commercial mission the compute craft stands
+              in for. Starcloud-1 is the flown demonstration. API cost uses
+              stored standard rates and reported cache discounts; it is not an
+              invoice.
               The answering API’s data policy applies to the prompt. This app
               retains only short-lived hashed rate-limit counters.
             </p>

@@ -269,6 +269,11 @@ export type OrbitalRoute = {
   uplinkKm: number;
   laserKm: number;
   rttMs: number;
+  /**
+   * False when no other craft is above the horizon with a straight optical
+   * path to the compute craft. The model then has no RF uplink.
+   */
+  inView: boolean;
 };
 
 export type PlaybackWindow = { startMs: number; endMs: number };
@@ -372,14 +377,16 @@ export function createRoutePlayback(
     uplink: window(feederEnd, uplinkEnd),
     laser: window(uplinkEnd, spaceOutEnd),
   };
+  const spaceReachable = Number.isFinite(route.rttMs);
   const difference = route.ground.rttMs - route.rttMs;
   return {
     launchMs,
     ground,
     space,
     firstArrivalMs,
-    firstFinished:
-      Math.abs(difference) < 1e-9
+    firstFinished: !spaceReachable
+      ? "ground"
+      : Math.abs(difference) < 1e-9
         ? "tie"
         : difference < 0
           ? "ground"
@@ -422,13 +429,14 @@ function opticalLeg(from: OrbitalNode, to: OrbitalNode) {
  * Two requests leave the user at the same time.
  * Ground: surface fiber to the public reference site and back. That site is
  * not a location the provider returned.
- * Orbit, from the Starcloud-2 diagram: RF from the end user to a backhaul
- * spacecraft, then one optical link to Starcloud-2, then the same path home.
- * The third-party backhaul orbit is not published. The RF satellite is the
- * other drawn craft in the 600–850 km shell with the highest elevation. The
- * optical leg is the straight vacuum path when it clears Earth, otherwise the
- * shorter arc on that shell. Starcloud-1 is not this path. The drawn shell
- * is a spacing picture, not the 88,000-spacecraft filing.
+ * Orbit: one compute craft stands in for Starcloud-2. The RF craft is the
+ * other satellite in this single dawn-dusk plane that is above the horizon
+ * and has a straight optical path to that compute craft. Among those, the
+ * highest elevation is used. A later time or a different user can select a
+ * different RF craft because the shell has moved. If none qualify, there is
+ * no uplink: the path is not drawn through the Earth. The third-party
+ * backhaul orbit is not published, so this plane is the stand-in. The drawn
+ * cloud is a picture; these kilometres use the physical altitudes.
  */
 export function routeAt(
   origin: Location,
@@ -440,16 +448,20 @@ export function routeAt(
   const computeRelay = STARCLOUD2_SLOT;
   const computeCraft = nodes[computeRelay];
 
-  let ingress = computeRelay === 0 ? 1 : 0;
+  let ingress = -1;
   let bestElev = -Infinity;
   for (let i = 0; i < nodes.length; i++) {
     if (i === computeRelay) continue;
     const elev = elevationDeg(origin, nodes[i]);
+    // Geometric horizon. No published minimum elevation, so this is line of sight.
+    if (elev <= 0) continue;
+    if (!laserClearsEarth(nodes[i], computeCraft)) continue;
     if (elev > bestElev) {
       bestElev = elev;
       ingress = i;
     }
   }
+  const inView = ingress >= 0;
 
   const uplinkAnchor = origin;
   const gateway = { ...origin, name: "You" };
@@ -459,14 +471,18 @@ export function routeAt(
     km: 0,
     rttMs: 0,
   };
-  const relay = { ...nodes[ingress] };
-  const uplinkKm = opticalDistanceKm(
-    { lat: origin.lat, lon: origin.lon, altitudeKm: 0 },
-    nodes[ingress],
-  );
-  const optical = opticalLeg(nodes[ingress], computeCraft);
-  const hops = [ingress, computeRelay];
-  const oneWayMs = uplinkKm / C_KM_PER_MS + optical.km / C_KM_PER_MS;
+  const relay = inView ? { ...nodes[ingress] } : { ...origin, altitudeKm: 0 };
+  const uplinkKm = inView
+    ? opticalDistanceKm(
+        { lat: origin.lat, lon: origin.lon, altitudeKm: 0 },
+        nodes[ingress],
+      )
+    : 0;
+  const optical = inView
+    ? opticalLeg(nodes[ingress], computeCraft)
+    : { km: 0, points: [] as OrbitalNode[] };
+  const hops = inView ? [ingress, computeRelay] : [];
+  const oneWayMs = inView ? uplinkKm / C_KM_PER_MS + optical.km / C_KM_PER_MS : Number.NaN;
   return {
     at,
     nodes,
@@ -484,6 +500,7 @@ export function routeAt(
     gatewayKm: 0,
     uplinkKm,
     laserKm: optical.km,
-    rttMs: 2 * oneWayMs,
+    rttMs: inView ? 2 * oneWayMs : Number.NaN,
+    inView,
   };
 }

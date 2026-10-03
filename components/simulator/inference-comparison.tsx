@@ -129,7 +129,13 @@ export function InferenceComparison({ result, provider, origin, site, prompt, on
   const c = compare(provider, origin, site, result, Math.ceil(prompt.length / 4) + 256, joules, snapshotAt);
   const facility = imageForSite(provider, site);
   const metrics: Metric[] = [
-    { label: "Network", ground: c.ground.rttMs, space: c.space.rttMs, format: (value) => `${Math.round(value)} ms` },
+    {
+      label: "Network",
+      ground: c.ground.rttMs,
+      space: c.space.rttMs,
+      format: (value) =>
+        Number.isFinite(value) ? `${Math.round(value)} ms` : "No line of sight",
+    },
     { label: "Energy", ground: c.ground.energyWh, space: c.space.energyWh, format: (value) => `${number(value)} Wh` },
     { label: "Water", ground: c.ground.waterMl, space: c.space.waterMl, format: formatWater },
     { label: "Power", ground: c.ground.powerCostUsd, space: c.space.powerCostUsd, format: money },
