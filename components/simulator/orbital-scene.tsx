@@ -45,13 +45,13 @@ type Props = {
   onReady: () => void;
 };
 const R = 3.5,
-  // Visual shell only. Inner is closer to Earth and outer is farther than the
-  // old annulus, so the band fills the volume the sketch marked. Routing still
-  // uses physical kilometres.
-  BELT_INNER = 4.9,
+  // Visual shell only. The inner edge stays well clear of Earth. The outer
+  // edge is what the opening camera frames. Routing still uses physical
+  // kilometres.
+  BELT_INNER = 8,
   BELT_OUTER = 12.2,
-  // Grains on the shell: visible, with a gap to the next craft.
-  CRAFT_SCALE = 0.26,
+  // Grains on the shell, small enough that the cell gap stays visible.
+  CRAFT_SCALE = 0.22,
   // Close enough for the land dots to fill the frame, still outside Earth.
   MIN_ORBIT = 4.22,
   MAX_ORBIT = 64,

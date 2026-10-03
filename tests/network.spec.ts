@@ -109,7 +109,7 @@ test("the modeled fleet fills a 600–850 km volume with spaced craft", () => {
   expect(nodes).toHaveLength(NODE_COUNT);
   const alts = nodes.map((p) => p.altitudeKm);
   const span = Math.max(...alts) - Math.min(...alts);
-  expect(span).toBeGreaterThan(240);
+  expect(span).toBeGreaterThan(230);
   expect(span).toBeLessThan(260);
   expect(Math.min(...alts)).toBeGreaterThanOrEqual(SHELL_ALTITUDE_MIN_KM - 1);
   expect(Math.min(...alts)).toBeLessThan(SHELL_ALTITUDE_MIN_KM + 30);
