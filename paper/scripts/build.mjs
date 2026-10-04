@@ -244,6 +244,35 @@ for (const [theme, edition] of Object.entries(EDITIONS)) {
   const tab = await browser.newPage({ viewport: { width: 816, height: 1056 } });
   await tab.emulateMedia({ media: "print" });
   await tab.goto(pathToFileURL(file).href, { waitUntil: "load" });
+  // The cover fade is painted into an opaque JPEG rather than drawn with a CSS
+  // mask: black-and-white printers render PDF soft masks as gray bands.
+  const heroSrc = await tab.getAttribute(".hero img", "src");
+  const hero = `data:image/png;base64,${readFileSync(join(BUILD, heroSrc)).toString("base64")}`;
+  await tab.evaluate(async ({ hero, bg, fadeIn }) => {
+    const load = (el, src) =>
+      new Promise((resolve, reject) => {
+        el.onload = resolve;
+        el.onerror = () => reject(new Error("cover render did not load"));
+        el.src = src;
+      });
+    const img = document.querySelector(".hero img");
+    const source = new Image();
+    await load(source, hero);
+    const box = img.getBoundingClientRect();
+    const canvas = document.createElement("canvas");
+    canvas.width = source.naturalWidth;
+    canvas.height = Math.round((source.naturalWidth * box.height) / box.width);
+    const g = canvas.getContext("2d");
+    g.fillStyle = bg;
+    g.fillRect(0, 0, canvas.width, canvas.height);
+    g.drawImage(source, 0, 0);
+    const fade = g.createLinearGradient(0, canvas.height * (1 - (fadeIn * 96) / box.height), 0, canvas.height);
+    fade.addColorStop(0, `${bg}0`);
+    fade.addColorStop(1, bg);
+    g.fillStyle = fade;
+    g.fillRect(0, 0, canvas.width, canvas.height);
+    await load(img, canvas.toDataURL("image/jpeg", 0.95));
+  }, { hero, bg: edition.bg, fadeIn: 0.4 });
   const problems = await tab.evaluate(async () => {
     await document.fonts.ready;
     await Promise.all([...document.images].map((img) => img.decode().catch(() => {})));

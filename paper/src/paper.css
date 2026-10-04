@@ -214,12 +214,11 @@ table.wide { width: 100%; }
   display: flex;
   flex-direction: column;
 }
-/* The mask fades the render's bottom into whatever the page is, black or white. */
+/* build.mjs bakes the bottom fade into the render, opaque, for each edition. */
 .hero {
   flex: none;
-  height: 4.2in;
+  height: 3.6in;
   overflow: hidden;
-  mask-image: linear-gradient(180deg, #000 42%, transparent 92%);
 }
 .hero img {
   display: block;
@@ -230,7 +229,7 @@ table.wide { width: 100%; }
 }
 .cover .titles {
   position: relative;
-  margin-top: -0.55in;
+  margin-top: 0.05in;
   padding: 0 0.85in;
   text-align: center;
 }
