@@ -229,7 +229,7 @@ const INFO = {
 };
 
 mkdirSync(BUILD, { recursive: true });
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await chromium.launch();
 for (const [theme, edition] of Object.entries(EDITIONS)) {
   const page = `@page { background: ${edition.bg};
     @bottom-left { content: "${FOOTER}"; font: 8pt Arial, Arimo, sans-serif; color: ${edition.footer}; vertical-align: top; padding-top: 0.32in; }
