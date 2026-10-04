@@ -43,3 +43,8 @@ next-env.d.ts
 
 /playwright-report/
 /test-results/
+
+# paper build output
+/paper/build/
+/paper/.cache/
+/paper/.review/
