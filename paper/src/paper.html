@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Routing Efficiency of AI Data Centers in Space</title>
+<meta name="author" content="Oleh Lahoda">
+<meta name="description" content="How SpaceVision models the network path of an AI request to a ground data center and to an orbital data center, and what the model says about latency, energy, water and cost.">
+<link rel="stylesheet" href="../src/paper.css">
+</head>
+<body>
+
+<section class="cover">
+  <div class="hero"><img src="../assets/app/cover-hero.png" alt=""></div>
+  <div class="titles">
+    <h1 class="title">Routing Efficiency of AI&nbsp;<br>Data Centers in Space</h1>
+    <div class="edition">© Oleh Lahoda, Engineering Paper v1.0, October 2026</div>
+    <div class="authors"><b>Oleh Lahoda</b><br>Developer of SpaceVision</div>
+  </div>
+  <div class="front">
+    <h2>Abstract</h2>
+    <p class="abstract">Starcloud proposes to move AI data centers into a dawn-dusk sun-synchronous orbit, where they would run on near-continuous sunlight and cool by radiating heat to space, and it has filed for up to 88,000 spacecraft. A user’s question would still start on the ground. This paper describes the routing simulation inside SpaceVision, a web simulator that sends one prompt to a real AI model twice and models two paths for it: fiber to the nearest public data-center site, and a radio uplink to a backhaul satellite followed by one optical link to Starcloud-2. We explain each modeling choice and why we made it, including {{=K.nodeCount|n0}} drawn craft standing in for the 88,000-craft filing, 28 public reference sites and a highest-elevation rule for the backhaul craft. Over one orbit, the median orbital round trip from six preset cities is {{=city("New York").rttMs.median|n0}}–{{=city("Cape Town").rttMs.median|n0}} ms, against 0–{{=city("Cape Town").ground.xai.rttMs|n0}} ms on the ground; the orbital path is faster only for users far from every ground site. For the same tokens it removes all modeled cooling water (about {{=M.per500.gemini.ground.waterMl|n2}} mL per 500-token exchange, or {{=M.perBillion.gemini.groundWaterL|n0}} L per billion tokens), uses about 5% less facility energy, and pays about {{=M.costRatioVsGoogle|n0}} times less for electricity, which is still only about 1% of the API price.</p>
+    <p class="keywords"><b>Keywords:</b> orbital data centers; Starcloud; dawn-dusk sun-synchronous orbit; satellite routing; network latency; AI inference; cooling water; power usage effectiveness.</p>
+    <div class="keyfacts">
+      <div><b>{{=K.nodeCount|n0}}</b>craft drawn in one dawn-dusk shell, a tenth of the 88,000 filed</div>
+      <div><b>28</b>public reference sites for Google, OpenAI, Anthropic and xAI</div>
+      <div><b>{{=city("New York").rttMs.median|n0}}–{{=city("Cape Town").rttMs.median|n0}} ms</b>median orbital round trip from six cities, over one orbit</div>
+      <div><b>0 mL</b>modeled cooling water in orbit, against {{=M.waterLPerKWh.mid|n1}} mL per Wh on the ground</div>
+    </div>
+  </div>
+  <div class="fn">Cover: SpaceVision’s globe with the modeled shell of {{=K.nodeCount|n0}} craft and the pin on New York, rendered by the app. Shell thickness is exaggerated on screen. All distances in this paper use physical kilometres.</div>
+  <div class="foot"><span>© Oleh Lahoda, October 2026, Engineering Paper: Routing Efficiency of AI Data Centers in Space</span><span>1</span></div>
+</section>
+
+<h2>Introduction</h2>
+<p>To keep pace with AI, the world is building data centers that draw a growing share of its electricity and evaporate large volumes of water to stay cool. In September 2024, Starcloud (then Lumen Orbit) published a white paper arguing that the largest of them should move to space.[[wp]] A data center in a dawn-dusk sun-synchronous orbit sees the sun almost continuously, needs no batteries to ride through the night, and rejects its heat by radiating it to deep space instead of evaporating water. The company has since flown Starcloud-1, a demonstration satellite carrying an NVIDIA H100 GPU, in November 2025,[[sc1]] and plans Starcloud-2, its first commercial GPU satellite, for sun-synchronous orbit in 2027.[[sc2]] In February 2026 it asked the U.S. Federal Communications Commission for authority to deploy up to 88,000 spacecraft in narrow sun-synchronous shells between 600 and 850 km, connected by optical backhaul,[[fcc]] and in May 2026 it announced that it would integrate SpaceX’s Starlink Mini Lasers, with an announced reach of up to 4,000 km.[[lasers]]</p>
+<p>The white paper is written for training clusters at gigawatt scale. A regular person meets these machines differently: as one question that has to travel from a phone or a laptop to a model and back. That journey is the subject of this paper. SpaceVision is a web simulator that sends one prompt to a real AI model twice, at the same moment, and models the two paths the request could take: along fiber to the nearest public data-center site, or up to a satellite and across an optical link to Starcloud-2 (Figure {{#fig:idle}}). It then shows both replies side by side with the modeled network delay, energy, cooling water and electricity cost of each path.</p>
+
+<figure id="fig-idle">
+  <img class="shot" src="../assets/app/idle.png" alt="SpaceVision with the globe, the dawn-dusk shell of craft, the pin on New York and the message box">
+  <figcaption>Figure {{#fig:idle}}. SpaceVision at rest. The globe carries the modeled dawn-dusk shell of {{=K.nodeCount|n0}} craft; the pin sits on New York and the label names Google’s nearest reference site. One prompt typed into the box is sent along both paths.<span class="credit">Screenshot of SpaceVision by the author. Shell thickness and hardware size are exaggerated on screen.</span></figcaption>
+</figure>
+
+<figure id="fig-sketch" class="side">
+  <img src="../assets/overview/sketch.jpg" alt="A handwritten notebook sketch of a globe, a location pin, a glass message box and satellites">
+  <figcaption>Figure {{#fig:sketch}}. The first sketch of SpaceVision: a globe that turns and zooms, a pin that can be dropped anywhere, a glass box for the message, and satellites along the side.<span class="credit">Sketch and photograph by the author.</span></figcaption>
+</figure>
+<p>The project began with three questions that Starcloud’s paper could not answer for a regular user, and that we could not answer by asking an AI chatbot either:</p>
+<ol class="questions">
+  <li>For someone like me, how much better is this, really?</li>
+  <li>How much water do we save if the machines cool in space, instead of with water on the ground?</li>
+  <li>The satellites are far away. How much longer does a normal question take?</li>
+</ol>
+<p>Answering them needs a model of the route, not only of the data center. We read the research on AI energy, data-center water and low-orbit networking, kept the engineering choices we could stand behind, and sketched the application before building it (Figure {{#fig:sketch}}). This paper documents the routing simulation that came out of that work: what we chose, what we measure, and why. In particular, we describe:</p>
+<ul class="plain">
+  <li>how we placed {{=K.nodeCount|n0}} craft to stand in for the 88,000-spacecraft filing, and why a tenth is enough;</li>
+  <li>how we chose 28 public ground sites for four AI providers, and how a user is matched to one;</li>
+  <li>how the simulator selects the backhaul satellite and the optical leg to Starcloud-2;</li>
+  <li>how light-time becomes screen time without distorting the comparison;</li>
+  <li>which metrics we collect, which are measured and which are modeled, and why each one exists;</li>
+  <li>what the model says for six cities and for the whole Earth, and how sensitive those answers are to our choices.</li>
+</ul>
+
+<h2>Why Model the Route?</h2>
+<p>Starcloud’s case for orbit rests on energy, cooling and scale. Global data-center power demand is forecast to rise steeply (Figure {{#fig:demand}}), and the white paper argues that orbital data centers can meet it with near-continuous solar power at an estimated $0.002/kWh, against an average U.S. wholesale price of $0.045/kWh, and with radiative cooling that needs no water.[[wp]] These are properties of the facility. A person asking a question also meets the network: how far the request travels, and through what.</p>
+
+
+<h3>Latency</h3>
+<p>On Earth, a request crosses an access network, metro and long-haul fiber, often a subsea cable, and many routers before it reaches a provider. Light in glass is slower than in vacuum; Starcloud’s paper puts the difference at 35%.[[wp]] Real routes are also longer than the great circle: Bozkurt et al. measured minimum round-trip times between hosts at about 3.1 times the vacuum light-time of the great-circle distance.[[bozkurt]] Low-orbit constellations with laser links can beat fiber over long distances because they carry light in vacuum on nearly straight paths.[[handley,kassing]] Whether that advantage survives a detour up to a satellite and across to one specific spacecraft, Starcloud-2, is a question of geometry. That geometry is what the simulator models.</p>
+<figure id="fig-demand" class="small">
+  <img src="../assets/starcloud/p02_0_X19.png" alt="Chart of total power draw of all data centers in gigawatts, rising from about 12 GW in 2011 to 200 GW in 2030">
+  <figcaption>Figure {{#fig:demand}}. Global data center power demand trend and forecast, from Starcloud’s white paper. The source notes that this is a base case and that some estimates are significantly more aggressive.<span class="credit">Reproduced from Feilden, Oltean and Johnston,[[wp]] p. 2 (Figure 1 in the source, derived from SemiAnalysis). © Lumen Orbit (now Starcloud).</span></figcaption>
+</figure>
+<h3>Water</h3>
+<p>Terrestrial data centers commonly cool by evaporating water. Google reports that the median Gemini Apps text prompt in 2025 used 0.24 Wh of energy and 0.26 mL of water,[[elsworth]] about {{=M.googleWaterCheckMlPerWh|n2}} mL of water per watt-hour. Starcloud’s cost comparison assumes 0.5 L of water per kWh on land and none in space, and it cites a European Commission study concluding that orbital data centers would eliminate fresh-water use for cooling.[[wp]] Water is therefore the most tangible difference a user can be shown, and SpaceVision reports it next to every answer.</p>
+<figure id="fig-radiators" class="small">
+  <img src="../assets/starcloud/p08_0_X58.png" alt="Render of a large square solar array and radiators in orbit above the Earth with the sun behind">
+  <figcaption>Figure {{#fig:radiators}}. A data center in sun-synchronous orbit with a 4 km × 4 km deployed solar array and radiators. Heat leaves by radiation, which is why the orbital path is modeled with zero cooling water.<span class="credit">Reproduced from Feilden, Oltean and Johnston,[[wp]] p. 8 (captioned as Figure 3 in the source). © Lumen Orbit (now Starcloud).</span></figcaption>
+</figure>
+<h3>Energy and cost</h3>
+<p>Facility energy is the energy of the IT equipment multiplied by the power usage effectiveness (PUE). Google reports a 2025 fleet-wide average PUE of 1.09;[[googlepue]] Starcloud expects PUE comparable to state-of-the-art hyperscale data centers, with simpler cooling than terrestrial chillers.[[wp]] Electricity price is where the white paper projects its largest advantage. Both effects reach a user only through the tokens their question consumes, so we model them per token.</p>
+
+<h2>Design Principles for the Simulation</h2>
+<p>The basic design principles below were adhered to when building the routing simulation. They are all in service of a comparison that a regular user can trust and an engineer can check.</p>
+<ol class="principles">
+  <li><b>One question, two paths:</b> The same prompt is sent twice, at the same moment, to the same model with the same settings. One reply is assigned to the ground path and one to the orbital path, so the replies are comparable and the only modeled difference is the route.</li>
+  <li><b>Published parameters only:</b> Every number in the model comes from a public source, such as Starcloud’s white paper and filing, provider documentation or standard orbital mechanics, or it is labeled as an assumption in the app and in this paper (Table {{#tab:params}}).</li>
+  <li><b>Measured and modeled kept apart:</b> Reply text, token counts and call durations are measured from the provider. Network delay, energy, water and electricity cost are modeled. The interface says which is which, and a call duration is never presented as a route time.</li>
+  <li><b>No forced advantage:</b> The orbital path is not tuned to win. It gets vacuum light speed and no switching delay, but it must reach one real spacecraft, Starcloud-2, wherever that craft is in its orbit.</li>
+  <li><b>Deterministic and reproducible:</b> Craft positions follow from a fixed epoch and a fixed hash, so the same pin, provider and time always produce the same route. Every number in this paper is regenerated by scripts that import the app’s own model code.[[spacevision]]</li>
+  <li><b>Delay you can see:</b> The animation stretches each millisecond of modeled light-time by the same factor on both paths, so the difference on screen is proportional to the difference in physics.</li>
+</ol>
+
+<table id="tab-params" class="wide">
+  <caption>Table {{#tab:params}}. Model parameters and where each one comes from.</caption>
+  <thead><tr><th>Parameter</th><th>Value</th><th>Source</th></tr></thead>
+  <tbody>
+    <tr><td>Shell</td><td>Dawn-dusk sun-synchronous, 600–850 km</td><td>Starcloud filing[[fcc]]</td></tr>
+    <tr><td>Craft drawn</td><td>{{=K.nodeCount|n0}} = 10 radial × 8 cross-track × 110 along-track</td><td>This work; the filing allows up to 88,000[[fcc]]</td></tr>
+    <tr><td>Reference altitude</td><td>725 km, the midpoint of the band</td><td>This work</td></tr>
+    <tr><td>Inclination, period</td><td>{{=K.inclinationDeg|n2}}°, {{=K.periodMin|n2}} min at 725 km</td><td>J<sub>2</sub> precession and Kepler’s third law[[vallado]]</td></tr>
+    <tr><td>Compute destination</td><td>Starcloud-2, slot 0 of the shell</td><td>Starcloud[[sc2]]</td></tr>
+    <tr><td>Light in vacuum, in fiber</td><td><i>c</i> = 299,792.458 km/s; <i>c</i>/1.35 = {{=K.fiberKmPerMs*1000|n0}} km/s</td><td>SI definition; Starcloud white paper[[wp]]</td></tr>
+    <tr><td>Ground sites</td><td>28 public city or region centers</td><td>Provider pages (Table {{#tab:sites}})</td></tr>
+    <tr><td>IT energy per token</td><td>1.11 J, adjustable 0.1–5 J</td><td>Illustrative assumption[[luccioni]]</td></tr>
+    <tr><td>PUE</td><td>1.09 Google · 1.10 other · 1.04 orbit</td><td>Google[[googlepue]] · assumed · assumed after the white paper[[wp]]</td></tr>
+    <tr><td>Cooling water</td><td>1.1 mL/Wh on the ground (0.2–2.0 range), 0 in orbit</td><td>Assumed; checked against Google’s measurement[[elsworth]]</td></tr>
+    <tr><td>Electricity price</td><td>$0.045/kWh ground, $0.002/kWh orbit</td><td>Starcloud white paper[[wp]]</td></tr>
+  </tbody>
+</table>
+
+<h2>System Architecture</h2>
+<p>SpaceVision is a Next.js web application with a Three.js globe. Figure {{#fig:system}} shows how one prompt moves through it. The browser sends the prompt and the selected provider to a server route, <span class="mono">/api/chat</span>, which calls the provider’s API twice in parallel with the same system prompt and a 4,096-token output cap. Both calls are served by the provider’s infrastructure on the ground; no request in this application is computed in space. While the calls run, the route model computes two network paths from the user’s pin, one on the ground and one through the orbital shell. When both replies have arrived, the client plays the two paths back on the globe and opens a results card with the replies and the metrics.</p>
+
+<figure id="fig-system">
+  <!--svg:system-->
+  <figcaption>Figure {{#fig:system}}. System overview. The replies are measured from the provider; the two routes and the resource metrics are modeled.<span class="credit">Diagram by the author, drawn from the SpaceVision source (<span class="mono">lib/starcloud/network.ts</span> and <span class="mono">comparison.ts</span>).</span></figcaption>
+</figure>
+
+<p>The route model is a small TypeScript module with no network access. It is a pure function of three inputs, the user’s location, the provider’s reference site and the time, which is why the simulator can freeze the picture at the moment of sending and report distances that match what it draws.</p>
+
+<h2>Routing on the Ground</h2>
+<h3>Where are the data centers?</h3>
+<p>No provider publishes which building serves a given API call. We therefore built a reference catalog from what each provider does publish (Table {{#tab:sites}}). Google lists its data-center campuses by town, so Gemini uses twelve campus locations.[[googleloc]] OpenAI’s GPT models are sold through Microsoft Azure, so GPT uses the seven Azure regions where the model is offered.[[azure]] Anthropic’s Claude Haiku 4.5 is offered through Amazon Bedrock regions,[[aws]] and xAI documents two endpoint regions in the United States.[[xai]] Each site is placed at a public city or region center, not at a facility address, and the application labels every marker as a model.</p>
+<!--table:sites-->
+<h3>Which site serves the user?</h3>
+<p>We assume that the request is served by the reference site nearest to the user, measured along the surface of the Earth with the haversine formula:[[sinnott]]</p>
+<div class="eq" id="eq-haversine"><math display="block"><mi>d</mi><mo>=</mo><mn>2</mn><mi>R</mi><mspace width="0.17em"/><mi>arcsin</mi><mo>&#x2061;</mo><mspace width="0.12em"/><msqrt><mrow><msup><mi>sin</mi><mn>2</mn></msup><mo>&#x2061;</mo><mspace width="0.12em"/><mfrac><mrow><mi mathvariant="normal">Δ</mi><mi>φ</mi></mrow><mn>2</mn></mfrac><mo>+</mo><mi>cos</mi><mo>&#x2061;</mo><mspace width="0.12em"/><msub><mi>φ</mi><mn>1</mn></msub><mspace width="0.17em"/><mi>cos</mi><mo>&#x2061;</mo><mspace width="0.12em"/><msub><mi>φ</mi><mn>2</mn></msub><mspace width="0.17em"/><msup><mi>sin</mi><mn>2</mn></msup><mo>&#x2061;</mo><mspace width="0.12em"/><mfrac><mrow><mi mathvariant="normal">Δ</mi><mi>λ</mi></mrow><mn>2</mn></mfrac></mrow></msqrt></math><span class="n">({{#eq:haversine}})</span></div>
+<p class="where">where φ is latitude, λ is longitude and <i>R</i> = 6,371 km. Nearest-site assignment divides the Earth into one catchment per site (Figure {{#fig:catchments}}). It is the simplest rule that uses only public data, and it is generous to the ground path: real traffic is often served from a farther region for capacity, cost or policy reasons.</p>
+
+<figure id="fig-catchments">
+  <!--svg:catchments-->
+  <figcaption>Figure {{#fig:catchments}}. Catchments of the nearest-site rule for each provider. Every point on Earth is assigned to the closest public reference site (dots); boundaries are exact great-circle bisectors between sites.<span class="credit">Maps by the author from the SpaceVision catalog (<span class="mono">lib/starcloud/catalog.ts</span>). Equal Earth projection; coastlines from Natural Earth via world-atlas.</span></figcaption>
+</figure>
+
+<h3>How fast is fiber?</h3>
+<p>Starcloud’s white paper notes that light in vacuum is 35% faster than in typical glass fiber.[[wp]] We use exactly that figure, so the ground path travels at</p>
+<div class="eq" id="eq-fiber"><math display="block"><msub><mi>v</mi><mi mathvariant="normal">f</mi></msub><mo>=</mo><mfrac><mi>c</mi><mn>1.35</mn></mfrac><mo>=</mo><mn>{{=K.fiberKmPerMs|n2}}</mn><mspace width="0.22em"/><mtext>km/ms</mtext><mo>,</mo><mspace width="1.2em"/><msub><mtext>RTT</mtext><mtext>ground</mtext></msub><mo>=</mo><mfrac><mrow><mn>2</mn><mi>d</mi></mrow><msub><mi>v</mi><mi mathvariant="normal">f</mi></msub></mfrac></math><span class="n">({{#eq:fiber}})</span></div>
+<p>Using the white paper’s own number keeps the comparison inside Starcloud’s argument. A standard single-mode fiber such as Corning SMF-28 Ultra has a group index of 1.4682 at 1550 nm,[[corning]] or {{=K.smf28KmPerMs|n2}} km/ms, which would make every ground round trip 8.8% longer. We also take the great-circle distance as the fiber length, with no gateway, no detour and no switching delay. Measured Internet paths are about three times slower than this ideal,[[bozkurt]] so our ground round trips are a lower bound, and a favorable one for the ground path (Table {{#tab:ground}}).</p>
+<!--table:ground-->
+<p>Three of the six preset cities sit on a reference site for at least one provider, which gives a modeled ground round trip of zero. New York reaches Google’s Ashburn site in {{=W.ground.rttMs|n2}} ms. The longest ground trip among the presets is Cape Town to xAI’s Virginia region, {{=city("Cape Town").ground.xai.rttMs|n2}} ms.</p>
+
+<h2>Orbital Architecture</h2>
+<h3>Why {{=K.nodeCount|n0}} satellites?</h3>
+<p>Starcloud’s filing asks for up to 88,000 spacecraft.[[fcc]] That number is a ceiling, not a deployment: the filing does not say how many craft fly in each shell, when they launch, or where they sit along the orbit. SpaceVision draws {{=K.nodeCount|n0}} craft, a tenth of the ceiling, for three reasons. First, every craft is a drawn object that the browser updates continuously, and a tenth of the ceiling keeps the scene interactive while still reading as a dense shell. Second, the routing result barely depends on the count at this density: drawing the shell with 88,000 craft by the same rule changes the median round trip of every preset city by at most {{=Math.max(...A.cities.map((c) => Math.abs(A.density[2].medianRttMs[c.name] - A.density[1].medianRttMs[c.name])))|n2}} ms (Table {{#tab:density}}). Third, a tenth keeps the picture honest: the drawn craft are a spacing picture of a shell, not a claim about the real fleet, and the application says so.</p>
+<h3>How are the craft arranged?</h3>
+<p>The {{=K.nodeCount|n0}} craft fill a volume shaped like the filing’s shell: 10 radial layers spanning 600–850 km, 8 cross-track bins and 110 along-track bins of {{=S.alongBinDeg|n2}}° each (Figure {{#fig:shell}}). Each craft is placed inside its cell by a deterministic hash of its slot number, but never in the outer 22% of the cell on any axis:</p>
+<div class="eq" id="eq-place"><math display="block"><mi>t</mi><mo>=</mo><mfrac><mrow><mi>b</mi><mo>+</mo><mn>0.22</mn><mo>+</mo><mn>0.56</mn><mo>&#x2062;</mo><mi>h</mi></mrow><mi>n</mi></mfrac></math><span class="n">({{#eq:place}})</span></div>
+<p class="where">where <i>t</i> is the craft’s fractional position on one axis, <i>b</i> its bin index, <i>n</i> the number of bins on that axis and <i>h</i> ∈ [0, 1) the hash. The margin keeps neighbors apart. Along the ring, the median gap between craft is {{=S.gaps.medianDeg|n3}}° ({{=S.gaps.medianKm|n0}} km) and the largest is {{=S.gaps.maxDeg|n2}}° ({{=S.gaps.maxKm|n0}} km). Realized altitudes run from {{=S.realizedAltitudeMinKm|n1}} to {{=S.realizedAltitudeMaxKm|n1}} km. The cross-track offset of ±{{=K.acrossHalfAngleDeg|n1}}° exists only in the drawing: routing places every craft on the orbital plane, so all route lengths are physical kilometres.</p>
+
+<figure id="fig-shell">
+  <!--svg:shell-->
+  <figcaption>Figure {{#fig:shell}}. The modeled shell. (a) Four of the 110 along-track bins seen from the side, with the craft of one cross-track bin; (b) the 56% placement zone inside each cell; (c) the parameters that define the {{=K.nodeCount|n0}} craft.<span class="credit">Diagram by the author; craft positions computed with the application’s own placement hash.</span></figcaption>
+</figure>
+
+<h3>Which orbit?</h3>
+<figure id="fig-dawndusk" class="side">
+  <img src="../assets/starcloud/p11_0_X73.png" alt="Render of a satellite on an orbit that follows the boundary between day and night on Earth">
+  <figcaption>Figure {{#fig:dawndusk}}. Satellite in a permanently illuminated dawn-dusk sun-synchronous orbit. The orbit follows the dawn-dusk line, known as the terminator, year-round.<span class="credit">Reproduced from Feilden, Oltean and Johnston,[[wp]] p. 11 (Figure 5 in the source, where the image is credited to DALL-E). © Lumen Orbit (now Starcloud).</span></figcaption>
+</figure>
+<p>Starcloud selected a low-Earth dawn-dusk sun-synchronous orbit because it is the only low orbit that keeps a spacecraft in near-continuous sunlight year-round (Figure {{#fig:dawndusk}}).[[wp]] Sun-synchronous means that the orbit plane precesses once per year, keeping pace with the Earth’s motion around the sun. The precession comes from the Earth’s oblateness, the J<sub>2</sub> term of its gravity field, and setting it to one turn per year fixes the inclination:[[vallado]]</p>
+<div class="eq" id="eq-incl"><math display="block"><mi>cos</mi><mo>&#x2061;</mo><mspace width="0.12em"/><mi>i</mi><mo>=</mo><mo>−</mo><mfrac><mrow><mn>2</mn><mi>π</mi><mo>/</mo><msub><mi>T</mi><mtext>year</mtext></msub></mrow><mrow><mfrac><mn>3</mn><mn>2</mn></mfrac><mo>&#x2062;</mo><msub><mi>J</mi><mn>2</mn></msub><mo>&#x2062;</mo><mi>n</mi><msup><mrow><mo>(</mo><mfrac><mi>R</mi><mi>a</mi></mfrac><mo>)</mo></mrow><mn>2</mn></msup></mrow></mfrac><mo>,</mo><mspace width="1.2em"/><mi>n</mi><mo>=</mo><msqrt><mfrac><mi>μ</mi><msup><mi>a</mi><mn>3</mn></msup></mfrac></msqrt></math><span class="n">({{#eq:incl}})</span></div>
+<p class="where">With <i>J</i><sub>2</sub> = 1.08263 × 10<sup>−3</sup>, μ = 398,600.44 km<sup>3</sup>/s<sup>2</sup>, <i>R</i> = 6,371 km and <i>a</i> = <i>R</i> + 725 km, the inclination is {{=K.inclinationDeg|n2}}° ({{=orbit(600).inclinationDeg|n2}}° at 600 km, {{=orbit(850).inclinationDeg|n2}}° at 850 km). The period is</p>
+<div class="eq" id="eq-period"><math display="block"><mi>T</mi><mo>=</mo><mn>2</mn><mi>π</mi><msqrt><mfrac><msup><mi>a</mi><mn>3</mn></msup><mi>μ</mi></mfrac></msqrt><mo>=</mo><mn>{{=K.periodMin|n2}}</mn><mspace width="0.22em"/><mtext>min at 725 km</mtext></math><span class="n">({{#eq:period}})</span></div>
+<p>Every craft in the shell uses the same inclination and the same period, so the shell turns as one rigid ring and never shears into arms.</p>
+
+
+<h3>Where is the sun?</h3>
+<p>Dawn-dusk means that the orbit normal points at the sun, so the orbital plane is the terminator. We fix the sun over {{=K.subsolarLonDeg|n0}}° E and put the orbit normal on it, which gives a right ascension of the ascending node of {{=K.raanDeg|n0}}° and places the sun at {{=Math.abs(K.sunLatDeg)|n2}}° S, the latitude at which an inclination of {{=K.inclinationDeg|n2}}° points the normal. The resulting picture matches the white paper’s figure, with Europe and Africa in daylight (Figure {{#fig:track}}). It is not an ephemeris: the Earth does not rotate under the ring in the model, and the real sun at the model epoch, 25 September 2026, stood near 1° S. We discuss the consequences under Limitations.</p>
+
+<figure id="fig-track">
+  <!--svg:track-->
+  <figcaption>Figure {{#fig:track}}. The modeled ring on the map at the epoch, 25 September 2026, 12:00 UTC. Because the orbit normal points at the fixed sun, the ring traces the terminator. Starcloud-2 starts over the equator at 70° W heading south and returns after {{=K.periodMin|n2}} min; its position is marked every twelfth of an orbit.<span class="credit">Map by the author from the application’s orbit model. Equal Earth projection; coastlines from Natural Earth via world-atlas.</span></figcaption>
+</figure>
+
+<h3>Where is Starcloud-2?</h3>
+<p>Starcloud-2 is the destination of every orbital request. It is slot 0 of the shell and sits at its center: 725 km altitude, on the plane, at the corner shared by eight cells (Figure {{#fig:shell}}a). At the epoch it is over the equator at 70° W. Because it moves with the shell, the length of the optical leg from any user’s backhaul craft cycles once per orbit, and that cycle dominates the orbital round trip.</p>
+
+<h2>Selecting the Routing Satellites</h2>
+<p>Starcloud’s white paper envisions laser connectivity between its data centers and other constellations such as Starlink, Kuiper or Kepler, alongside RF links (Figure {{#fig:network}}),[[wp]] and its filing describes optical backhaul.[[fcc]] The path we model follows Starcloud’s description of Starcloud-2:[[sc2]] the user’s request goes up over radio to a third-party backhaul satellite, then over one optical link to Starcloud-2, and the reply returns the same way. The operator and the orbit of that backhaul layer are not published, so we draw it from the same shell: the backhaul craft is one of the other {{=K.nodeCount - 1|n0}} drawn craft.</p>
+
+<figure id="fig-network" class="mid">
+  <img src="../assets/starcloud/p07_0_X51.png" alt="Block diagram of an orbital data center with optical and RF inter-satellite terminals, data shuttle docking ports, a spine, and containers with network switches and compute nodes">
+  <figcaption>Figure {{#fig:network}}. Orbital data center network architecture from Starcloud’s white paper: optical and RF inter-satellite terminals and data-shuttle docking ports share a spine with the compute containers, radiators and solar panels.<span class="credit">Reproduced from Feilden, Oltean and Johnston,[[wp]] p. 7 (Figure 4 in the source). © Lumen Orbit (now Starcloud).</span></figcaption>
+</figure>
+
+<h3>Which satellite takes the uplink?</h3>
+<p>The simulator gives the uplink to the drawn craft with the highest elevation above the user’s horizon. Elevation follows from the central angle θ between the user and the craft and the craft’s orbital radius <i>r</i> = <i>R</i> + <i>h</i>:</p>
+<div class="eq" id="eq-elev"><math display="block"><mi>ε</mi><mo>=</mo><mi>atan2</mi><mo>&#x2061;</mo><mspace width="0.12em"/><mrow><mo>(</mo><mi>r</mi><mspace width="0.17em"/><mi>cos</mi><mo>&#x2061;</mo><mspace width="0.12em"/><mi>θ</mi><mo>−</mo><mi>R</mi><mo>,</mo><mspace width="0.4em"/><mi>r</mi><mspace width="0.17em"/><mi>sin</mi><mo>&#x2061;</mo><mspace width="0.12em"/><mi>θ</mi><mo>)</mo></mrow></math><span class="n">({{#eq:elev}})</span></div>
+<p class="where">and the slant range of the radio link follows from the law of cosines:</p>
+<div class="eq" id="eq-slant"><math display="block"><mi>ρ</mi><mo>=</mo><msqrt><mrow><msup><mi>R</mi><mn>2</mn></msup><mo>+</mo><msup><mi>r</mi><mn>2</mn></msup><mo>−</mo><mn>2</mn><mi>R</mi><mi>r</mi><mspace width="0.17em"/><mi>cos</mi><mo>&#x2061;</mo><mspace width="0.12em"/><mi>θ</mi></mrow></msqrt></math><span class="n">({{#eq:slant}})</span></div>
+<p>Highest elevation is a standard criterion for satellite handover in low-orbit networks.[[papapetrou]] A craft high in the sky is seen through the least atmosphere, is the least likely to be blocked by terrain or buildings, and stays in view the longest. For craft at a single altitude it is the same as choosing the nearest craft. In our shell, where altitudes span 250 km, the two rules differ slightly, and we quantify the difference under Results.</p>
+<p>We set no minimum elevation. Every user therefore gets a route, even one for whom the whole shell is below the horizon; in that case the model’s radio link passes through the Earth. We keep this deliberately, so that the application always answers, and we flag it wherever it matters. For comparison, SpaceX’s second-generation Starlink system uses a minimum elevation of 25°.[[spacex]]</p>
+<h3>How does the request reach Starcloud-2?</h3>
+<p>From the backhaul craft, one optical link runs to Starcloud-2. If the straight line between the two craft clears the Earth, the link is that chord:</p>
+<div class="eq" id="eq-chord"><math display="block"><mi>L</mi><mo>=</mo><msqrt><mrow><msubsup><mi>r</mi><mi>a</mi><mn>2</mn></msubsup><mo>+</mo><msubsup><mi>r</mi><mi>b</mi><mn>2</mn></msubsup><mo>−</mo><mn>2</mn><msub><mi>r</mi><mi>a</mi></msub><msub><mi>r</mi><mi>b</mi></msub><mspace width="0.17em"/><mi>cos</mi><mo>&#x2061;</mo><mspace width="0.12em"/><mi mathvariant="normal">Δ</mi></mrow></msqrt></math><span class="n">({{#eq:chord}})</span></div>
+<p class="where">where Δ is the angle between the two craft as seen from the Earth’s center. Between two craft at 725 km, a chord clears the Earth only when Δ &lt; {{=orbit(725).clearChordMaxSeparationDeg|n2}}°, a distance of up to {{=orbit(725).clearChordMaxKm|n0}} km. Otherwise the light is taken along the shell, and we use the arc length:</p>
+<div class="eq" id="eq-arc"><math display="block"><mi>L</mi><mo>=</mo><mi mathvariant="normal">Δ</mi><mo>&#x2062;</mo><mfrac><mrow><msub><mi>r</mi><mi>a</mi></msub><mo>+</mo><msub><mi>r</mi><mi>b</mi></msub></mrow><mn>2</mn></mfrac></math><span class="n">({{#eq:arc}})</span></div>
+<p>Both legs travel at <i>c</i>, the speed of light in vacuum, so the orbital round trip is</p>
+<div class="eq" id="eq-rtt"><math display="block"><msub><mtext>RTT</mtext><mtext>orbit</mtext></msub><mo>=</mo><mfrac><mrow><mn>2</mn><mo>(</mo><mi>ρ</mi><mo>+</mo><mi>L</mi><mo>)</mo></mrow><mi>c</mi></mfrac></math><span class="n">({{#eq:rtt}})</span></div>
+<p>We add no per-hop switching delay, no gateway and no laser range limit, because Starcloud publishes none of them. Figure {{#fig:geometry}} shows the geometry.</p>
+
+<figure id="fig-geometry">
+  <!--svg:geometry-->
+  <figcaption>Figure {{#fig:geometry}}. Route geometry. (a) Elevation ε and slant range ρ from the user to one backhaul craft. (b) The optical leg to Starcloud-2, drawn in blue: a straight chord when it clears the Earth, otherwise an arc on the shell. Altitudes are exaggerated.<span class="credit">Diagram by the author from <span class="mono">lib/starcloud/network.ts</span>.</span></figcaption>
+</figure>
+
+<h3>A worked example</h3>
+<p>Table {{#tab:worked}} and Figure {{#fig:budget}} follow one request from New York at the model epoch, with Gemini selected. The highest craft is slot {{=W.ingress.slot|n0}} at {{=W.ingress.altitudeKm|n0}} km, {{=W.ingress.elevationDeg|n1}}° above the horizon and {{=W.uplinkKm|n0}} km away. Starcloud-2 is over the equator at 70° W, {{=W.separationDeg|n1}}° from the backhaul craft, so the optical leg is a {{=W.laserKm|n0}} km chord. The orbital round trip is {{=W.rttMs|n2}} ms. Google’s nearest site, Ashburn, is {{=W.ground.km|n0}} km away by fiber, a round trip of {{=W.ground.rttMs|n2}} ms. At that moment the orbital path is {{=W.rttMs / W.ground.rttMs|n0}} times slower, and most of the difference is the optical leg to wherever Starcloud-2 happens to be.</p>
+<!--table:worked-->
+<figure id="fig-budget">
+  <!--svg:budget-->
+  <figcaption>Figure {{#fig:budget}}. Round-trip budget for the worked example, leg by leg.<span class="credit">Chart by the author from <span class="mono">paper/data/analysis.json</span>.</span></figcaption>
+</figure>
+
+<h2>Making Delay Visible</h2>
+<p>A difference of a few tens of milliseconds is real but invisible to a person. SpaceVision therefore replays both paths on the globe in slow motion (Figure {{#fig:playback}}). After a 700 ms launch, every millisecond of modeled one-way light-time is drawn as 48 ms on screen, on both paths. The factor is fixed, not fitted to each request, so a longer light-time is always proportionally longer on screen. On the orbital path, the radio uplink and the optical leg share the outbound time in proportion to their physical light-times.</p>
+<p>The replies are real, so the animation cannot show a reply coming back before it exists. Each path therefore holds at its destination for</p>
+<div class="eq" id="eq-hold"><math display="block"><mi>H</mi><mo>=</mo><mi>max</mi><mo>&#x2061;</mo><mspace width="0.12em"/><mrow><mo>(</mo><mn>1,200</mn><mspace width="0.22em"/><mtext>ms</mtext><mo>,</mo><mspace width="0.4em"/><msub><mi>t</mi><mtext>release</mtext></msub><mo>−</mo><msub><mi>t</mi><mtext>first</mtext></msub><mo>)</mo></mrow><mo>,</mo><mspace width="1.2em"/><msub><mi>t</mi><mtext>release</mtext></msub><mo>=</mo><msub><mi>t</mi><mtext>reply</mtext></msub><mo>+</mo><mn>100</mn><mspace width="0.22em"/><mtext>ms</mtext></math><span class="n">({{#eq:hold}})</span></div>
+<p class="where">where <i>t</i><sub>first</sub> is the moment the first path reaches its destination on screen. Both paths hold for the same <i>H</i>, so the gap between their finishes is exactly 48 times the difference in modeled round-trip time. For the worked example, with both replies ready {{=W.playback.answerReadyMs/1000|n1}} s after sending, the ground path finishes at {{=W.playback.ground.return.end/1000|n2}} s and the orbital path at {{=W.playback.space.return.end/1000|n2}} s: a {{=(W.playback.space.return.end - W.playback.ground.return.end)/1000|n2}} s gap on screen for {{=W.rttMs - W.ground.rttMs|n1}} ms of extra light-time (Figure {{#fig:flight}}).</p>
+
+<figure id="fig-playback">
+  <!--svg:playback-->
+  <figcaption>Figure {{#fig:playback}}. Playback timeline for the worked example: launch, outbound, hold and return windows for each path, in screen time.<span class="credit">Chart by the author from <span class="mono">createRoutePlayback</span> in <span class="mono">lib/starcloud/network.ts</span>.</span></figcaption>
+</figure>
+
+<figure id="fig-flight">
+  <div class="pair">
+    <div><img class="shot" src="../assets/app/flight-0900.png" alt="SpaceVision during a request: the camera follows the radio uplink from New York to a backhaul craft"><div class="sub">(a) 0.9 s after sending</div></div>
+    <div><img class="shot" src="../assets/app/flight-2200.png" alt="SpaceVision during a request: the camera at Starcloud-2 among the shell craft, with the Earth to the right"><div class="sub">(b) 2.2 s after sending</div></div>
+  </div>
+  <figcaption>Figure {{#fig:flight}}. The worked example in the application. (a) The camera follows the radio uplink from New York to the backhaul craft. (b) The request has reached Starcloud-2, and both paths wait for the replies.<span class="credit">Screenshots of SpaceVision by the author, captured with a stepped browser clock. The reply was a fixed test response served by the capture script; no provider API was called. Hardware size is exaggerated on screen.</span></figcaption>
+</figure>
+
+<h2>Metrics: What We Collect and Why</h2>
+<p>The results card answers the three questions with four numbers per path: network round trip, energy, cooling water and electricity cost. Table {{#tab:collect}} lists everything the simulator records, whether it is measured or modeled, and why it is there. Figure {{#fig:metrics}} shows how the modeled numbers are derived from the measured ones.</p>
+<table id="tab-collect" class="wide">
+  <caption>Table {{#tab:collect}}. What SpaceVision collects for each request.</caption>
+  <thead><tr><th>Metric</th><th>Status</th><th>How</th><th>Why we collect it</th></tr></thead>
+  <tbody>
+    <tr><td>Reply text</td><td>Measured</td><td>One reply per path from the provider</td><td>Shows that both paths answer the same question</td></tr>
+    <tr><td>Tokens</td><td>Measured</td><td>Provider usage fields; estimated and labeled if missing</td><td>The only per-request workload signal providers expose</td></tr>
+    <tr><td>Call duration</td><td>Measured</td><td>Server timer around each call</td><td>Diagnostic only; never shown as a route time</td></tr>
+    <tr><td>Network round trip</td><td>Modeled</td><td>Eqs. {{#eq:fiber}} and {{#eq:rtt}}</td><td>Question 3: how much longer a question takes</td></tr>
+    <tr><td>Energy</td><td>Modeled</td><td>Eq. {{#eq:energy}}</td><td>Question 1, in physical units</td></tr>
+    <tr><td>Cooling water</td><td>Modeled</td><td>Eq. {{#eq:water}}</td><td>Question 2</td></tr>
+    <tr><td>Electricity cost</td><td>Modeled</td><td>Eq. {{#eq:cost}}</td><td>Starcloud’s main economic claim, at the scale of one question</td></tr>
+    <tr><td>API cost</td><td>Computed</td><td>Tokens × the provider’s list prices</td><td>Puts the electricity saving in proportion</td></tr>
+  </tbody>
+</table>
+<p>For <i>N</i> tokens at an IT energy of <i>e</i> joules per token, the facility energy in watt-hours, the cooling water in millilitres and the electricity cost in dollars are</p>
+<div class="eq" id="eq-energy"><math display="block"><mi>E</mi><mo>=</mo><mfrac><mrow><mi>N</mi><mo>&#x2062;</mo><mi>e</mi></mrow><mn>3600</mn></mfrac><mo>&#x2062;</mo><mtext>PUE</mtext></math><span class="n">({{#eq:energy}})</span></div>
+<div class="eq" id="eq-water"><math display="block"><mi>W</mi><mo>=</mo><mi>w</mi><mo>&#x2062;</mo><mi>E</mi><mo>,</mo><mspace width="1.2em"/><mi>w</mi><mo>=</mo><mn>1.1</mn><mspace width="0.22em"/><mtext>mL/Wh on the ground, 0 in orbit</mtext></math><span class="n">({{#eq:water}})</span></div>
+<div class="eq" id="eq-cost"><math display="block"><mi>C</mi><mo>=</mo><mfrac><mrow><mi>p</mi><mo>&#x2062;</mo><mi>E</mi></mrow><mn>1000</mn></mfrac><mo>,</mo><mspace width="1.2em"/><mi>p</mi><mo>=</mo><mtext>$0.045/kWh on the ground, $0.002/kWh in orbit</mtext></math><span class="n">({{#eq:cost}})</span></div>
+
+<figure id="fig-metrics">
+  <!--svg:metrics-->
+  <figcaption>Figure {{#fig:metrics}}. From tokens to resources. Token counts are measured for each path; energy, water and electricity cost are computed from them with the stated parameters.<span class="credit">Diagram by the author from <span class="mono">lib/starcloud/comparison.ts</span>.</span></figcaption>
+</figure>
+
+<h3>Why these parameters?</h3>
+<p><b>Energy per token.</b> Providers do not publish per-request energy, and published estimates vary by more than an order of magnitude across models, tasks and hardware.[[luccioni]] We therefore treat it as an adjustable parameter: 1.11 J/token by default, with a slider from 0.1 to 5 J/token and a displayed 0.5–2× band that is a sensitivity range, not a confidence interval. Because energy is linear in <i>e</i> and the other resource metrics are linear in energy, the ratio between the two paths does not depend on <i>e</i> at all.</p>
+<p><b>PUE.</b> Google reports a 2025 fleet-wide average of 1.09;[[googlepue]] we use it for Gemini and assume 1.10 for the other providers. For orbit we assume 1.04. Starcloud expects PUE comparable to state-of-the-art hyperscale facilities, and its own cost comparison charges terrestrial chillers about 5% of total power;[[wp]] removing that share from 1.09 gives about 1.04.</p>
+<p><b>Cooling water.</b> We assume 1.1 L per kWh of facility energy on the ground, the middle of an assumed 0.2–2.0 L/kWh range for evaporative cooling, and zero in orbit, where heat leaves by radiation (Figure {{#fig:radiators}}). The midpoint agrees with Google’s own measurement, 0.26 mL of water for 0.24 Wh per median Gemini prompt, or {{=M.googleWaterCheckMlPerWh|n2}} mL/Wh.[[elsworth]] Starcloud’s cost comparison uses a lower 0.5 L/kWh.[[wp]]</p>
+<p><b>Electricity price.</b> We use the white paper’s figures directly: $0.045/kWh, its reference U.S. wholesale price, against $0.002/kWh, its projected cost of solar power in orbit amortized over ten years.[[wp]] The modeled cost excludes the water used to generate electricity, manufacturing, launch, hardware and provider margin.</p>
+
+
+<figure id="fig-results" class="mid">
+  <img class="shot" src="../assets/app/results-card.png" alt="SpaceVision results card comparing Ashburn, Virginia and Starcloud-2: 3 ms and 41 ms network, 0.17 Wh and 0.16 Wh energy, 0.18 mL and 0 mL water">
+  <figcaption>Figure {{#fig:results}}. The results card for the worked example. The network times, 3 ms and 41 ms, are the round trips of Table {{#tab:worked}}; energy, water and power cost follow Table {{#tab:perquery}} for 500 tokens per path.<span class="credit">Screenshot of SpaceVision by the author. The reply text is a fixed test response served by the capture script, not a model output. Photographs as credited in the application: data centers near Ashburn, Virginia (Wikimedia Commons) and Starcloud-1 (via TechCrunch).</span></figcaption>
+</figure>
+
+<!--table:perquery-->
+<p>Per question the differences are tiny; per billion tokens they are not. For the same tokens, the orbital path uses {{=M.energySavingVsGoogle|p1}} less facility energy than Google’s ground path and {{=M.energySavingVsOther|p1}} less than the other providers, entirely because of PUE. It uses no cooling water, where the ground path uses about {{=M.perBillion.gemini.groundWaterL|n0}} L per billion tokens. It pays {{=M.costRatioVsGoogle|n1}} times less for electricity. For a single 500-token exchange, however, the ground electricity costs ${{=M.per500.gemini.ground.powerCostUsd|n7}}, while the API call itself costs ${{=M.per500.gemini.ground.apiCostUsd|n5}} at Gemini’s list prices. Electricity is about {{=M.per500.gemini.ground.powerCostUsd / M.per500.gemini.ground.apiCostUsd|p0}} of what a user pays, so the price advantage is invisible at the scale of one question.</p>
+
+<h2>Results</h2>
+<h3>How long does a question take?</h3>
+<p>Figure {{#fig:rtt}} shows the modeled orbital round trip from the six preset cities over one full orbit, against the ground round trip to each provider’s nearest site. The orbital curve is a sawtooth: as Starcloud-2 moves around the ring, the optical leg grows from almost nothing to half the ring and shrinks again, which alone swings the round trip by about {{=2 * orbit(725).halfCircumferenceKm / K.cKmPerMs|n0}} ms. The swing is the same for every user, because the backhaul craft always sits near the user’s own position along the ring. What differs is the uplink: {{=city("New York").uplinkMedianKm|n0}} km from New York, {{=city("São Paulo").uplinkMedianKm|n0}}–{{=city("Tokyo").uplinkMedianKm|n0}} km from London, Tokyo, Sydney and São Paulo, and {{=city("Cape Town").uplinkMedianKm|n0}} km from Cape Town, through the Earth.</p>
+
+<!--table:cities-->
+<p>The median orbital round trip ranges from {{=city("New York").rttMs.median|n1}} ms in New York to {{=city("Cape Town").rttMs.median|n1}} ms in Cape Town (Table {{#tab:cities}}). On the ground, the same cities reach their nearest sites in 0 to {{=city("Cape Town").ground.xai.rttMs|n1}} ms. About {{=city("New York").chordShare|p0}} of the time the optical leg is a straight chord; the rest of the time Starcloud-2 is more than {{=orbit(725).clearChordMaxSeparationDeg|n0}}° away and the light is taken along the shell.</p>
+
+<figure id="fig-rtt">
+  <!--svg:rtt-->
+  <figcaption>Figure {{#fig:rtt}}. Round trip over one orbit for the six preset cities. Blue: the orbital path through Starcloud-2. Orange: the ground path to each provider’s nearest site, labeled G (Google), O (OpenAI), A (Anthropic) and x (xAI).<span class="credit">Chart by the author; {{=A.sampling.samples|n0}} samples per city computed with the application’s <span class="mono">routeAt</span>.</span></figcaption>
+</figure>
+
+<h3>Who can see the shell?</h3>
+<p>A user can only reach a craft that is above their horizon. Because the shell is a single plane, what matters is the angle β between the user and that plane. For a continuous ring at radius <i>r</i>, the best possible elevation is Eq. {{#eq:elev}} with θ = β, and the ring sinks below the horizon when</p>
+<div class="eq" id="eq-horizon"><math display="block"><mi>cos</mi><mo>&#x2061;</mo><mspace width="0.12em"/><mi>β</mi><mo>=</mo><mfrac><mi>R</mi><mi>r</mi></mfrac></math><span class="n">({{#eq:horizon}})</span></div>
+<p class="where">that is, beyond {{=orbit(600).horizonOffDeg|n2}}° from the plane for craft at 600 km and {{=orbit(850).horizonOffDeg|n2}}° for craft at 850 km. A band of half-width β around a great circle covers a fraction</p>
+<div class="eq" id="eq-band"><math display="block"><mfrac><msub><mi>A</mi><mtext>band</mtext></msub><msub><mi>A</mi><mtext>Earth</mtext></msub></mfrac><mo>=</mo><mi>sin</mi><mo>&#x2061;</mo><mspace width="0.12em"/><mi>β</mi></math><span class="n">({{#eq:band}})</span></div>
+<p class="where">of the Earth’s surface: {{=orbit(850).horizonSurfaceShare|p1}} for line of sight to an 850 km craft, and {{=orbit(850).mask25SurfaceShare|p1}} if a 25° elevation mask applies, which narrows the band to {{=orbit(850).mask25OffDeg|n2}}° (Figure {{#fig:coverage}}). New York, {{=Math.abs(city("New York").offPlaneDeg)|n1}}° from the plane, sees the shell {{=city("New York").bestElevation850Deg|n0}}° up. London, Sydney and São Paulo sit close to the edge, and Tokyo and Cape Town cannot see any craft at all. The model still routes them, which makes their orbital numbers optimistic.</p>
+
+<figure id="fig-coverage">
+  <!--svg:coverage-->
+  <figcaption>Figure {{#fig:coverage}}. Best elevation to the shell against the angle between the user and the ring plane, for craft at 600, 725 and 850 km, with the six preset cities on the 850 km curve.<span class="credit">Chart by the author from Eq. {{#eq:elev}} and <span class="mono">paper/data/analysis.json</span>.</span></figcaption>
+</figure>
+
+<h3>Where is the orbital path faster?</h3>
+<p>Table {{#tab:shares}} gives, for each city and provider, the share of one orbit in which the orbital round trip is shorter than the ground round trip. New York never wins, because every provider has a site within {{=Math.max(...Object.values(city("New York").ground).map((g) => g.km))|n0}} km. The orbital path wins only where the nearest site is thousands of kilometres away: Sydney to Google’s Singapore campus or to xAI’s California region, and South America and southern Africa to North America. Among the presets, it wins only for users who can barely see the shell or cannot see it at all.</p>
+<!--table:shares-->
+<p>Figure {{#fig:share}} extends the comparison to the whole Earth, and Table {{#tab:global}} reads it four ways. Over all user locations and instants, the orbital path is faster {{=G.summary.gemini.overall|p1}} of the time for Google and {{=G.summary.xai.overall|p1}} for xAI. Within line of sight of the shell the shares rise to {{=G.summary.gemini.inSight|p1}}–{{=G.summary.xai.inSight|p1}}; counting users without line of sight as never winning lowers them to {{=G.summary.gemini.outOfSightAsZero|p1}}–{{=G.summary.xai.outOfSightAsZero|p1}}; and for users who would see a craft above a 25° mask they are {{=G.summary.gemini.inMask|p1}}–{{=G.summary.xai.inMask|p1}}. Near the ring plane, then, the orbital path does win for users far from every site, mostly over the oceans and in regions without a nearby reference site. Only for xAI, whose two sites are both in the United States, is the orbital path faster for most of the orbit over a large area ({{=G.summary.xai.majorityArea|p1}} of the Earth). For Google it is never faster for most of the orbit anywhere.</p>
+
+<figure id="fig-share">
+  <!--svg:share-->
+  <figcaption>Figure {{#fig:share}}. Share of one orbit in which the orbital round trip is shorter, for every point on Earth. Hatched caps lie more than {{=G.lineOfSightOffDeg|n2}}° from the ring plane, where no craft is above the horizon; the model still routes there, so those shares are optimistic.<span class="credit">Maps by the author: {{=360 * 180 / G.stepDeg / G.stepDeg|n0}} cells × {{=G.samplesPerOrbit|n0}} instants, computed with a search that reproduces the application’s <span class="mono">routeAt</span> exactly (Appendix A). Equal Earth projection; coastlines from Natural Earth via world-atlas.</span></figcaption>
+</figure>
+<!--table:global-->
+
+<h3>How sensitive are these answers?</h3>
+<p><b>Density.</b> Drawing the shell with 880 or 88,000 craft by the same rule changes little (Table {{#tab:density}}). Going from 880 to {{=K.nodeCount|n0}} craft shortens the median round trip by {{=Math.min(...A.cities.map((c) => A.density[0].medianRttMs[c.name] - A.density[1].medianRttMs[c.name]))|n1}}–{{=Math.max(...A.cities.map((c) => A.density[0].medianRttMs[c.name] - A.density[1].medianRttMs[c.name]))|n1}} ms, because a denser shell offers a backhaul craft closer to directly overhead. Going from {{=K.nodeCount|n0}} to 88,000 changes it by at most {{=Math.max(...A.cities.map((c) => Math.abs(A.density[2].medianRttMs[c.name] - A.density[1].medianRttMs[c.name])))|n2}} ms. The dominant term is the optical leg to Starcloud-2, which no amount of density shortens.</p>
+<!--table:density-->
+<p><b>Selection rule.</b> Choosing the nearest craft instead of the highest would shorten the median uplink by {{=Math.min(...A.cities.map((c) => c.rule.uplinkPenaltyMedianKm))|n0}}–{{=Math.max(...A.cities.map((c) => c.rule.uplinkPenaltyMedianKm))|n0}} km and the median round trip by {{=Math.min(...A.cities.map((c) => c.rule.rttPenaltyMedianMs))|n1}}–{{=Math.max(...A.cities.map((c) => c.rule.rttPenaltyMedianMs))|n1}} ms (Table {{#tab:rule}}). The highest craft is often a high-altitude one almost overhead, while the nearest is often a lower one slightly to the side. At some instants the highest-elevation rule is faster overall, by up to {{=Math.max(...A.cities.map((c) => -c.rule.rttPenaltyMinMs))|n1}} ms, because the position of the backhaul craft also changes the optical leg. We keep highest elevation because it is the conventional and physically safer choice; its cost is about 2–3% of the median round trip.</p>
+<!--table:rule-->
+
+<h2>Limitations</h2>
+<p>The model is built to compare two paths under stated assumptions, not to predict a production network. Its main limitations are listed below. The first and fourth favor the orbital path, the third counts against it, and the fifth and sixth favor the ground path.</p>
+<ol class="principles">
+  <li><b>No elevation mask:</b> Users more than {{=G.lineOfSightOffDeg|n2}}° from the ring plane get a route through the Earth. Every orbital win among the presets falls in this regime or close to it. With a 25° mask, only {{=orbit(850).mask25SurfaceShare|p1}} of the Earth could connect at all.</li>
+  <li><b>A fixed sun and a non-rotating Earth:</b> The ring stays over the same longitudes, so a city is either near the plane or not, permanently. In reality the Earth turns under a dawn-dusk orbit once a day, and every city passes near the terminator twice, at dawn and at dusk. The fixed subsolar latitude of {{=Math.abs(K.sunLatDeg)|n2}}° S also differs from the real value near the epoch, about 1° S.</li>
+  <li><b>One destination:</b> Every orbital request goes to Starcloud-2, wherever it is. A constellation of compute satellites, or a scheduler that waits for the nearest one, would shorten the optical leg.</li>
+  <li><b>An ideal laser network:</b> We allow chords of up to {{=orbit(725).clearChordMaxKm|n0}} km at 725 km, beyond the 4,000 km reach announced for the Starlink Mini Laser,[[lasers]] and arcs of up to half the ring, with no relays and no switching delay.</li>
+  <li><b>An ideal ground network:</b> The ground path has no route inflation, while measured paths are about three times slower than the great-circle light-time.[[bozkurt]] A real fiber index of 1.4682 would add another 8.8%.</li>
+  <li><b>Nearest is not serving:</b> The reference site is the nearest public city or region center, not the facility that actually serves an API call.</li>
+  <li><b>Energy per token is one illustrative constant:</b> It is the same on both paths; only PUE, water and price differ.</li>
+  <li><b>Both calls run on Earth:</b> The replies are real, but neither is computed in space, and the call durations measure the provider, not the route.</li>
+</ol>
+
+<h2>Conclusion</h2>
+<p>Orbital data centers sit at the intersection of the energy demands of AI, falling launch costs and laser-linked constellations, and Starcloud has made a serious case for them.[[wp]] For a regular person asking a question, our routing simulation answers the three questions this project started with:</p>
+<ol class="questions">
+  <li><b>How much better is it?</b> For the same tokens, about 5% less facility energy, no cooling water and about {{=M.costRatioVsGoogle|n0}} times cheaper electricity. The electricity saving is real at fleet scale but invisible on one question, where electricity is about 1% of the API price.</li>
+  <li><b>How much water do we save?</b> About {{=M.per500.gemini.ground.waterMl|n2}} mL per 500-token exchange, roughly 1.1 mL per watt-hour, or about {{=M.perBillion.gemini.groundWaterL|n0}} L per billion tokens.</li>
+  <li><b>How much longer does a question take?</b> For people near a data center, tens of milliseconds longer: a median of {{=city("New York").rttMs.median|n0}} ms from New York through Starcloud-2, against {{=W.ground.rttMs|n0}} ms to Ashburn. The orbital path wins only for users far from every reference site, and even the longest modeled orbital round trip among the presets, {{=city("Cape Town").rttMs.max|n0}} ms, is under a fifth of a second.</li>
+</ol>
+<p>The routing simulation does not make orbital data centers look better or worse than their published parameters allow. Its value is that it puts those parameters in front of a regular user, on a map, for a question they actually asked. We are convinced that this comparison is worth making in public, one question at a time.</p>
+
+<h2>References</h2>
+<!--references-->
+
+<section class="appendix newpage">
+<h2>Appendix A. Reproducing the Numbers</h2>
+<p>Every number, table and chart in this paper is generated from the SpaceVision source.[[spacevision]] From the repository root:</p>
+<pre>npm ci
+node paper/scripts/analysis.mjs      # numbers and series → paper/data/analysis.json
+node paper/scripts/figures.mjs       # diagrams → paper/figures/*.svg
+npx next dev -p 3123 &amp;               # only needed for screenshots
+node paper/scripts/screenshots.mjs   # screenshots with a mocked reply, no API calls
+node paper/scripts/build.mjs         # both PDF editions</pre>
+<p><span class="mono">analysis.mjs</span> transpiles <span class="mono">lib/starcloud/catalog.ts</span>, <span class="mono">network.ts</span> and <span class="mono">comparison.ts</span> with the TypeScript compiler and calls the application’s <span class="mono">routeAt</span>, <span class="mono">groundRoute</span>, <span class="mono">createRoutePlayback</span> and <span class="mono">compare</span> directly. The six-city series call <span class="mono">routeAt</span> every {{=A.sampling.stepMs/1000|n0}} s over one orbit. The global grid uses a faster search that walks outward along the ring from the user’s projection and stops once no farther craft could have a higher elevation. On {{=A.validation.fastRouteSamples|n0}} random users and times it picked the same backhaul craft as <span class="mono">routeAt</span> in every case and matched its round trip to within {{=A.validation.fastRouteMaxRttDiffMs|e0}} ms. The 880- and 88,000-craft shells use a copy of the application’s placement rule that reproduces the {{=K.nodeCount|n0}}-craft shell to within {{=A.validation.mirroredShellMaxDiff|e0}}. Screenshots are taken with Playwright against the development server, with <span class="mono">/api/chat</span> answered by the script and the page clock stepped from the model epoch.</p>
+
+<h2>Appendix B. Constants</h2>
+<table id="tab-constants" class="wide">
+  <caption>Table {{#tab:constants}}. Constants used by the route model.</caption>
+  <thead><tr><th>Constant</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Earth radius <i>R</i></td><td>{{=K.earthKm|n0}} km (spherical Earth)</td></tr>
+    <tr><td>Gravitational parameter μ</td><td>398,600.4418 km<sup>3</sup>/s<sup>2</sup></td></tr>
+    <tr><td>J<sub>2</sub></td><td>1.08262668 × 10<sup>−3</sup></td></tr>
+    <tr><td>Speed of light <i>c</i></td><td>{{=K.cKmPerMs|n6}} km/ms; fiber <i>c</i>/1.35 = {{=K.fiberKmPerMs|n3}} km/ms ({{=K.fiberUsPerKm|n4}} µs/km against {{=K.vacuumUsPerKm|n4}} µs/km in vacuum)</td></tr>
+    <tr><td>Epoch</td><td>25 September 2026, 12:00 UTC</td></tr>
+    <tr><td>Fixed sun</td><td>{{=Math.abs(K.sunLatDeg)|n2}}° S, {{=K.subsolarLonDeg|n0}}° E; orbit normal on the sun</td></tr>
+    <tr><td>Inclination, RAAN, period</td><td>{{=K.inclinationDeg|n3}}°, {{=K.raanDeg|n1}}°, {{=K.periodMin|n2}} min</td></tr>
+    <tr><td>Shell</td><td>{{=K.radialCount|n0}} × {{=K.acrossCount|n0}} × {{=K.alongCount|n0}} cells, 600–850 km, placement margin 0.22</td></tr>
+    <tr><td>Playback</td><td>{{=K.playback.launchMs|n0}} ms launch; ×{{=K.playback.msPerPropagationMs|n0}}; minimum hold {{=K.playback.computeProxyMs|n0}} ms; release margin {{=K.playback.releaseMarginMs|n0}} ms</td></tr>
+    <tr><td>Output cap</td><td>4,096 tokens per call</td></tr>
+  </tbody>
+</table>
+</section>
+
+</body>
+</html>
