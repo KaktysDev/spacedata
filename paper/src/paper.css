@@ -214,13 +214,12 @@ table.wide { width: 100%; }
   display: flex;
   flex-direction: column;
 }
-/* Masks fade the render into whatever the page is, black or white. They are
-   nested rather than composited because print ignores mask-composite. */
+/* The mask fades the render's bottom into whatever the page is, black or white. */
 .hero {
   flex: none;
   height: 4.2in;
   overflow: hidden;
-  mask-image: linear-gradient(180deg, transparent 0%, #000 12%, #000 42%, transparent 92%);
+  mask-image: linear-gradient(180deg, #000 42%, transparent 92%);
 }
 .hero img {
   display: block;
@@ -228,7 +227,6 @@ table.wide { width: 100%; }
   height: 100%;
   object-fit: cover;
   object-position: center top;
-  mask-image: linear-gradient(90deg, transparent 0%, #000 13%, #000 87%, transparent 100%);
 }
 .cover .titles {
   position: relative;
