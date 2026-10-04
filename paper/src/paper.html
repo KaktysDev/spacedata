@@ -36,7 +36,7 @@
 <p>The white paper is written for training clusters at gigawatt scale. A regular person meets these machines differently: as one question that has to travel from a phone or a laptop to a model and back. That journey is the subject of this paper. SpaceVision is a web simulator that sends one prompt to a real AI model twice, at the same moment, and models the two paths the request could take: along fiber to the nearest public data-center site, or up to a satellite and across an optical link to Starcloud-2 (Figure {{#fig:idle}}). It then shows both replies side by side with the modeled network delay, energy, cooling water and electricity cost of each path.</p>
 
 <figure id="fig-idle">
-  <img class="shot" src="../assets/app/idle.jpg" alt="SpaceVision with the globe, the dawn-dusk shell of craft, the pin on New York and the message box">
+  <img class="shot" src="../assets/app/idle.png" alt="SpaceVision with the globe, the dawn-dusk shell of craft, the pin on New York and the message box">
   <figcaption>Figure {{#fig:idle}}. SpaceVision at rest. The globe carries the modeled dawn-dusk shell of {{=K.nodeCount|n0}} craft; the pin sits on New York and the label names Google’s nearest reference site. One prompt typed into the box is sent along both paths.<span class="credit">Screenshot of SpaceVision by the author. Shell thickness and hardware size are exaggerated on screen.</span></figcaption>
 </figure>
 
@@ -67,13 +67,13 @@
 <h3>Latency</h3>
 <p>On Earth, a request crosses an access network, metro and long-haul fiber, often a subsea cable, and many routers before it reaches a provider. Light in glass is slower than in vacuum; Starcloud’s paper puts the difference at 35%.[[wp]] Real routes are also longer than the great circle: Bozkurt et al. measured minimum round-trip times between hosts at about 3.1 times the vacuum light-time of the great-circle distance.[[bozkurt]] Low-orbit constellations with laser links can beat fiber over long distances because they carry light in vacuum on nearly straight paths.[[handley,kassing]] Whether that advantage survives a detour up to a satellite and across to one specific spacecraft, Starcloud-2, is a question of geometry. That geometry is what the simulator models.</p>
 <figure id="fig-demand" class="small">
-  <img src="../assets/starcloud/fig1-power-demand.png" alt="Chart of total power draw of all data centers in gigawatts, rising from about 12 GW in 2011 to 200 GW in 2030">
+  <img src="../assets/starcloud/p02_0_X19.png" alt="Chart of total power draw of all data centers in gigawatts, rising from about 12 GW in 2011 to 200 GW in 2030">
   <figcaption>Figure {{#fig:demand}}. Global data center power demand trend and forecast, from Starcloud’s white paper. The source notes that this is a base case and that some estimates are significantly more aggressive.<span class="credit">Reproduced from Feilden, Oltean and Johnston,[[wp]] p. 2 (Figure 1 in the source, derived from SemiAnalysis). © Lumen Orbit (now Starcloud).</span></figcaption>
 </figure>
 <h3>Water</h3>
 <p>Terrestrial data centers commonly cool by evaporating water. Google reports that the median Gemini Apps text prompt in 2025 used 0.24 Wh of energy and 0.26 mL of water,[[elsworth]] about {{=M.googleWaterCheckMlPerWh|n2}} mL of water per watt-hour. Starcloud’s cost comparison assumes 0.5 L of water per kWh on land and none in space, and it cites a European Commission study concluding that orbital data centers would eliminate fresh-water use for cooling.[[wp]] Water is therefore the most tangible difference a user can be shown, and SpaceVision reports it next to every answer.</p>
 <figure id="fig-radiators" class="small">
-  <img src="../assets/starcloud/sso-data-center.jpg" alt="Render of a large square solar array and radiators in orbit above the Earth with the sun behind">
+  <img src="../assets/starcloud/p08_0_X58.png" alt="Render of a large square solar array and radiators in orbit above the Earth with the sun behind">
   <figcaption>Figure {{#fig:radiators}}. A data center in sun-synchronous orbit with a 4 km × 4 km deployed solar array and radiators. Heat leaves by radiation, which is why the orbital path is modeled with zero cooling water.<span class="credit">Reproduced from Feilden, Oltean and Johnston,[[wp]] p. 8 (captioned as Figure 3 in the source). © Lumen Orbit (now Starcloud).</span></figcaption>
 </figure>
 <h3>Energy and cost</h3>
@@ -154,7 +154,7 @@
 
 <h3>Which orbit?</h3>
 <figure id="fig-dawndusk" class="side">
-  <img src="../assets/starcloud/fig5-dawn-dusk-orbit.jpg" alt="Render of a satellite on an orbit that follows the boundary between day and night on Earth">
+  <img src="../assets/starcloud/p11_0_X73.png" alt="Render of a satellite on an orbit that follows the boundary between day and night on Earth">
   <figcaption>Figure {{#fig:dawndusk}}. Satellite in a permanently illuminated dawn-dusk sun-synchronous orbit. The orbit follows the dawn-dusk line, known as the terminator, year-round.<span class="credit">Reproduced from Feilden, Oltean and Johnston,[[wp]] p. 11 (Figure 5 in the source, where the image is credited to DALL-E). © Lumen Orbit (now Starcloud).</span></figcaption>
 </figure>
 <p>Starcloud selected a low-Earth dawn-dusk sun-synchronous orbit because it is the only low orbit that keeps a spacecraft in near-continuous sunlight year-round (Figure {{#fig:dawndusk}}).[[wp]] Sun-synchronous means that the orbit plane precesses once per year, keeping pace with the Earth’s motion around the sun. The precession comes from the Earth’s oblateness, the J<sub>2</sub> term of its gravity field, and setting it to one turn per year fixes the inclination:[[vallado]]</p>
@@ -179,7 +179,7 @@
 <p>Starcloud’s white paper envisions laser connectivity between its data centers and other constellations such as Starlink, Kuiper or Kepler, alongside RF links (Figure {{#fig:network}}),[[wp]] and its filing describes optical backhaul.[[fcc]] The path we model follows Starcloud’s description of Starcloud-2:[[sc2]] the user’s request goes up over radio to a third-party backhaul satellite, then over one optical link to Starcloud-2, and the reply returns the same way. The operator and the orbit of that backhaul layer are not published, so we draw it from the same shell: the backhaul craft is one of the other {{=K.nodeCount - 1|n0}} drawn craft.</p>
 
 <figure id="fig-network" class="mid">
-  <img src="../assets/starcloud/fig4-network-architecture.png" alt="Block diagram of an orbital data center with optical and RF inter-satellite terminals, data shuttle docking ports, a spine, and containers with network switches and compute nodes">
+  <img src="../assets/starcloud/p07_0_X51.png" alt="Block diagram of an orbital data center with optical and RF inter-satellite terminals, data shuttle docking ports, a spine, and containers with network switches and compute nodes">
   <figcaption>Figure {{#fig:network}}. Orbital data center network architecture from Starcloud’s white paper: optical and RF inter-satellite terminals and data-shuttle docking ports share a spine with the compute containers, radiators and solar panels.<span class="credit">Reproduced from Feilden, Oltean and Johnston,[[wp]] p. 7 (Figure 4 in the source). © Lumen Orbit (now Starcloud).</span></figcaption>
 </figure>
 
@@ -225,8 +225,8 @@
 
 <figure id="fig-flight">
   <div class="pair">
-    <div><img class="shot" src="../assets/app/flight-0900.jpg" alt="SpaceVision during a request: the camera follows the radio uplink from New York to a backhaul craft"><div class="sub">(a) 0.9 s after sending</div></div>
-    <div><img class="shot" src="../assets/app/flight-2200.jpg" alt="SpaceVision during a request: the camera at Starcloud-2 among the shell craft, with the Earth to the right"><div class="sub">(b) 2.2 s after sending</div></div>
+    <div><img class="shot" src="../assets/app/flight-0900.png" alt="SpaceVision during a request: the camera follows the radio uplink from New York to a backhaul craft"><div class="sub">(a) 0.9 s after sending</div></div>
+    <div><img class="shot" src="../assets/app/flight-2200.png" alt="SpaceVision during a request: the camera at Starcloud-2 among the shell craft, with the Earth to the right"><div class="sub">(b) 2.2 s after sending</div></div>
   </div>
   <figcaption>Figure {{#fig:flight}}. The worked example in the application. (a) The camera follows the radio uplink from New York to the backhaul craft. (b) The request has reached Starcloud-2, and both paths wait for the replies.<span class="credit">Screenshots of SpaceVision by the author, captured with a stepped browser clock. The reply was a fixed test response served by the capture script; no provider API was called. Hardware size is exaggerated on screen.</span></figcaption>
 </figure>
@@ -265,7 +265,7 @@
 
 
 <figure id="fig-results" class="mid">
-  <img class="shot" src="../assets/app/results-card.jpg" alt="SpaceVision results card comparing Ashburn, Virginia and Starcloud-2: 3 ms and 41 ms network, 0.17 Wh and 0.16 Wh energy, 0.18 mL and 0 mL water">
+  <img class="shot" src="../assets/app/results-card.png" alt="SpaceVision results card comparing Ashburn, Virginia and Starcloud-2: 3 ms and 41 ms network, 0.17 Wh and 0.16 Wh energy, 0.18 mL and 0 mL water">
   <figcaption>Figure {{#fig:results}}. The results card for the worked example. The network times, 3 ms and 41 ms, are the round trips of Table {{#tab:worked}}; energy, water and power cost follow Table {{#tab:perquery}} for 500 tokens per path.<span class="credit">Screenshot of SpaceVision by the author. The reply text is a fixed test response served by the capture script, not a model output. Photographs as credited in the application: data centers near Ashburn, Virginia (Wikimedia Commons) and Starcloud-1 (via TechCrunch).</span></figcaption>
 </figure>
 

@@ -151,6 +151,10 @@ figure {
 }
 figure img, figure svg { display: block; margin: 0 auto; max-width: 100%; }
 figure img.shot { border-radius: 6px; }
+figure.small img { width: 58%; }
+figure.mid img { width: 72%; }
+figure.side { float: right; width: 2.55in; margin: 0.25em 0 0.7em 0.24in; }
+figure.side figcaption { margin: 0.55em 0 0; }
 figure .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 figure .pair > div { display: flex; flex-direction: column; gap: 4px; }
 figure .sub { font-size: 8.4pt; color: var(--muted); font-style: normal; }
