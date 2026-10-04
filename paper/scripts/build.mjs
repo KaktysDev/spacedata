@@ -240,12 +240,21 @@ for (const [theme, edition] of Object.entries(EDITIONS)) {
     .replace("</head>", `<style>${page}</style></head>`);
   const file = join(BUILD, `paper-${theme}.html`);
   writeFileSync(file, out);
-  const tab = await browser.newPage();
+  // A Letter-wide print viewport lays the cover out as it will be printed.
+  const tab = await browser.newPage({ viewport: { width: 816, height: 1056 } });
+  await tab.emulateMedia({ media: "print" });
   await tab.goto(pathToFileURL(file).href, { waitUntil: "load" });
-  await tab.evaluate(async () => {
+  const problems = await tab.evaluate(async () => {
     await document.fonts.ready;
     await Promise.all([...document.images].map((img) => img.decode().catch(() => {})));
+    const out = [...document.images].filter((img) => !img.naturalWidth).map((img) => `image did not load: ${img.getAttribute("src")}`);
+    const cover = document.querySelector(".cover");
+    if (cover.scrollHeight > cover.clientHeight) out.push("cover overflows page 1");
+    const blocks = [".titles", ".front", ".fn", ".foot"].map((s) => cover.querySelector(s).getBoundingClientRect());
+    blocks.slice(1).forEach((b, i) => b.top < blocks[i].bottom && out.push(`cover blocks overlap: ${[".titles", ".front", ".fn", ".foot"][i]} and the next`));
+    return out;
   });
+  if (problems.length) throw new Error(`${theme}: ${problems.join("; ")}`);
   await tab.pdf({ path: join(ROOT, edition.pdf), preferCSSPageSize: true, printBackground: true, outline: true, tagged: true });
   await tab.close();
   setInfo(join(ROOT, edition.pdf), INFO);
