@@ -211,63 +211,55 @@ table.wide { width: 100%; }
   overflow: hidden;
   break-after: page;
   background: var(--bg);
+  display: flex;
+  flex-direction: column;
 }
+/* Masks fade the render into whatever the page is, black or white. They are
+   nested rather than composited because print ignores mask-composite. */
 .hero {
-  position: relative;
-  height: 4.55in;
-  background: #000;
+  flex: none;
+  height: 4.2in;
   overflow: hidden;
+  mask-image: linear-gradient(180deg, transparent 0%, #000 12%, #000 42%, transparent 92%);
 }
 .hero img {
-  position: absolute;
-  width: 8.8in;
-  left: -0.15in;
-  top: -0.48in;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  mask-image: linear-gradient(90deg, transparent 0%, #000 13%, #000 87%, transparent 100%);
 }
-.hero::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.25) 32%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 86%, rgba(0,0,0,1) 100%);
-}
-.hero .titles {
-  position: absolute;
-  z-index: 2;
-  top: 0.46in;
-  left: 0;
-  right: 0;
+.cover .titles {
+  position: relative;
+  margin-top: -0.55in;
+  padding: 0 0.85in;
   text-align: center;
-  color: #fff;
 }
-.hero h1.title {
+.cover h1.title {
   margin: 0;
   font-size: 27pt;
   line-height: 1.08;
   letter-spacing: -0.018em;
-  color: #fff;
+  color: var(--fg);
 }
-.hero .edition {
+.cover .edition {
   margin-top: 0.12in;
-  font-size: 10pt;
-  font-weight: 700;
-  color: #fff;
+  font-size: 9.4pt;
+  color: var(--muted);
 }
-.hero .authors {
-  position: absolute;
-  z-index: 2;
-  left: 0;
-  right: 0;
-  bottom: 0.32in;
-  text-align: center;
-  font-size: 11pt;
-  font-weight: 700;
-  color: #fff;
+.cover .authors {
+  margin-top: 0.1in;
+  font-size: 9pt;
+  line-height: 1.35;
+  color: var(--muted);
 }
-.hero .authors span { display: block; font-size: 8.6pt; font-weight: 400; color: #c9c9c9; margin-top: 0.03in; }
+.cover .authors b { font-size: 11pt; color: var(--fg); }
 .cover .front {
-  padding: 0.18in 0.85in 0;
+  flex: none;
+  padding: 0.12in 0.85in 0.18in;
 }
+.cover .front h2 { margin-top: 0.1in; }
 .cover .front h1 { margin-top: 0.35em; }
 .abstract p { font-size: 9.9pt; }
 .keywords { font-size: 8.8pt; color: var(--muted); margin-top: 0.4em; }
@@ -280,25 +272,27 @@ table.wide { width: 100%; }
   border-top: 1px solid var(--rule);
   border-bottom: 1px solid var(--rule);
 }
-.keyfacts div { padding: 0.12in 0.06in 0.1in; text-align: center; border-left: 1px solid var(--rule); }
+.keyfacts div {
+  padding: 0.12in 0.08in 0.1in;
+  text-align: center;
+  border-left: 1px solid var(--rule);
+  font-size: 7.9pt;
+  line-height: 1.3;
+  color: var(--muted);
+}
 .keyfacts div:first-child { border-left: 0; }
-.keyfacts b { display: block; font-size: 15pt; color: var(--fg); letter-spacing: -0.01em; }
-.keyfacts span { display: block; font-size: 7.9pt; color: var(--muted); line-height: 1.3; margin-top: 0.04in; }
+.keyfacts b { display: block; font-size: 15pt; line-height: 1.2; color: var(--fg); letter-spacing: -0.01em; margin-bottom: 0.04in; }
 .cover .foot {
-  position: absolute;
-  left: 0.85in;
-  right: 0.85in;
-  bottom: 0.52in;
+  flex: none;
+  margin: 0 0.85in 0.52in;
   display: flex;
   justify-content: space-between;
   font-size: 8.4pt;
   color: #8c8c8c;
 }
 .cover .fn {
-  position: absolute;
-  left: 0.85in;
-  right: 0.85in;
-  bottom: 0.85in;
+  flex: none;
+  margin: auto 0.85in 0.16in;
   font-size: 7.8pt;
   color: var(--muted);
   border-top: 1px solid var(--rule);

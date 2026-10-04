@@ -10,12 +10,12 @@
 <body>
 
 <section class="cover">
-  <div class="hero" style="background-image: url('../assets/app/cover.jpg')"></div>
+  <div class="hero"><img src="../assets/app/cover-hero.png" alt=""></div>
   <div class="titles">
     <h1 class="title">Routing Efficiency of AI&nbsp;<br>Data Centers in Space</h1>
     <div class="edition">© Oleh Lahoda, Engineering Paper v1.0, October 2026</div>
+    <div class="authors"><b>Oleh Lahoda</b><br>Developer of SpaceVision</div>
   </div>
-  <div class="authors"><b>Oleh Lahoda</b><br>Developer of SpaceVision</div>
   <div class="front">
     <h2>Abstract</h2>
     <p class="abstract">Starcloud proposes to move AI data centers into a dawn-dusk sun-synchronous orbit, where they would run on near-continuous sunlight and cool by radiating heat to space, and it has filed for up to 88,000 spacecraft. A user’s question would still start on the ground. This paper describes the routing simulation inside SpaceVision, a web simulator that sends one prompt to a real AI model twice and models two paths for it: fiber to the nearest public data-center site, and a radio uplink to a backhaul satellite followed by one optical link to Starcloud-2. We explain each modeling choice and why we made it, including {{=K.nodeCount|n0}} drawn craft standing in for the 88,000-craft filing, 28 public reference sites and a highest-elevation rule for the backhaul craft. Over one orbit, the median orbital round trip from six preset cities is {{=city("New York").rttMs.median|n0}}–{{=city("Cape Town").rttMs.median|n0}} ms, against 0–{{=city("Cape Town").ground.xai.rttMs|n0}} ms on the ground; the orbital path is faster only for users far from every ground site. For the same tokens it removes all modeled cooling water (about {{=M.per500.gemini.ground.waterMl|n2}} mL per 500-token exchange, or {{=M.perBillion.gemini.groundWaterL|n0}} L per billion tokens), uses about 5% less facility energy, and pays about {{=M.costRatioVsGoogle|n0}} times less for electricity, which is still only about 1% of the API price.</p>
