@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { EngineeringPaperViewer } from "./engineering-paper-viewer";
 
 const PAPER = "https://starcloudinc.github.io/wp.pdf";
 const LINKEDIN = "https://www.linkedin.com/in/oleh-lahoda-0847a3393/";
@@ -14,6 +15,7 @@ export function Overview({
   onBack: () => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const [paperOpen, setPaperOpen] = useState(false);
   useEffect(() => {
     if (open) scroller.current?.scrollTo(0, 0);
   }, [open]);
@@ -30,175 +32,122 @@ export function Overview({
     >
       <div className="overview-mask" aria-hidden="true" />
       <article className="overview-article">
-        <p className="overview-lead">
-          SpaceVision asks what changes for a regular person if AI data centers
-          move to space.
-        </p>
-        <p className="overview-deck">
-          <a href={LINKEDIN} target="_blank" rel="noreferrer">
-            Oleh Lahoda
-          </a>{" "}
-          built it after{" "}
-          <a href={PAPER} target="_blank" rel="noreferrer">
-            Starcloud’s paper
-          </a>{" "}
-          on data centers in orbit. The mission is computers above Earth, cooled
-          by space itself. He wanted the part a normal question would actually
-          feel.
-        </p>
+        <header className="overview-intro">
+          <h2>What changes when AI compute moves off Earth?</h2>
+          <p>
+            SpaceVision models a ground route and an orbital route for the same
+            prompt, then compares response delay, energy use, and cooling-water
+            use.
+          </p>
+          <p className="overview-credit">
+            Built by <a href={LINKEDIN} target="_blank" rel="noreferrer">Oleh Lahoda</a>
+            {" "}after reading <a href={PAPER} target="_blank" rel="noreferrer">Starcloud’s paper</a>.
+          </p>
+        </header>
 
-        <section className="overview-section">
-          <p className="overview-kicker">01 — The desk</p>
-          <h2>1:32 a.m. in a dorm</h2>
-          <p>
-            I was at my desk in my dorm at Dublin School, in southern New
-            Hampshire. It was about 1:32 in the morning. I was finishing a
-            YouTube video about quantum computers when a newsletter notification
-            came in. It was about Starcloud’s satellites, and how that work was
-            moving forward.
-          </p>
-          <p>
-            It was the first time I had heard of AI data centers in space. The
-            idea alone amazed me. Then I read their paper.
-          </p>
+        <section className="overview-paper-feature" aria-labelledby="overview-paper-heading">
+          <div className="overview-paper-covers" aria-hidden="true">
+            <Image
+              src="/papers/original-cover.png"
+              alt=""
+              width={695}
+              height={900}
+              sizes="(max-width: 700px) 32vw, 180px"
+            />
+            <Image
+              src="/papers/printable-cover.png"
+              alt=""
+              width={695}
+              height={900}
+              sizes="(max-width: 700px) 32vw, 180px"
+            />
+          </div>
+          <div className="overview-paper-feature-copy">
+            <p className="overview-kicker">Engineering paper · 24 pages</p>
+            <h2 id="overview-paper-heading">Routing Efficiency of AI Data Centers in Space</h2>
+            <p>
+              The methods and sources behind the simulator, with an original
+              dark edition and a white version made for printing.
+            </p>
+            <button type="button" onClick={() => setPaperOpen(true)}>
+              Read SpaceVision Engineering Paper
+            </button>
+          </div>
+        </section>
+
+        <section className="overview-story" aria-labelledby="overview-origin">
+          <div className="overview-story-copy">
+            <h2 id="overview-origin">The night I found the paper</h2>
+            <p>
+              At 1:32 a.m. in my Dublin School dorm, I was finishing a video
+              about quantum computers when a Starcloud newsletter arrived. It
+              was the first I’d heard of AI data centers in orbit. I opened
+              their paper that night.
+            </p>
+          </div>
           <figure className="overview-figure">
             <Image
               src="/overview/desk.jpg"
               alt="A dorm desk at night with a laptop, a lamp, and notebooks on the shelf."
               width={1620}
               height={1080}
-              sizes="(max-width: 760px) 92vw, 680px"
+              sizes="(max-width: 800px) 100vw, 520px"
               style={{ width: "100%", height: "auto" }}
             />
             <figcaption>The desk at Dublin School.</figcaption>
           </figure>
         </section>
 
-        <section className="overview-section">
-          <p className="overview-kicker">02 — The questions</p>
-          <h2>What the paper left open</h2>
-          <p>
-            I was shocked, in a good way. Through the rest of the spring I kept
-            turning the same questions over. Starcloud could not answer them for
-            a regular user. Neither could an AI chatbot.
+        <section className="overview-section" aria-labelledby="overview-questions">
+          <h2 id="overview-questions">The question I tried to answer</h2>
+          <p className="overview-prose">
+            The paper explained the orbital hardware. I still wanted to know
+            what one ordinary prompt would look like from the ground: how far
+            it would travel, how long that would take, and where cooling water
+            entered the comparison. I made SpaceVision to explore that.
           </p>
-          <ol className="overview-questions">
-            <li>For someone like me, how much better is this, really?</li>
-            <li>
-              How much water do we save if the machines cool in space, instead of
-              with water on the ground?
-            </li>
-            <li>
-              The satellites are far away. How much longer does a normal question
-              take?
-            </li>
-          </ol>
         </section>
 
-        <section className="overview-section">
-          <p className="overview-kicker">03 — The research</p>
-          <h2>Papers, then a sketch</h2>
-          <p>
-            I started reading PhD research from MIT, Harvard, Princeton, and the
-            University of Chicago on AI, data centers, and space communication. I
-            questioned their engineering choices. I kept what I could stand
-            behind, and I wrote down what I still wanted to see.
-          </p>
-          <p>
-            When the notes were enough, I sketched the app the way I saw it. A
-            glass box for the message. A planet you can turn. A pin you can drop
-            anywhere, with the view settling on that region. Satellites along
-            the side. Zoom out to the whole planet, or in until the place fills
-            the screen.
-          </p>
-          <figure className="overview-figure">
-            <Image
-              src="/overview/sketch.jpg"
-              alt="A handwritten sketch of a globe, a glass message box, a location pin, and satellites."
-              width={1600}
-              height={2133}
-              sizes="(max-width: 760px) 92vw, 680px"
-              style={{ width: "100%", height: "auto" }}
-            />
-            <figcaption>
-              First sketch of SpaceVision, drawn before the build.
-            </figcaption>
+        <section className="overview-story overview-story-reverse" aria-labelledby="overview-sketch">
+          <div className="overview-story-copy">
+            <h2 id="overview-sketch">My first sketch</h2>
+            <p>
+              I went through research on data-center cooling and satellite
+              links, then sketched a globe with a location pin and a place to
+              send a prompt. That drawing became SpaceVision.
+            </p>
+          </div>
+          <figure className="overview-figure overview-sketch-figure">
+            <div className="overview-sketch-frame">
+              <Image
+                src="/overview/sketch.jpg"
+                alt="A handwritten sketch of a globe, a glass message box, a location pin, and satellites."
+                width={1600}
+                height={2133}
+                sizes="(max-width: 800px) 75vw, 375px"
+              />
+            </div>
+            <figcaption>The first SpaceVision sketch.</figcaption>
           </figure>
         </section>
 
-        <section className="overview-section">
-          <p className="overview-kicker">04 — The build</p>
-          <h2>Choices we kept</h2>
-          <p>
-            The sketch became the app on the SpaceVision tab. These are the
-            choices, in plain words. The engineering paper will carry the math.
-          </p>
-          <div className="overview-choices">
-            <div>
-              <h3>One question, two paths</h3>
-              <p>
-                You send one prompt. A ground data center answers it, and a
-                modeled orbital data center answers it too. Both show up
-                together, so the difference is on the screen.
-              </p>
-            </div>
-            <div>
-              <h3>The pin is where you are</h3>
-              <p>
-                Drop it anywhere on Earth. The distance starts there. The nearest
-                marker is a public reference site, and the label says it is a
-                model.
-              </p>
-            </div>
-            <div>
-              <h3>You can watch the delay</h3>
-              <p>
-                The camera follows the request out and back, on the ground and
-                through the orbital shell. The extra distance is something you
-                see, then a number you can read.
-              </p>
-            </div>
-            <div>
-              <h3>Water is part of the answer</h3>
-              <p>
-                Ground sites evaporate water to stay cool. The orbital model
-                sheds heat into space and uses no cooling water. That comparison
-                is why the results show a cup.
-              </p>
-            </div>
-            <div>
-              <h3>Real replies, modeled routes</h3>
-              <p>
-                A real model writes both answers. The routes use fiber, radio,
-                and the speed of light, sped up so you can follow them. Measured
-                numbers and assumed numbers are labeled on the page.
-              </p>
-            </div>
-            <div>
-              <h3>A shell you can see</h3>
-              <p>
-                The band of craft draws a sun-synchronous orbit, so the idea of
-                computers in space is on the globe. It stands in for the
-                Starcloud-2 plan, and the label says it is a model.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className="overview-paper" id="engineering-paper">
-          <p className="overview-kicker">05 — Later</p>
-          <h2>Engineering paper</h2>
-          <p>
-            A longer paper is in progress. It will go through the technical
-            choices, the sources, and the math. When it is ready, it will be
-            attached here.
+        <section className="overview-section" aria-labelledby="overview-model">
+          <h2 id="overview-model">What SpaceVision models</h2>
+          <p className="overview-prose">
+            Move the pin to choose where the request begins, then send a prompt.
+            A real AI model writes the replies. The ground and orbital routes,
+            travel times, and cooling-water comparison are modeled, with the
+            assumptions labeled alongside the results.
           </p>
         </section>
 
-        <button type="button" className="overview-back" onClick={onBack}>
-          Back to SpaceVision
-        </button>
+        <div className="overview-end">
+          <button type="button" className="overview-back" onClick={onBack}>
+            Back to SpaceVision <span aria-hidden="true">↗</span>
+          </button>
+        </div>
       </article>
+      {paperOpen && <EngineeringPaperViewer onClose={() => setPaperOpen(false)} />}
     </div>
   );
 }

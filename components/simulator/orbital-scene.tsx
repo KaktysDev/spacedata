@@ -901,10 +901,8 @@ export function OrbitalScene(props: Props) {
         .addScaledVector(b, Math.sin(t * omega) / s);
     }
     function pullDistance(fromRadius: number) {
-      // A short pull-back. Going out to the orbit limit made Earth a speck
-      // and the following dive a blur.
-      const pulled = Math.max(fromRadius * 1.28, fromRadius + 2.4);
-      return THREE.MathUtils.clamp(pulled, fromRadius, 46);
+      // Only lift the camera enough to make the turn readable.
+      return Math.min(fromRadius + 1.4, fromRadius * 1.08, MAX_ORBIT);
     }
     function beginFly(kind: SceneView, now: number) {
       const fromRadius = Math.max(camera.position.length(), MIN_ORBIT);
@@ -929,8 +927,7 @@ export function OrbitalScene(props: Props) {
     function emitPhase(phase: ViewPhase) {
       latest.current.onViewPhase?.(phase);
     }
-    // Zoom out along the current view, swing to southern New Hampshire, then
-    // dive until New England fills the frame. The UI blurs in on the callback.
+    // A direct, accelerating approach. Blur hides the final close-up.
     function applyOverviewFly(now: number) {
       if (!fly || fly.kind !== "overview") return 0;
       if (motion.matches) {
@@ -947,60 +944,29 @@ export function OrbitalScene(props: Props) {
         fly = null;
         return 1;
       }
-      const outMs = 740;
-      const slewMs = 900;
-      const diveMs = 1400;
-      const holdMs = 420;
-      const diveStart = outMs + slewMs;
-      const holdStart = diveStart + diveMs;
+      const durationMs = 950;
       const elapsed = now - fly.at;
-      let dir = fly.fromDir;
-      let radius = fly.fromRadius;
-      let dive = 0;
-      if (elapsed < outMs) {
-        radius = THREE.MathUtils.lerp(
-          fly.fromRadius,
-          fly.pullRadius,
-          smooth(elapsed / outMs),
-        );
-      } else if (elapsed < diveStart) {
-        dir = slerpDir(
-          fly.fromDir,
-          overviewDir,
-          smooth((elapsed - outMs) / slewMs),
-        );
-        radius = fly.pullRadius;
-      } else {
-        dive = Math.min(1, (elapsed - diveStart) / diveMs);
-        const approach = Math.min(fly.pullRadius, 8.4);
-        if (dive < 1 && dive <= 0.58) {
-          radius = THREE.MathUtils.lerp(
-            fly.pullRadius,
-            approach,
-            smooth(dive / 0.58),
-          );
-        } else if (dive < 1) {
-          radius = THREE.MathUtils.lerp(
-            approach,
-            OVERVIEW_DISTANCE,
-            smooth((dive - 0.58) / 0.42),
-          );
-        } else radius = OVERVIEW_DISTANCE;
-        dir = overviewDir;
-        // Hold the close shot, then blur. The coast stays visible before the glass.
-        if (elapsed >= holdStart && !fly.blurSent) {
-          fly.blurSent = true;
-          emitPhase("blur");
-        }
-        if (elapsed >= holdStart + holdMs && !fly.doneSent) {
-          fly.doneSent = true;
-          emitPhase("settled");
-          fly = null;
-        }
+      const progress = Math.min(1, elapsed / durationMs);
+      const turn = smooth(Math.min(1, progress / 0.72));
+      const dir = slerpDir(fly.fromDir, overviewDir, turn);
+      const zoom = 1 - Math.pow(1 - progress, 2.2);
+      const radius = THREE.MathUtils.lerp(
+        fly.fromRadius,
+        OVERVIEW_DISTANCE,
+        zoom,
+      );
+      if (progress >= 0.42 && !fly.blurSent) {
+        fly.blurSent = true;
+        emitPhase("blur");
+      }
+      if (progress >= 1 && !fly.doneSent) {
+        fly.doneSent = true;
+        emitPhase("settled");
+        fly = null;
       }
       camera.position.copy(dir).multiplyScalar(radius);
       controls.target.set(0, 0, 0);
-      return dive;
+      return progress;
     }
     function applyReturnFly(now: number) {
       if (!fly || fly.kind !== "space") return;
