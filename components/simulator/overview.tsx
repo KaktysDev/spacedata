@@ -58,12 +58,12 @@ export function Overview({
           <div className="overview-paper-feature-copy">
             <p className="overview-kicker">Revised engineering paper · 24 pages</p>
             <h2 id="overview-paper-heading">Routing Efficiency of AI Data Centers in Space</h2>
-            <p>
-              The methods and sources behind the simulator, in a revised
-              edition ready to read or print.
-            </p>
-            <button type="button" onClick={() => setPaperOpen(true)}>
-              Read SpaceVision Engineering Paper
+            <button
+              type="button"
+              aria-label="Read SpaceVision Engineering Paper"
+              onClick={() => setPaperOpen(true)}
+            >
+              Read the paper <span aria-hidden="true">↗</span>
             </button>
           </div>
         </section>
