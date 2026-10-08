@@ -1951,15 +1951,10 @@ button.location-suggestion:hover {
 }
 .overview-paper-covers img {
   display: block;
-  width: 45%;
+  width: min(55%, 175px);
   height: auto;
   box-shadow: 0 18px 50px #0008;
-}
-.overview-paper-covers img:first-child {
-  transform: translateY(16px) rotate(-5deg);
-}
-.overview-paper-covers img:last-child {
-  transform: translateY(4px) rotate(4deg);
+  transform: translateY(12px) rotate(-3deg);
 }
 .overview-paper-feature-copy {
   display: flex;
@@ -2146,40 +2141,10 @@ button.location-suggestion:hover {
 }
 .engineering-paper-toolbar {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 18px;
   padding: 0 26px 16px;
-}
-.engineering-paper-versions {
-  display: inline-flex;
-  gap: 3px;
-  padding: 3px;
-  border-radius: 12px;
-  background: #ffffff08;
-}
-.engineering-paper-versions button {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 150px;
-  padding: 8px 12px;
-  border-radius: 9px;
-  background: transparent;
-  color: #aaa;
-  text-align: left;
-}
-.engineering-paper-versions button[aria-pressed="true"] {
-  background: #f1f1f1;
-  color: #111;
-}
-.engineering-paper-versions span {
-  font-size: 13px;
-  font-weight: 550;
-}
-.engineering-paper-versions small {
-  font-size: 10px;
-  opacity: 0.7;
 }
 .engineering-paper-actions {
   display: flex;
@@ -2204,9 +2169,6 @@ button.location-suggestion:hover {
   flex: 1;
   min-height: 0;
   padding: 8px 26px 0;
-  background: #111;
-}
-.engineering-paper-frame.printable {
   background: #e8e8e8;
 }
 .engineering-paper-frame iframe {
@@ -2290,11 +2252,6 @@ button.location-suggestion:hover {
     flex-direction: column;
     gap: 10px;
     padding: 0 15px 12px;
-  }
-  .engineering-paper-versions { display: flex; }
-  .engineering-paper-versions button {
-    flex: 1;
-    min-width: 0;
   }
   .engineering-paper-actions a { flex: 1; justify-content: center; }
   .engineering-paper-frame { padding: 5px 8px 0; }

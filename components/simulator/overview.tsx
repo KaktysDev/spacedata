@@ -48,26 +48,19 @@ export function Overview({
         <section className="overview-paper-feature" aria-labelledby="overview-paper-heading">
           <div className="overview-paper-covers" aria-hidden="true">
             <Image
-              src="/papers/original-cover.png"
+              src="/papers/revised-cover.png"
               alt=""
-              width={695}
+              width={696}
               height={900}
-              sizes="(max-width: 700px) 32vw, 180px"
-            />
-            <Image
-              src="/papers/printable-cover.png"
-              alt=""
-              width={695}
-              height={900}
-              sizes="(max-width: 700px) 32vw, 180px"
+              sizes="(max-width: 700px) 110px, 175px"
             />
           </div>
           <div className="overview-paper-feature-copy">
-            <p className="overview-kicker">Engineering paper · 24 pages</p>
+            <p className="overview-kicker">Revised engineering paper · 24 pages</p>
             <h2 id="overview-paper-heading">Routing Efficiency of AI Data Centers in Space</h2>
             <p>
-              The methods and sources behind the simulator, with an original
-              dark edition and a white version made for printing.
+              The methods and sources behind the simulator, in a revised
+              edition ready to read or print.
             </p>
             <button type="button" onClick={() => setPaperOpen(true)}>
               Read SpaceVision Engineering Paper
