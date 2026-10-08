@@ -46,25 +46,24 @@ export function Overview({
         </header>
 
         <section className="overview-paper-feature" aria-labelledby="overview-paper-heading">
-          <div className="overview-paper-covers" aria-hidden="true">
+          <button
+            type="button"
+            className="overview-paper-cover"
+            aria-label="Read SpaceVision Engineering Paper"
+            onClick={() => setPaperOpen(true)}
+          >
             <Image
-              src="/papers/revised-cover.png"
+              src="/papers/paper-cover.png"
               alt=""
               width={696}
               height={900}
-              sizes="(max-width: 700px) 110px, 175px"
+              sizes="(max-width: 700px) 230px, (max-width: 800px) 235px, 265px"
             />
-          </div>
+            <span className="overview-paper-open" aria-hidden="true">↗</span>
+          </button>
           <div className="overview-paper-feature-copy">
-            <p className="overview-kicker">Revised engineering paper · 24 pages</p>
-            <h2 id="overview-paper-heading">Routing Efficiency of AI Data Centers in Space</h2>
-            <button
-              type="button"
-              aria-label="Read SpaceVision Engineering Paper"
-              onClick={() => setPaperOpen(true)}
-            >
-              Read the paper <span aria-hidden="true">↗</span>
-            </button>
+            <h2 id="overview-paper-heading">SpaceVision Engineering Paper</h2>
+            <p>The research behind every route in SpaceVision.</p>
           </div>
         </section>
 
