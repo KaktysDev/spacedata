@@ -1140,7 +1140,7 @@ export function OrbitalScene(props: Props) {
           routeTarget.set(0, 0, 0);
         }
       }
-      if (now - lastDetailTime > 400) {
+      if (!active && now - lastDetailTime > 400) {
         // Pixel-based detail preserves the hardware up close without drawing
         // thousands of subpixel solar cells in the overview.
         const activeIds = new Set(active ? network?.hops : []);
@@ -1394,8 +1394,10 @@ export function OrbitalScene(props: Props) {
       const tuckFleet =
         (fly?.kind === "overview" || p.sceneView === "overview") &&
         camera.position.length() < 13.5;
-      distant.visible = !tuckFleet;
-      detailed.visible = !tuckFleet;
+      // At packet-follow distance the decorative fleet fills the camera and
+      // hides the links. Keep the route craft visible, then restore the fleet.
+      distant.visible = !active && !tuckFleet;
+      detailed.visible = !active && !tuckFleet;
       occupied.length = 0;
       const showPlaces = p.sceneView === "space" && !fly;
       project(pin.current, originMarker.position, !active && showPlaces, 0, 0);

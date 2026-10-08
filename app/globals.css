@@ -813,6 +813,9 @@ button.location-suggestion:hover {
   background: #ddd;
   transition: width 0.1s linear;
 }
+.journey-track span.waiting {
+  animation: pulse 1.8s ease-in-out infinite;
+}
 .journey-status .text-button {
   font-size: 9px;
   padding: 5px;

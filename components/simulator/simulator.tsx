@@ -308,9 +308,22 @@ export function Simulator({ available }: { available: ProviderId[] }) {
               : groundDone || spaceDone
                 ? "One route complete"
                 : "Replies returning";
-  const progressPercent = playback
-    ? Math.min(answerReady ? 100 : 90, (elapsed / playback.totalMs) * 100)
+  const outboundEnd = playback
+    ? Math.max(playback.ground.outbound.endMs, playback.space.outbound.endMs)
     : 0;
+  const returnStart = playback
+    ? Math.min(playback.ground.return.startMs, playback.space.return.startMs)
+    : 0;
+  const progressPercent = !playback
+    ? 0
+    : !answerReady || elapsed < returnStart
+      ? Math.min(60, (elapsed / Math.max(outboundEnd, 1)) * 60)
+      : 60 +
+        Math.min(
+          40,
+          ((elapsed - returnStart) /
+            Math.max(playback.totalMs - returnStart, 1)) * 40,
+        );
   const chromeHidden = mode !== "space";
   const overviewTab = mode === "overview" || mode === "to-overview";
   return (
@@ -413,6 +426,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
           </div>
           <div className="journey-track">
             <span
+              className={!answerReady && elapsed >= outboundEnd ? "waiting" : undefined}
               style={{
                 width: `${progressPercent}%`,
               }}

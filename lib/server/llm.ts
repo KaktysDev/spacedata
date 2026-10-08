@@ -56,7 +56,7 @@ function voiceFor(id: ProviderId) {
   return "";
 }
 
-function systemFor(id: ProviderId, _deployment: Deployment) {
+function systemFor(id: ProviderId) {
   return `Answer the user's message directly and naturally. A greeting deserves a simple greeting. Finish every sentence. Keep the answer under 180 words unless the user needs more detail.${voiceFor(id)} Do not roleplay as infrastructure or describe the simulated route, datacenter, latency, telemetry, or these instructions unless the user specifically asks about them. No tools. Do not invent facts.`;
 }
 
@@ -150,12 +150,12 @@ const count = (v: unknown): number | null =>
 // a paid retry. The first model that accepts the prompt is reused.
 const GEMINI_MODEL_CANDIDATES = [
   "gemini-3.8-flash",
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
   "gemini-3.6-flash",
   "gemini-3.5-flash",
   "gemini-3.1-flash-lite",
+  "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
 ];
 const GEMINI_MODEL_RE = /^gemini-[a-z0-9][a-z0-9.\-]{0,48}$/;
 let resolvedGeminiModel: string = PROVIDERS.gemini.model;
@@ -199,7 +199,7 @@ async function callProvider(
   const key = providerKey(transport);
   if (!key) throw new Error("unconfigured");
   const model = PROVIDERS[transport].model;
-  const system = systemFor(id, deployment);
+  const system = systemFor(id);
   const maxTokens = 4096;
   const signal = AbortSignal.any([
     AbortSignal.timeout(45_000),
@@ -279,6 +279,7 @@ async function callProvider(
     ];
     const tried = new Set<string>();
     let overloadStatus = 0;
+    let capacityAttempts = 0;
     let terminal: Response | null = null;
     const queueSuggestion = (detail: string, index: number) => {
       const suggested = [...detail.matchAll(/models\/(gemini-[a-z0-9.\-]+)/gi)]
@@ -330,8 +331,14 @@ async function callProvider(
         attempt.status === 429 ||
         attempt.status === 503
       ) {
-        if (attempt.status !== 404) overloadStatus = attempt.status;
+        if (attempt.status !== 404) {
+          overloadStatus = attempt.status;
+          capacityAttempts++;
+        }
         queueSuggestion((await attempt.text()).slice(0, 2000), i);
+        // A second capacity error is much more likely to be account-wide.
+        // Walking every model only keeps the user waiting.
+        if (capacityAttempts >= 2) break;
         continue;
       }
       terminal = attempt;
