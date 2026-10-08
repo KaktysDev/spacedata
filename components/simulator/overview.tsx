@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import { EngineeringPaperViewer } from "./engineering-paper-viewer";
 
@@ -139,7 +140,11 @@ export function Overview({
           </button>
         </div>
       </article>
-      {paperOpen && <EngineeringPaperViewer onClose={() => setPaperOpen(false)} />}
+      {paperOpen &&
+        createPortal(
+          <EngineeringPaperViewer onClose={() => setPaperOpen(false)} />,
+          document.body,
+        )}
     </div>
   );
 }
