@@ -102,11 +102,5 @@ const card = page.locator(".results-card");
 await card.screenshot({ path: `${OUT}/results-card.png` });
 console.log("results");
 
-// Methodology dialog for reference.
-await page.getByRole("button", { name: "Close results" }).click();
-await page.waitForTimeout(1500);
-await page.getByRole("button", { name: /How it works/ }).click();
-await page.waitForTimeout(1200);
-await page.screenshot({ path: `${OUT}/how-it-works.png` });
 await browser.close();
 console.log("done");

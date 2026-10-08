@@ -22,7 +22,6 @@ import {
 } from "@/lib/starcloud/network";
 import { type Flight, type ViewPhase } from "./orbital-scene";
 import { InferenceComparison, preloadComparisonImages } from "./inference-comparison";
-import { SourcesNote } from "./sources-note";
 import { DeveloperCredit } from "./developer-credit";
 import { ProviderPicker } from "./provider-picker";
 import { Overview } from "./overview";
@@ -66,9 +65,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     [answerReadyAt, setAnswerReadyAt] = useState<number | null>(null),
     [result, setResult] = useState<ChatSuccessBody | null>(null),
     [results, setResults] = useState(false),
-    [sources, setSources] = useState(false),
     [error, setError] = useState(""),
-    [joules, setJoules] = useState(1.11),
     [submitted, setSubmitted] = useState(""),
     [snapshotAt, setSnapshotAt] = useState(0),
     [mode, setMode] = useState<ViewMode>("space"),
@@ -168,7 +165,6 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         return;
       }
       setResults(false);
-      setSources(false);
       setPageOpen(false);
       setWord("off");
       setVeil(false);
@@ -319,7 +315,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
   const overviewTab = mode === "overview" || mode === "to-overview";
   return (
     <main
-      className={`simulator ${flight ? "in-flight" : ""} ${sources ? "modal-open" : ""} ${results ? "answer-open" : ""} ${chromeHidden ? "chrome-hidden" : ""} ${pageOpen ? "overview-open" : ""}`}
+      className={`simulator ${flight ? "in-flight" : ""} ${results ? "answer-open" : ""} ${chromeHidden ? "chrome-hidden" : ""} ${pageOpen ? "overview-open" : ""}`}
     >
       <OrbitalScene
         key={NODE_COUNT}
@@ -387,15 +383,6 @@ export function Simulator({ available }: { available: ProviderId[] }) {
             Overview
           </button>
         </div>
-        <button
-          className="about-button"
-          onClick={() => setSources(true)}
-          disabled={Boolean(flight) || chromeHidden}
-          aria-hidden={chromeHidden}
-          tabIndex={chromeHidden ? -1 : undefined}
-        >
-          How it works <span>↗</span>
-        </button>
       </header>
       <h1 className={`overview-word ${word}`} aria-hidden={word === "off"}>
         Overview
@@ -522,20 +509,12 @@ export function Simulator({ available }: { available: ProviderId[] }) {
           origin={origin}
           site={site}
           prompt={submitted}
-          joules={joules}
+          joules={1.11}
           snapshotAt={snapshotAt}
           onClose={() => {
             setResults(false);
             setTimeout(() => textarea.current?.focus(), 0);
           }}
-        />
-      )}
-      {sources && (
-        <SourcesNote
-          provider={provider}
-          joules={joules}
-          onJoules={setJoules}
-          onClose={() => setSources(false)}
         />
       )}
     </main>

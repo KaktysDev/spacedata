@@ -54,7 +54,7 @@ Sources, checked September 25, 2026:
 - [Starcloud-1](https://www.starcloud.com/starcloud-1): H100 demonstration; not an operational 40 MW fleet and not the commercial compute path.
 - [Starcloud-2](https://www.starcloud.com/starcloud-2): first commercial GPU smallsat, sun-synchronous orbit, planned to be operational in 2027. The highlighted craft stands in for this mission. The drawn shell is a spacing picture around it, not that satellite and not Starcloud-3 or Starcloud-4.
 - [Google PUE](https://www.datacenters.google/efficiency/) and [Google inference footprint](https://cloud.google.com/blog/products/infrastructure/measuring-the-environmental-impact-of-ai-inference): the Gemini Apps 0.24 Wh median is context, not per-request calibration.
-- Provider pricing and infrastructure sources are linked beside their catalog entries and in the app’s methodology dialog.
+- Provider pricing and infrastructure sources are linked beside their catalog entries; the Overview tab links to the engineering paper.
 
 ## Verification and security
 

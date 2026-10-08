@@ -134,24 +134,6 @@ textarea:focus-visible {
   border: 1px solid #ccc;
   border-radius: 50%;
 }
-.about-button {
-  border: 1px solid #ffffff18;
-  border-radius: 30px;
-  background: var(--glass);
-  padding: 11px 17px;
-  font-size: 11px;
-  color: #ccc;
-  backdrop-filter: blur(20px);
-  transition:
-    background 0.2s,
-    opacity 0.28s ease;
-}
-.about-button span {
-  margin-left: 15px;
-}
-.about-button:hover {
-  background: #ffffff14;
-}
 .text-button {
   background: none;
   color: #aaa;
@@ -927,11 +909,6 @@ button.location-suggestion:hover {
   line-height: 1.7;
   margin: 12px 0 26px;
 }
-.simulator.modal-open > :not(dialog) {
-  filter: blur(8px);
-  transition: filter 0.3s;
-  pointer-events: none;
-}
 .city-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1448,203 +1425,6 @@ button.location-suggestion:hover {
   background: #eee;
   color: #151515;
 }
-.methodology {
-  font-size: 12px;
-  line-height: 1.8;
-  color: #aaa;
-}
-.method-lead {
-  font-size: 16px;
-  color: #ddd;
-  letter-spacing: -0.3px;
-  margin: 18px 0 8px;
-}
-.methodology figure {
-  margin: 20px 0;
-  border: 1px solid #ffffff17;
-  border-radius: 18px;
-  overflow: hidden;
-  background: #090909;
-}
-.methodology figure img {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-.paper-hero img {
-  max-height: 325px;
-  object-fit: cover;
-}
-.methodology figcaption {
-  font-size: 9px;
-  color: #999;
-  padding: 11px 15px;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  background: #ffffff04;
-}
-.methodology figcaption a {
-  text-decoration: none;
-  color: #ccc;
-}
-.method-section {
-  padding: 27px 0 6px;
-  border-top: 1px solid #ffffff15;
-  margin-top: 30px;
-}
-.section-number {
-  font-size: 8px;
-  letter-spacing: 1.8px;
-  color: #888;
-}
-.methodology h3 {
-  font-size: 21px;
-  font-weight: 400;
-  letter-spacing: -0.55px;
-  line-height: 1.35;
-  color: #eee;
-  margin: 9px 0 16px;
-}
-.route-diagrams {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  margin-top: 22px;
-}
-.route-diagrams > div {
-  padding: 20px;
-  border: 1px solid #ffffff16;
-  border-radius: 18px;
-  background: #ffffff03;
-}
-.route-diagrams strong {
-  font-size: 13px;
-  font-weight: 500;
-  color: #eee;
-}
-.route-diagrams p {
-  font-size: 11px;
-  line-height: 1.7;
-}
-.route-diagrams ol {
-  list-style: none;
-  margin: 18px 0;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 0;
-}
-.route-diagrams li {
-  font-size: 10px;
-  color: #ddd;
-  display: flex;
-  align-items: center;
-}
-.route-diagrams li:not(:last-child):after {
-  content: "→";
-  margin: 0 9px;
-  color: #666;
-}
-.fine-print {
-  font-size: 10px;
-  line-height: 1.8;
-  color: #8f8f8f;
-  margin-top: 18px;
-}
-.paper-diagram {
-  padding: 15px 15px 0;
-}
-.paper-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px;
-}
-.paper-pair figure {
-  margin: 0;
-}
-.paper-pair img {
-  height: 210px !important;
-  object-fit: contain;
-  padding: 10px;
-}
-.assumption-control {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  padding: 20px;
-  border: 1px solid #ffffff20;
-  border-radius: 17px;
-  background: #ffffff04;
-  margin: 20px 0;
-}
-.assumption-control strong {
-  font-size: 15px;
-  color: #eee;
-  font-weight: 450;
-}
-.assumption-control input {
-  grid-column: 1/-1;
-  width: 100%;
-  margin: 20px 0 4px;
-  accent-color: white;
-}
-.method-details {
-  border-bottom: 1px solid #ffffff15;
-  padding: 16px 0;
-}
-.method-details summary {
-  cursor: pointer;
-  color: #ddd;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  list-style: none;
-  font-size: 12px;
-}
-.method-details summary::-webkit-details-marker {
-  display: none;
-}
-.method-details summary span {
-  color: #888;
-  font-size: 20px;
-  transition: transform 0.2s;
-}
-.method-details[open] summary span {
-  transform: rotate(45deg);
-}
-.method-details p {
-  font-size: 11px;
-  margin: 16px 0 2px;
-}
-.source-credits {
-  margin-top: 33px;
-  padding-top: 25px;
-  border-top: 1px solid #ffffff22;
-}
-.source-credits h3 {
-  font-size: 15px;
-}
-.source-credits > p {
-  font-size: 10px;
-}
-.source-list {
-  list-style: none;
-  padding: 0;
-  margin: 18px 0;
-}
-.source-list a {
-  text-decoration: none;
-  color: #c7c7c7;
-  display: flex;
-  justify-content: space-between;
-  padding: 9px 0;
-  border-bottom: 1px solid #ffffff0f;
-  font-size: 11px;
-}
-.source-list a:hover {
-  color: #fff;
-}
 @keyframes appear {
   from {
     opacity: 0;
@@ -1744,10 +1524,6 @@ button.location-suggestion:hover {
   }
   .wordmark {
     font-size: 20px;
-  }
-  .about-button {
-    font-size: 10px;
-    padding: 9px 13px;
   }
   .composer {
     bottom: 68px;
@@ -1862,29 +1638,6 @@ button.location-suggestion:hover {
   .result-intro {
     font-size: 11px;
   }
-  .route-diagrams,
-  .paper-pair {
-    grid-template-columns: 1fr;
-  }
-  .route-diagrams {
-    gap: 10px;
-  }
-  .route-diagrams > div {
-    padding: 16px;
-  }
-  .route-diagrams ol {
-    margin: 13px 0;
-  }
-  .methodology h3 {
-    font-size: 20px;
-  }
-  .methodology figcaption {
-    font-size: 8px;
-    flex-wrap: wrap;
-  }
-  .paper-pair img {
-    height: 190px !important;
-  }
   .compare-row {
     gap: 10px;
     grid-template-columns: 1.05fr 1fr 1fr;
@@ -1995,7 +1748,6 @@ button.location-suggestion:hover {
   transition: opacity 0.28s ease;
 }
 .simulator.chrome-hidden .wordmark,
-.simulator.chrome-hidden .about-button,
 .simulator.chrome-hidden .composer,
 .simulator.chrome-hidden .site-footer,
 .simulator.chrome-hidden .map-controls,
