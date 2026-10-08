@@ -2,8 +2,8 @@
 
 import { useEffect, useRef } from "react";
 
-const PAPER_URL = "/papers/routing-efficiency-revised.pdf";
-const PAPER_FILENAME = "Routing-Efficiency-of-AI-Data-Centers-in-Space-revised.pdf";
+const PAPER_URL = "/papers/routing-efficiency.pdf";
+const PAPER_FILENAME = "Routing-Efficiency-of-AI-Data-Centers-in-Space.pdf";
 
 export function EngineeringPaperViewer({ onClose }: { onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -36,9 +36,9 @@ export function EngineeringPaperViewer({ onClose }: { onClose: () => void }) {
     >
       <div className="engineering-paper-header">
         <div>
-          <p className="overview-kicker">SpaceVision / Engineering paper</p>
+          <p className="overview-kicker">SpaceVision Engineering Paper</p>
           <h2 id="engineering-paper-title">Routing Efficiency of AI Data Centers in Space</h2>
-          <p className="engineering-paper-meta">Oleh Lahoda · Revised edition · 24 pages</p>
+          <p className="engineering-paper-meta">Oleh Lahoda · 24 pages</p>
         </div>
         <button
           type="button"
@@ -64,7 +64,7 @@ export function EngineeringPaperViewer({ onClose }: { onClose: () => void }) {
       <div className="engineering-paper-frame">
         <iframe
           src={`${PAPER_URL}#toolbar=1&navpanes=0`}
-          title="Revised engineering paper PDF, 24 pages"
+          title="SpaceVision Engineering Paper PDF, 24 pages"
         />
       </div>
       <p className="engineering-paper-hint">
