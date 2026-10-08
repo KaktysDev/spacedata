@@ -301,12 +301,14 @@ type PlaybackRoute = Pick<
   OrbitalRoute,
   "ground" | "gatewayRoute" | "uplinkKm" | "laserKm" | "hops" | "rttMs"
 >;
-const PLAYBACK_LAUNCH_MS = 700;
-// One visual millisecond per physical millisecond, times this factor.
-// No fixed base: a longer light-time stays proportionally longer on screen.
-const PLAYBACK_MS_PER_PROP_MS = 48;
-const PLAYBACK_COMPUTE_PROXY_MS = 1200;
-const PLAYBACK_RELEASE_MARGIN_MS = 100;
+const PLAYBACK_LAUNCH_MS = 350;
+// Keep the longest outbound leg readable without making distant routes take
+// tens of seconds. The same scale is applied to both lanes in a comparison.
+const PLAYBACK_MS_PER_PROP_MS = 20;
+const PLAYBACK_MAX_OUTBOUND_MS = 1200;
+const PLAYBACK_RETURN_FRACTION = 0.65;
+const PLAYBACK_COMPUTE_PROXY_MS = 350;
+const PLAYBACK_RELEASE_MARGIN_MS = 80;
 const window = (startMs: number, endMs: number): PlaybackWindow => ({
   startMs,
   endMs,
@@ -314,8 +316,8 @@ const window = (startMs: number, endMs: number): PlaybackWindow => ({
 
 /**
  * Playback for two parallel paths. Visual duration is physical propagation
- * time multiplied by one constant, so the longer light-time takes longer on
- * screen by the same ratio. The API calls are both served on Earth; their
+ * time multiplied by the same bounded scale for both lanes, so the longer
+ * light-time still takes longer on screen. The API calls are both served on Earth; their
  * measured durations are not the route times.
  *
  * The compute window holds until both API responses are available because the
@@ -332,8 +334,11 @@ export function createRoutePlayback(
     Number.isFinite(value) ? Math.max(0, value) : 0;
   const groundOneWayMs = positive(route.ground.rttMs) / 2;
   const spaceOneWayMs = positive(route.rttMs) / 2;
-  const travelVisualMs = (oneWayMs: number) =>
-    oneWayMs * PLAYBACK_MS_PER_PROP_MS;
+  const scale = Math.min(
+    PLAYBACK_MS_PER_PROP_MS,
+    PLAYBACK_MAX_OUTBOUND_MS / Math.max(groundOneWayMs, spaceOneWayMs, 1),
+  );
+  const travelVisualMs = (oneWayMs: number) => oneWayMs * scale;
   const launchMs = PLAYBACK_LAUNCH_MS;
   const groundOutEnd = launchMs + travelVisualMs(groundOneWayMs);
   const spaceOutEnd = launchMs + travelVisualMs(spaceOneWayMs);
@@ -342,13 +347,13 @@ export function createRoutePlayback(
     answerReadyAtMs === null
       ? positive(elapsedMs) + PLAYBACK_RELEASE_MARGIN_MS
       : positive(answerReadyAtMs) + PLAYBACK_RELEASE_MARGIN_MS;
-  const computeVisualMs = Math.max(
-    PLAYBACK_COMPUTE_PROXY_MS,
-    releaseAtMs - firstArrivalMs,
-  );
   const lane = (outEnd: number, oneWayMs: number): PlaybackLane => {
-    const computeEnd = outEnd + computeVisualMs;
-    const finishedMs = computeEnd + travelVisualMs(oneWayMs);
+    const computeEnd = Math.max(
+      outEnd + PLAYBACK_COMPUTE_PROXY_MS,
+      releaseAtMs,
+    );
+    const finishedMs =
+      computeEnd + travelVisualMs(oneWayMs) * PLAYBACK_RETURN_FRACTION;
     return {
       outbound: window(launchMs, outEnd),
       compute: window(outEnd, computeEnd),

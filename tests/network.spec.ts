@@ -189,8 +189,8 @@ test("parallel playback keeps modeled completion order and waits for both API re
   expect(initial.space.laser.endMs).toBe(initial.space.outbound.endMs);
   expect(initial.ground.compute.startMs).toBe(initial.ground.outbound.endMs);
   expect(initial.space.compute.startMs).toBe(initial.space.outbound.endMs);
-  expect(initial.ground.modeledTotalMs).toBeCloseTo(1200 + route.ground.rttMs);
-  expect(initial.space.modeledTotalMs).toBeCloseTo(1200 + route.rttMs);
+  expect(initial.ground.modeledTotalMs).toBeCloseTo(350 + route.ground.rttMs);
+  expect(initial.space.modeledTotalMs).toBeCloseTo(350 + route.rttMs);
   expect(initial.firstFinished).toBe(
     route.ground.rttMs < route.rttMs
       ? "ground"
@@ -211,6 +211,27 @@ test("parallel playback keeps modeled completion order and waits for both API re
   expect(Math.sign(ready.ground.finishedMs - ready.space.finishedMs)).toBe(
     Math.sign(route.ground.rttMs - route.rttMs),
   );
+});
+test("route motion stays brief and releases promptly after a slow answer", () => {
+  for (const origin of PRESETS) {
+    const route = routeAt(origin, ORBIT_EPOCH_MS, nearestSite("gemini", origin));
+    const quick = createRoutePlayback(route, {
+      elapsedMs: 500,
+      answerReadyAtMs: 500,
+    });
+    expect(quick.totalMs).toBeLessThan(3000);
+    expect(quick.space.outbound.endMs).toBeLessThanOrEqual(1550);
+    const slow = createRoutePlayback(route, {
+      elapsedMs: 15000,
+      answerReadyAtMs: 15000,
+    });
+    expect(slow.ground.return.startMs).toBeGreaterThanOrEqual(15000);
+    expect(slow.space.return.startMs).toBeGreaterThanOrEqual(15000);
+    expect(slow.totalMs).toBeLessThan(16070);
+    expect(Math.sign(slow.ground.finishedMs - slow.space.finishedMs)).toBe(
+      Math.sign(route.ground.rttMs - route.rttMs),
+    );
+  }
 });
 test("ground routing is the surface path at the published fiber speed", () => {
   const ny = DEFAULT_LOCATION,

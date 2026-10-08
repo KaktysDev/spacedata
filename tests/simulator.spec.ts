@@ -615,7 +615,7 @@ test("a 404 on gemini-3.8-flash falls forward instead of reporting the model una
   expect(urls.some((url) => url.includes("gemini-3.6-flash"))).toBe(true);
   expect(JSON.stringify(body)).not.toMatch(/unavailable/i);
 });
-test("a 429 on gemini-3.8-flash falls through instead of saying the provider is busy", async () => {
+test("a 429 on gemini-3.8-flash tries one current flash alternative", async () => {
   const urls: string[] = [];
   mockProvider((url) => {
     urls.push(String(url));
@@ -629,9 +629,9 @@ test("a 429 on gemini-3.8-flash falls through instead of saying the provider is 
   const r = await POST(req());
   expect(r.status).toBe(200);
   const body = await r.json();
-  expect(body.model).toBe("gemini-2.5-flash");
+  expect(body.model).toBe("gemini-3.6-flash");
   expect(JSON.stringify(body)).not.toMatch(/busy/i);
-  expect(urls.some((url) => url.includes("gemini-2.5-flash"))).toBe(true);
+  expect(urls.some((url) => url.includes("gemini-3.6-flash"))).toBe(true);
 });
 test("every Gemini model returning 429 is the busy message", async () => {
   let calls = 0;
@@ -644,7 +644,7 @@ test("every Gemini model returning 429 is the busy message", async () => {
   const busyText = await busy.text();
   expect(busyText).toContain("The AI provider is busy");
   expect(busyText).not.toContain("test-secret");
-  expect(calls).toBeGreaterThan(2);
+  expect(calls).toBe(4);
 });
 test("an invalid Gemini key is rejected and is not described as busy", async () => {
   let calls = 0;
