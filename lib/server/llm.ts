@@ -147,18 +147,16 @@ const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const count = (v: unknown): number | null =>
   typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
 
-// New Gemini projects are refused gemini-2.5-flash with HTTP 404. Some keys
-// are refused gemini-3.8-flash the same way, with a message naming another
-// flash model. A 404 is not a billed generation, so walking this list is not
-// a paid retry. The first model that accepts the prompt is reused.
+// Some keys are refused a model with HTTP 404, with a message naming another
+// one. A 404 is not a billed generation, so walking this list is not a paid
+// retry. Prefer low-latency Flash-Lite models before full Flash models.
 const GEMINI_MODEL_CANDIDATES = [
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash-lite",
   "gemini-3.8-flash",
   "gemini-3.6-flash",
-  "gemini-3.5-flash",
-  "gemini-3.1-flash-lite",
   "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "gemini-2.0-flash",
 ];
 const GEMINI_MODEL_RE = /^gemini-[a-z0-9][a-z0-9.\-]{0,48}$/;
 let resolvedGeminiModel: string = PROVIDERS.gemini.model;
@@ -184,7 +182,7 @@ function geminiBody(
   if (thinking)
     generationConfig.thinkingConfig = model.startsWith("gemini-2.")
       ? { thinkingBudget: 0 }
-      : { thinkingLevel: "low" };
+      : { thinkingLevel: model.endsWith("-flash-lite") ? "minimal" : "low" };
   return {
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -255,6 +253,7 @@ async function callProvider(
   // One billable call per deployment. Gemini may walk unbilled 404s until a
   // model the key can actually call accepts the prompt.
   let response: Response;
+  let answeredBy: string = model;
   let priorCapacityStatus = 0;
   const timedOut = (e: unknown) =>
     deadline.aborted ||
@@ -293,6 +292,7 @@ async function callProvider(
     ];
     const tried = new Set<string>();
     let capacityAttempts = 0;
+    let unavailableAttempts = 0;
     let terminal: Response | null = null;
     const queueSuggestion = (detail: string, index: number) => {
       const suggested = [...detail.matchAll(/models\/(gemini-[a-z0-9.\-]+)/gi)]
@@ -330,6 +330,7 @@ async function callProvider(
               detail,
             )
           ) {
+            unavailableAttempts++;
             queueSuggestion(detail, i);
             continue;
           } else {
@@ -340,6 +341,7 @@ async function callProvider(
         // 404 is an unknown model. Capacity responses can be retried on one
         // alternate model, provided the shared deadline has enough time left.
         if (attempt.status === 404) {
+          unavailableAttempts++;
           queueSuggestion(await readText(attempt), i);
           continue;
         }
@@ -356,7 +358,11 @@ async function callProvider(
           continue;
         }
         terminal = attempt;
-        if (attempt.ok) resolvedGeminiModel = candidate;
+        if (attempt.ok) answeredBy = candidate;
+        // Cache only stable model-availability fallbacks. A transient 503/429
+        // must not leave future requests on a slower model.
+        if (attempt.ok && unavailableAttempts > 0 && capacityAttempts === 0)
+          resolvedGeminiModel = candidate;
         break;
       } catch (e) {
         // A fallback that exhausts the shared deadline should retain the
@@ -463,6 +469,7 @@ async function callProvider(
   if (!shown.trim())
     throw new ProviderCallError(id, deployment, "empty-answer");
   return {
+    model: transport === "gemini" && id === "gemini" ? answeredBy : PROVIDERS[id].model,
     text: shown.trim().slice(0, 8000),
     promptTokens: input,
     completionTokens: output,
@@ -498,10 +505,7 @@ export async function runAnswer(
   }
   return {
     provider: id,
-    model:
-      transport === "gemini" && id === "gemini"
-        ? resolvedGeminiModel
-        : PROVIDERS[id].model,
+    model: ground.model === space.model ? ground.model : "mixed",
     ground,
     space,
     latencyMs: Math.round(performance.now() - start),

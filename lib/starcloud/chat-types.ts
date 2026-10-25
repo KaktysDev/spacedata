@@ -1,6 +1,8 @@
 import { isProvider, type ProviderId } from "./catalog";
 export type ChatProviderId = ProviderId;
 export type ChatAnswer = {
+  /** Model used for this answer (selected model for styled providers). */
+  model: string;
   text: string;
   promptTokens: number;
   completionTokens: number;
@@ -22,6 +24,9 @@ export function isChatAnswer(value: unknown): value is ChatAnswer {
   if (!value || typeof value !== "object") return false;
   const a = value as ChatAnswer;
   return (
+    typeof a.model === "string" &&
+    a.model.trim().length > 0 &&
+    a.model.length <= 80 &&
     typeof a.text === "string" &&
     a.text.trim().length > 0 &&
     a.text.length <= 8000 &&
@@ -43,6 +48,7 @@ export function isChatSuccessBody(value: unknown): value is ChatSuccessBody {
     typeof b.model === "string" &&
     isChatAnswer(b.ground) &&
     isChatAnswer(b.space) &&
+    b.model === (b.ground.model === b.space.model ? b.ground.model : "mixed") &&
     Number.isFinite(b.latencyMs) &&
     b.latencyMs >= 0 &&
     typeof b.completedAt === "string"
