@@ -209,6 +209,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
     active.current = true;
     const controller = new AbortController();
     request.current = controller;
+    const timeout = AbortSignal.timeout(55000);
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const started = performance.now();
     setSubmitted(prompt.trim());
@@ -227,10 +228,7 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: prompt.trim(), provider }),
-        signal: AbortSignal.any([
-          controller.signal,
-          AbortSignal.timeout(55000),
-        ]),
+        signal: AbortSignal.any([controller.signal, timeout]),
       });
       const body = await response.json();
       if (!response.ok)
@@ -273,9 +271,11 @@ export function Simulator({ available }: { available: ProviderId[] }) {
         setFlight(null);
         setRouteSnapshot(null);
         setError(
-          e instanceof Error
-            ? e.message
-            : "The request failed. Please try again.",
+          timeout.aborted
+            ? "The AI provider took too long to respond. Please try again."
+            : e instanceof Error
+              ? e.message
+              : "The request failed. Please try again.",
         );
       }
     } finally {

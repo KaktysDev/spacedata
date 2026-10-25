@@ -646,6 +646,85 @@ test("every Gemini model returning 429 is the busy message", async () => {
   expect(busyText).not.toContain("test-secret");
   expect(calls).toBe(4);
 });
+test("a slow Gemini 503 returns capacity without starting a doomed fallback", async () => {
+  const originalNow = performance.now;
+  let now = 0;
+  const urls: string[] = [];
+  performance.now = () => now;
+  try {
+    mockProvider((url) => {
+      urls.push(url);
+      return Promise.resolve().then(() => {
+        now = 36_001;
+        const busy = Response.json({ error: { message: "busy" } }, { status: 503 });
+        busy.text = async () => {
+          throw new Error("Capacity body must not be read");
+        };
+        return busy;
+      });
+    });
+    const response = await POST(req());
+    expect(response.status).toBe(503);
+    expect((await response.json()).code).toBe("capacity");
+    expect(urls).toHaveLength(2);
+    expect(urls.every((url) => url.includes("gemini-3.8-flash"))).toBe(true);
+  } finally {
+    performance.now = originalNow;
+  }
+});
+test("a Gemini fallback timeout retains the earlier 503", async () => {
+  const originalTimeout = AbortSignal.timeout;
+  const deadlines: AbortController[] = [];
+  AbortSignal.timeout = (ms) => {
+    if (ms !== 40_000) return originalTimeout(ms);
+    const controller = new AbortController();
+    deadlines.push(controller);
+    return controller.signal;
+  };
+  let fallbacks = 0;
+  try {
+    mockProvider((url) => {
+      if (url.includes("gemini-3.8-flash"))
+        return Response.json({ error: { message: "busy" } }, { status: 503 });
+      fallbacks++;
+      for (const controller of deadlines)
+        controller.abort(new DOMException("timed out", "TimeoutError"));
+      throw new DOMException("aborted", "AbortError");
+    });
+    const response = await POST(req());
+    expect(response.status).toBe(503);
+    expect((await response.json()).code).toBe("capacity");
+    expect(fallbacks).toBeGreaterThan(0);
+  } finally {
+    AbortSignal.timeout = originalTimeout;
+  }
+});
+test("a response body stalled past the provider deadline reports a timeout", async () => {
+  const originalTimeout = AbortSignal.timeout;
+  const deadlines: AbortController[] = [];
+  AbortSignal.timeout = (ms) => {
+    if (ms !== 40_000) return originalTimeout(ms);
+    const controller = new AbortController();
+    deadlines.push(controller);
+    return controller.signal;
+  };
+  try {
+    mockProvider(() => {
+      const response = gemini();
+      response.json = async () => {
+        for (const controller of deadlines)
+          controller.abort(new DOMException("timed out", "TimeoutError"));
+        throw new DOMException("aborted", "AbortError");
+      };
+      return response;
+    });
+    const response = await POST(req());
+    expect(response.status).toBe(504);
+    expect((await response.json()).code).toBe("timeout");
+  } finally {
+    AbortSignal.timeout = originalTimeout;
+  }
+});
 test("an invalid Gemini key is rejected and is not described as busy", async () => {
   let calls = 0;
   mockProvider(() => {

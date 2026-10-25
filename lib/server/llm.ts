@@ -17,6 +17,9 @@ export type ProviderFailureKind =
   | "blocked"
   | "connection";
 
+const PROVIDER_TIMEOUT_MS = 40_000;
+const MIN_FALLBACK_MS = 5_000;
+
 export class ProviderCallError extends Error {
   readonly provider: ProviderId;
   readonly deployment: Deployment;
@@ -201,8 +204,10 @@ async function callProvider(
   const model = PROVIDERS[transport].model;
   const system = systemFor(id);
   const maxTokens = 4096;
+  const start = performance.now();
+  const deadline = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
   const signal = AbortSignal.any([
-    AbortSignal.timeout(45_000),
+    deadline,
     ...(requestSignal ? [requestSignal] : []),
   ]);
   let url: string, body: unknown;
@@ -247,10 +252,13 @@ async function callProvider(
       stream: false,
     };
   }
-  const start = performance.now();
   // One billable call per deployment. Gemini may walk unbilled 404s until a
   // model the key can actually call accepts the prompt.
   let response: Response;
+  let priorCapacityStatus = 0;
+  const timedOut = (e: unknown) =>
+    deadline.aborted ||
+    (e instanceof DOMException && e.name === "TimeoutError");
   const post = async (target: string, payload: unknown) => {
     try {
       return await fetch(target, {
@@ -262,14 +270,20 @@ async function callProvider(
         redirect: "error",
       });
     } catch (e) {
-      if (
-        requestSignal?.aborted ||
-        (e instanceof DOMException && e.name === "AbortError")
-      )
-        throw e;
-      if (e instanceof DOMException && e.name === "TimeoutError")
+      if (requestSignal?.aborted) throw e;
+      if (timedOut(e))
         throw new ProviderCallError(id, deployment, "timeout");
+      if (e instanceof DOMException && e.name === "AbortError") throw e;
       throw new ProviderCallError(id, deployment, "network");
+    }
+  };
+  const readText = async (source: Response) => {
+    try {
+      return (await source.text()).slice(0, 2000);
+    } catch (e) {
+      if (requestSignal?.aborted) throw e;
+      if (timedOut(e)) throw new ProviderCallError(id, deployment, "timeout");
+      throw new ProviderCallError(id, deployment, "invalid-response", source.status);
     }
   };
   if (transport === "gemini") {
@@ -278,7 +292,6 @@ async function callProvider(
       ...GEMINI_MODEL_CANDIDATES.filter((m) => m !== resolvedGeminiModel),
     ];
     const tried = new Set<string>();
-    let overloadStatus = 0;
     let capacityAttempts = 0;
     let terminal: Response | null = null;
     const queueSuggestion = (detail: string, index: number) => {
@@ -299,55 +312,67 @@ async function callProvider(
         continue;
       tried.add(candidate);
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${candidate}:generateContent`;
-      let attempt = await post(
-        endpoint,
-        geminiBody(system, prompt, maxTokens, candidate, true),
-      );
-      if (attempt.status === 400) {
-        const detail = (await attempt.text()).slice(0, 2000);
-        if (/thinking/i.test(detail))
-          attempt = await post(
-            endpoint,
-            geminiBody(system, prompt, maxTokens, candidate, false),
-          );
-        else if (
-          !/api[_ ]?key/i.test(detail) &&
-          /not found|not available|unsupported|does not exist|unknown model/i.test(
-            detail,
-          )
-        ) {
-          queueSuggestion(detail, i);
+      try {
+        let attempt = await post(
+          endpoint,
+          geminiBody(system, prompt, maxTokens, candidate, true),
+        );
+        if (attempt.status === 400) {
+          const detail = await readText(attempt);
+          if (/thinking/i.test(detail))
+            attempt = await post(
+              endpoint,
+              geminiBody(system, prompt, maxTokens, candidate, false),
+            );
+          else if (
+            !/api[_ ]?key/i.test(detail) &&
+            /not found|not available|unsupported|does not exist|unknown model/i.test(
+              detail,
+            )
+          ) {
+            queueSuggestion(detail, i);
+            continue;
+          } else {
+            terminal = new Response(detail, { status: 400 });
+            break;
+          }
+        }
+        // 404 is an unknown model. Capacity responses can be retried on one
+        // alternate model, provided the shared deadline has enough time left.
+        if (attempt.status === 404) {
+          queueSuggestion(await readText(attempt), i);
           continue;
-        } else {
-          terminal = new Response(detail, { status: 400 });
-          break;
         }
-      }
-      // 404 is an unknown model. 429 and 503 are often "this model is out of
-      // capacity" rather than a global outage, so try the next id before
-      // telling the user the provider is busy. None of these responses is billed.
-      if (
-        attempt.status === 404 ||
-        attempt.status === 429 ||
-        attempt.status === 503
-      ) {
-        if (attempt.status !== 404) {
-          overloadStatus = attempt.status;
+        if (attempt.status === 429 || attempt.status === 503) {
+          priorCapacityStatus = attempt.status;
           capacityAttempts++;
+          // Avoid reading the error body or starting another request when a
+          // slow capacity response has nearly exhausted this call's budget.
+          if (
+            capacityAttempts >= 2 ||
+            start + PROVIDER_TIMEOUT_MS - performance.now() < MIN_FALLBACK_MS
+          )
+            break;
+          continue;
         }
-        queueSuggestion((await attempt.text()).slice(0, 2000), i);
-        // A second capacity error is much more likely to be account-wide.
-        // Walking every model only keeps the user waiting.
-        if (capacityAttempts >= 2) break;
-        continue;
+        terminal = attempt;
+        if (attempt.ok) resolvedGeminiModel = candidate;
+        break;
+      } catch (e) {
+        // A fallback that exhausts the shared deadline should retain the
+        // capacity response already received from Google.
+        if (
+          priorCapacityStatus &&
+          e instanceof ProviderCallError &&
+          e.kind === "timeout"
+        )
+          break;
+        throw e;
       }
-      terminal = attempt;
-      if (attempt.ok) resolvedGeminiModel = candidate;
-      break;
     }
     response =
       terminal ??
-      new Response(null, { status: overloadStatus || 404 });
+      new Response(null, { status: priorCapacityStatus || 404 });
   } else {
     response = await post(url, body);
   }
@@ -361,7 +386,15 @@ async function callProvider(
   let data: Json;
   try {
     data = obj(await response.json());
-  } catch {
+  } catch (e) {
+    if (requestSignal?.aborted) throw e;
+    if (timedOut(e))
+      throw new ProviderCallError(
+        id,
+        deployment,
+        priorCapacityStatus ? "capacity" : "timeout",
+        priorCapacityStatus || undefined,
+      );
     throw new ProviderCallError(id, deployment, "invalid-response", response.status);
   }
   const latencyMs = Math.round(performance.now() - start);
