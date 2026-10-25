@@ -4,7 +4,7 @@ export const PROVIDERS = {
   gemini: {
     name: "Gemini",
     company: "Google",
-    model: "gemini-3.8-flash",
+    model: "gemini-3.5-flash-lite",
     input: 0.3,
     output: 2.5,
     cached: 0.03,

@@ -23,6 +23,7 @@ import {
 import {
   runAnswer,
   availableProviders,
+  geminiModelInUse,
   providerKey,
   resetGeminiModelCacheForTests,
 } from "../lib/server/llm";
@@ -507,7 +508,7 @@ test("Gemini makes two capped requests (ground + space), keeps keys server-side 
   mockProvider((url, init) => {
     calls++;
     expect(url).toBe(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
     );
     expect(url).not.toContain("test-secret");
     expect(new Headers(init?.headers).get("x-goog-api-key")).toBe(
@@ -515,7 +516,7 @@ test("Gemini makes two capped requests (ground + space), keeps keys server-side 
     );
     const b = JSON.parse(String(init?.body));
     maxTokens.push(b.generationConfig.maxOutputTokens);
-    expect(b.generationConfig.thinkingConfig).toEqual({ thinkingLevel: "low" });
+    expect(b.generationConfig.thinkingConfig).toEqual({ thinkingLevel: "minimal" });
     expect(b.contents[0].parts[0].text).toBe("Why is the sky blue?");
     expect(b.systemInstruction.parts[0].text).toContain("Answer the user's message directly");
     expect(b.systemInstruction.parts[0].text).not.toMatch(/You are answering from|orbital uplink active|Write the way/i);
@@ -530,6 +531,9 @@ test("Gemini makes two capped requests (ground + space), keeps keys server-side 
   expect(isChatSuccessBody(body)).toBe(true);
   expect(body.ground.text).toBe("Light scatters.");
   expect(body.space.text).toBe("Light scatters.");
+  expect(body.ground.model).toBe("gemini-3.5-flash-lite");
+  expect(body.space.model).toBe("gemini-3.5-flash-lite");
+  expect(body.model).toBe("gemini-3.5-flash-lite");
   expect(body.ground.totalTokens).toBe(40);
   expect(body.space.totalTokens).toBe(40);
   expect(body.ground.usageEstimated).toBe(false);
@@ -590,16 +594,16 @@ test("provider status reports Gemini configured without returning the key", asyn
     configured: false,
   });
 });
-test("a 404 on gemini-3.8-flash falls forward instead of reporting the model unavailable", async () => {
+test("a 404 on Gemini Flash-Lite caches an available Lite replacement", async () => {
   const urls: string[] = [];
   mockProvider((url) => {
     urls.push(String(url));
-    if (String(url).includes("gemini-3.8-flash"))
+    if (String(url).includes("gemini-3.5-flash-lite"))
       return Response.json(
         {
           error: {
             message:
-              "models/gemini-3.8-flash is not available. Please update your code to use models/gemini-3.6-flash.",
+              "models/gemini-3.5-flash-lite is not available. Please update your code to use models/gemini-3.1-flash-lite.",
           },
         },
         { status: 404 },
@@ -610,28 +614,54 @@ test("a 404 on gemini-3.8-flash falls forward instead of reporting the model una
   expect(r.status).toBe(200);
   const body = await r.json();
   expect(body.error).toBeUndefined();
-  expect(body.model).toBe("gemini-3.6-flash");
-  expect(urls.some((url) => url.includes("gemini-3.8-flash"))).toBe(true);
-  expect(urls.some((url) => url.includes("gemini-3.6-flash"))).toBe(true);
+  expect(body.model).toBe("gemini-3.1-flash-lite");
+  expect(body.ground.model).toBe("gemini-3.1-flash-lite");
+  expect(body.space.model).toBe("gemini-3.1-flash-lite");
+  expect(geminiModelInUse()).toBe("gemini-3.1-flash-lite");
+  expect(urls.some((url) => url.includes("gemini-3.5-flash-lite"))).toBe(true);
+  expect(urls.some((url) => url.includes("gemini-3.1-flash-lite"))).toBe(true);
   expect(JSON.stringify(body)).not.toMatch(/unavailable/i);
 });
-test("a 429 on gemini-3.8-flash tries one current flash alternative", async () => {
+for (const status of [429, 503] as const) test(`a ${status} on Flash-Lite tries another Lite model without changing the preferred model`, async () => {
   const urls: string[] = [];
   mockProvider((url) => {
     urls.push(String(url));
-    if (String(url).includes("gemini-3.8-flash"))
+    if (String(url).includes("gemini-3.5-flash-lite"))
       return Response.json(
         { error: { status: "RESOURCE_EXHAUSTED", message: "overloaded" } },
-        { status: 429 },
+        { status },
       );
     return gemini();
   });
   const r = await POST(req());
   expect(r.status).toBe(200);
   const body = await r.json();
-  expect(body.model).toBe("gemini-3.6-flash");
+  expect(body.model).toBe("gemini-3.1-flash-lite");
+  expect(body.ground.model).toBe("gemini-3.1-flash-lite");
+  expect(body.space.model).toBe("gemini-3.1-flash-lite");
   expect(JSON.stringify(body)).not.toMatch(/busy/i);
-  expect(urls.some((url) => url.includes("gemini-3.6-flash"))).toBe(true);
+  expect(urls.some((url) => url.includes("gemini-3.1-flash-lite"))).toBe(true);
+  expect(urls.every((url) => !url.includes("gemini-3.8-flash"))).toBe(true);
+  expect(geminiModelInUse()).toBe("gemini-3.5-flash-lite");
+});
+test("different Gemini lane models are reported as mixed without changing the preferred model", async () => {
+  let primaryCalls = 0;
+  mockProvider((url) => {
+    if (url.includes("gemini-3.5-flash-lite")) {
+      primaryCalls++;
+      if (primaryCalls === 2)
+        return Response.json({ error: { message: "busy" } }, { status: 503 });
+    }
+    return gemini();
+  });
+  const response = await POST(req());
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body.model).toBe("mixed");
+  expect(body.ground.model).toBe("gemini-3.5-flash-lite");
+  expect(body.space.model).toBe("gemini-3.1-flash-lite");
+  expect(isChatSuccessBody(body)).toBe(true);
+  expect(geminiModelInUse()).toBe("gemini-3.5-flash-lite");
 });
 test("every Gemini model returning 429 is the busy message", async () => {
   let calls = 0;
@@ -667,7 +697,7 @@ test("a slow Gemini 503 returns capacity without starting a doomed fallback", as
     expect(response.status).toBe(503);
     expect((await response.json()).code).toBe("capacity");
     expect(urls).toHaveLength(2);
-    expect(urls.every((url) => url.includes("gemini-3.8-flash"))).toBe(true);
+    expect(urls.every((url) => url.includes("gemini-3.5-flash-lite"))).toBe(true);
   } finally {
     performance.now = originalNow;
   }
@@ -684,7 +714,7 @@ test("a Gemini fallback timeout retains the earlier 503", async () => {
   let fallbacks = 0;
   try {
     mockProvider((url) => {
-      if (url.includes("gemini-3.8-flash"))
+      if (url.includes("gemini-3.5-flash-lite"))
         return Response.json({ error: { message: "busy" } }, { status: 503 });
       fallbacks++;
       for (const controller of deadlines)
@@ -940,6 +970,7 @@ test("response validator rejects nonfinite usage, invalid cached counts and mism
     { cachedTokens: 500 },
     { completionTokens: -1 },
     { totalTokens: 1 },
+    { model: "" },
   ])
     expect(
       isChatSuccessBody({
@@ -947,6 +978,7 @@ test("response validator rejects nonfinite usage, invalid cached counts and mism
         ground: { ...valid.ground, ...change },
       }),
     ).toBe(false);
+  expect(isChatSuccessBody({ ...valid, model: "mixed" })).toBe(false);
 });
 test("request schema permits only explicit provider and message fields", async () => {
   expect(await acceptPrompt(req())).toEqual({
